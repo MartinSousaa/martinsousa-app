@@ -4572,6 +4572,21 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        'o valor da hora volta ao 200 fixo, e nao as horas do mes (30/10)',
+        "folha_mes.py",
+        [('    horas_mes = _pc.dias_uteis_do_mes(ano, mes)[0] * jornada\n',
+          '    horas_mes = 200 * 60\n')],
+        None,
+        ["python3", "folha_mes.py"],
+    ),
+    (
+        'o mes aberto volta a dividir pelas horas ate ontem (30/10)',
+        "folha_mes.py",
+        [('                   horas_do_mes_min=horas_mes)\n', '                   horas_do_mes_min=devidas)\n')],
+        None,
+        ["python3", "folha_mes.py"],
+    ),
+    (
         'o aviso do ajuste de ponto some do topo do painel (30/10)',
         "meu_desempenho.py",
         [('    _alerta_de_ponto(res["pendencias"], agora)\n', '')],

@@ -19,7 +19,14 @@ Quem não saiu para almoçar e fechou 8h não deve nada — a batida faltando n�
 desconta. Dia que devia horas consome o banco; sem banco, o banco fica
 NEGATIVO, e o colaborador vê o alerta. Se o mês FECHAR negativo:
 
-    desconto = horas negativas × (salário ÷ DIVISOR_HORAS)
+    desconto = horas negativas × valor da hora
+    valor da hora = salário ÷ horas do mês (dias úteis do mês × 8h)
+
+O VALOR DA HORA É DO MÊS (dono, 30/10: "são as horas disponíveis de cada
+mês"). Outubro/2026 tem 21 dias úteis no calendário do Studio (feriado de
+12/10 fora) = 168h; novembro, 19 = 152h. A hora vale mais no mês curto. O
+divisor é o mês INTEIRO mesmo com o mês aberto: dividir pelas horas "até
+ontem" faria a hora de quem falta no dia 5 valer quatro vezes mais.
 
 O DOMINGO SÓ ONDE O DONO MARCAR (30/10): "deixe um botão de flegar quando
 houver falta do dia inteiro, caso for aplicar a regra do domingo eu flego".
@@ -33,8 +40,9 @@ Banco positivo só é mostrado (dono: "só mostra o saldo").
 
 O QUE DEPENDE DE CONFIRMAÇÃO FORA DAQUI
 ---------------------------------------
-- DIVISOR_HORAS = 200: jornada de 40h semanais (8h, segunda a sexta,
-  `analise_metas.horas_devidas_min`). A contabilidade confirma.
+- O divisor do mês foi decisão do dono (30/10). O padrão da CLT para 40h
+  semanais é 200 fixo, com o repouso remunerado dentro; a contabilidade
+  confirma qual vai no holerite oficial.
 - Banco de horas cobrindo falta exige acordo escrito com o colaborador — o
   dono está alinhando (30/10).
 
@@ -48,7 +56,6 @@ DE ONDE VEM CADA NÚMERO (nada é contado de novo aqui)
 """
 from datetime import date
 
-DIVISOR_HORAS = 200
 ABA_DOMINGO = "folha_domingo"
 COLUNAS_DOMINGO = ["mes", "username", "data", "marcado_por", "marcado_em"]
 NIVEIS = (("col", "Coletiva"), ("maxx", "Coletiva MAXX"),
@@ -67,7 +74,7 @@ def semanas_com_falta(datas_iso):
 
 
 def apurar(salario, trab_min, abono_min, devido_min, banco_anterior_min=0.0,
-           faltas_dia_inteiro=(), fechado=False, domingo_nas=()):
+           faltas_dia_inteiro=(), fechado=False, domingo_nas=(), horas_do_mes_min=None):
     """O salário de uma pessoa no mês. Pura.
 
     Devolve {"salario","saldo_mes_min","banco_final_min","usado_do_banco_min",
@@ -85,7 +92,11 @@ def apurar(salario, trab_min, abono_min, devido_min, banco_anterior_min=0.0,
     final = anterior + saldo
     usado = min(max(anterior, 0.0), max(-saldo, 0.0))
     negativo = max(-final, 0.0)
-    valor_hora = salario / DIVISOR_HORAS if salario else 0.0
+    # Sem as horas do mês não há valor da hora — e um padrão escondido aqui
+    # seria um salário errado em silêncio.
+    if not horas_do_mes_min:
+        raise ValueError("apurar: falta horas_do_mes_min (dias úteis do mês × jornada)")
+    valor_hora = salario / (float(horas_do_mes_min) / 60) if salario else 0.0
     desc_h = round(negativo / 60 * valor_hora, 2)
     _faltas = {str(x)[:10] for x in faltas_dia_inteiro or ()}
     semanas = semanas_com_falta([x for x in domingo_nas or () if str(x)[:10] in _faltas])
@@ -150,6 +161,9 @@ def do_mes(ano, mes, dados, pont, bonus, hoje, salarios=None, bancos_anteriores=
         domingos = domingos_marcados(ano, mes)
     devidas = _am.horas_devidas_min(dados, (dados[-1] or {}).get("cfg") if dados else None, hoje)
     fechado = (ano, mes) < (hoje.year, hoje.month)
+    jornada = float(((dados[-1] or {}).get("cfg") or {}).get("jornada_diaria_min", 480) or 480) \
+        if dados else 480.0
+    horas_mes = _pc.dias_uteis_do_mes(ano, mes)[0] * jornada
     fora = {}
     for u in _pc.MEMBROS_ATIVOS:
         sal = salarios.get(u)
@@ -160,10 +174,12 @@ def do_mes(ano, mes, dados, pont, bonus, hoje, salarios=None, bancos_anteriores=
         faltas = [x.get("data") for x in p.get("pend") or [] if x.get("tipo") == "sem_batida"]
         marcados = [d for d in domingos.get(u, []) if d in faltas]
         f = apurar(sal, p.get("min_trab", 0.0), p.get("min_abono", 0.0), devidas,
-                   bancos_anteriores.get(u, 0.0), faltas, fechado, marcados)
+                   bancos_anteriores.get(u, 0.0), faltas, fechado, marcados,
+                   horas_do_mes_min=horas_mes)
         linhas, pct, valor = metas(sal, (bonus or {}).get(u))
         fora[u] = {"folha": f, "metas": linhas, "pct_metas": pct, "metas_valor": valor,
                    "faltas": faltas, "domingo_nas": marcados, "devidas_min": devidas,
+                   "horas_do_mes_min": horas_mes,
                    "total": round(f["salario_pagar"] + valor, 2)}
     return fora
 
@@ -265,31 +281,33 @@ if __name__ == "__main__":
         print(("ok    " if cond else "FALHA ") + nome)
 
     _d = 22 * 480
-    a = apurar(2200, _d - 120, 0, _d, 0, [], fechado=True)
+    # As contas puras com um mês de 22 dias úteis: 176h, e R$ 2.200 ÷ 176 = R$ 12,50/h.
+    _ap = lambda *a, **k: apurar(*a, horas_do_mes_min=_d, **k)
+    a = _ap(2200, _d - 120, 0, _d, 0, [], fechado=True)
     ok("o exemplo do dono: sem almoço, fechou as horas do dia → nada a descontar",
-       apurar(2200, _d, 0, _d, 0, ["2026-10-14"], True)["desconto"] == 0)
-    ok("devendo 2h sem banco: banco −2h e desconto de 2h (2200 ÷ 200 = R$ 11/h)",
-       a["banco_final_min"] == -120 and a["desconto_horas"] == 22.0
-       and a["salario_pagar"] == 2178.0)
-    b = apurar(2200, _d - 120, 0, _d, 300, [], True)
+       _ap(2200, _d, 0, _d, 0, ["2026-10-14"], True)["desconto"] == 0)
+    ok("devendo 2h sem banco: banco −2h e desconto de 2h (2200 ÷ 176h = R$ 12,50/h)",
+       a["banco_final_min"] == -120 and a["desconto_horas"] == 25.0
+       and a["salario_pagar"] == 2175.0)
+    b = _ap(2200, _d - 120, 0, _d, 300, [], True)
     ok("devendo 2h com 5h de banco: o banco cobre, fica +3h, sem desconto",
        b["banco_final_min"] == 180 and b["usado_do_banco_min"] == 120 and b["desconto"] == 0)
-    _sem = apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True)
+    _sem = _ap(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True)
     ok("falta SEM marca do dono: desconta as 8h, e o domingo NÃO",
-       _sem["desconto_horas"] == 88.0 and _sem["desconto_domingo"] == 0
-       and _sem["semanas_falta"] == 0 and _sem["salario_pagar"] == 2112.0)
-    c = apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, ["2026-10-14"])
+       _sem["desconto_horas"] == 100.0 and _sem["desconto_domingo"] == 0
+       and _sem["semanas_falta"] == 0 and _sem["salario_pagar"] == 2100.0)
+    c = _ap(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, ["2026-10-14"])
     ok("falta MARCADA pelo dono: 8h + o domingo da semana",
-       c["desconto_horas"] == 88.0 and c["desconto_domingo"] == round(2200 / 30, 2)
+       c["desconto_horas"] == 100.0 and c["desconto_domingo"] == round(2200 / 30, 2)
        and c["semanas_falta"] == 1)
-    c2 = apurar(2200, _d - 480, 0, _d, 600, ["2026-10-14"], True, ["2026-10-14"])
+    c2 = _ap(2200, _d - 480, 0, _d, 600, ["2026-10-14"], True, ["2026-10-14"])
     ok("marcada com banco cobrindo as horas: o banco cobre as 8h, o domingo é a marca dele",
        c2["desconto_horas"] == 0 and c2["desconto"] == round(2200 / 30, 2)
        and c2["banco_final_min"] == 120)
     ok("marca que não é falta (abonada depois) não desconta nada",
-       apurar(2200, _d, 0, _d, 0, [], True, ["2026-10-14"])["desconto"] == 0)
+       _ap(2200, _d, 0, _d, 0, [], True, ["2026-10-14"])["desconto"] == 0)
     ok("duas marcadas na mesma semana: um domingo só",
-       apurar(2200, _d - 960, 0, _d, 0, ["2026-10-13", "2026-10-14"], True,
+       _ap(2200, _d - 960, 0, _d, 0, ["2026-10-13", "2026-10-14"], True,
               ["2026-10-13", "2026-10-14"])["semanas_falta"] == 1)
     # A aba da planilha: trocar as marcas do mês não mexe nos outros meses,
     # e a marca que ficou guarda quem marcou primeiro.
@@ -337,12 +355,12 @@ if __name__ == "__main__":
     ok("duas faltas na mesma semana tiram um domingo; em semanas diferentes, dois",
        semanas_com_falta(["2026-10-13", "2026-10-14"]) == 1
        and semanas_com_falta(["2026-10-13", "2026-10-21"]) == 2)
-    d = apurar(2200, _d - 120, 60, _d, 0, [], False)
+    d = _ap(2200, _d - 120, 60, _d, 0, [], False)
     ok("abono conta como hora; mês aberto mostra o desconto mas não o aplica ainda",
        d["banco_final_min"] == -60 and d["salario_pagar"] == 2200.0
-       and d["salario_se_fechasse_hoje"] == 2189.0)
+       and d["salario_se_fechasse_hoje"] == 2187.5)
     ok("banco positivo só é mostrado, não vira dinheiro",
-       apurar(2200, _d + 300, 0, _d, 0, [], True)["salario_pagar"] == 2200.0)
+       _ap(2200, _d + 300, 0, _d, 0, [], True)["salario_pagar"] == 2200.0)
 
     # METAS pela regra do card (explicacao_metas): a MAXX toma o lugar.
     _l, _p, _v = metas(2200, {"col": True, "maxx": False, "ind": False, "ind_maxx": False})
@@ -370,9 +388,11 @@ if __name__ == "__main__":
     _r = do_mes(2026, 9, _dados, _pont, {_u: {"col": True}}, _hoje,
                 salarios={_u: 3000.0}, bancos_anteriores={_u: 120.0}, domingos={})
     _f = _r[_u]["folha"]
+    # Setembro/2026: 21 dias úteis = 168h; R$ 3.000 ÷ 168 = R$ 17,857/h.
     ok("cadeia: setembro fechado, devendo 8h com 2h de banco → −6h, só as 6h descontadas",
-       _f["fechado"] and _f["banco_final_min"] == -360 and _f["desconto_horas"] == 90.0
-       and _f["desconto_domingo"] == 0 and _f["salario_pagar"] == 2910.0
+       _f["fechado"] and _f["banco_final_min"] == -360
+       and _r[_u]["horas_do_mes_min"] == 21 * 480 and _f["desconto_horas"] == 107.14
+       and _f["desconto_domingo"] == 0 and _f["salario_pagar"] == 2892.86
        and _r[_u]["faltas"] == ["2026-09-15"] and _r[_u]["metas_valor"] == 360.0)
     # A marca do dono pela cadeia, no formato que `domingos_de` devolve da
     # aba — e a da data que é só "incompleta" não conta.
@@ -383,11 +403,24 @@ if __name__ == "__main__":
                                       2026, 9))
     ok("cadeia: com a falta de 15/09 marcada, soma o domingo (R$ 100) e só ele",
        _r2[_u]["domingo_nas"] == ["2026-09-15"] and _r2[_u]["folha"]["desconto_domingo"] == 100.0
-       and _r2[_u]["folha"]["salario_pagar"] == 2810.0)
+       and _r2[_u]["folha"]["salario_pagar"] == 2792.86)
     ok("cadeia: quem não tem salário na folha fica de fora, e não recebendo zero",
        all(v is None for k, v in _r.items() if k != _u))
-    ok("valor-hora = salário ÷ DIVISOR_HORAS (200: 40h semanais)",
-       DIVISOR_HORAS == 200 and apurar(2200, 0, 0, 0)["valor_hora"] == 11.0)
+    ok("valor-hora = salário ÷ horas do mês (176h → R$ 12,50; 152h → R$ 14,47)",
+       _ap(2200, 0, 0, 0)["valor_hora"] == 12.5
+       and round(apurar(2200, 0, 0, 0, horas_do_mes_min=19 * 480)["valor_hora"], 2) == 14.47)
+    try:
+        apurar(2200, 0, 0, 0)
+        _sem_div = False
+    except ValueError:
+        _sem_div = True
+    ok("sem as horas do mês, recusa em vez de inventar um divisor", _sem_div)
+    # O mês ABERTO divide pelo mês inteiro, e não pelas horas até ontem.
+    _ro = do_mes(2026, 10, [{"filtro_mes": (2026, 10), "cfg": {}}],
+                 {_u: {"min_trab": 0.0, "min_abono": 0.0, "pend": []}}, {}, _dt_t(2026, 10, 6, 10, tzinfo=_pc_t.FUSO),
+                 salarios={_u: 2100.0}, bancos_anteriores={}, domingos={})
+    ok("mês aberto: valor da hora pelo outubro inteiro (21 dias = 168h → R$ 12,50)",
+       _ro[_u]["horas_do_mes_min"] == 21 * 480 and _ro[_u]["folha"]["valor_hora"] == 12.5)
     ok("h: formata saldo com sinal", h(380) == "+6h20" and h(-75) == "−1h15" and h(0) == "0h00")
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

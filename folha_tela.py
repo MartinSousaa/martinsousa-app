@@ -152,7 +152,9 @@ def pagina(usuario_logado=None):
     st.caption(("Mês fechado" if fechado else "Mês aberto: o que seria se fechasse hoje")
                + " · ponto da RHiD até ontem · salário no dia 30 · metas no 5º dia útil"
                + (f" ({q:%d/%m})" if q else "")
-               + f" · valor-hora = salário ÷ {_fm.DIVISOR_HORAS} (40h semanais)")
+               + " · valor da hora = salário ÷ horas do mês"
+               + (f" ({next(d for d in por.values() if d)['horas_do_mes_min'] / 60:.0f}h)"
+                  if any(por.values()) else ""))
     nomes = {u: str(n).split(" ")[0] for u, n in _pc.MEMBROS_ATIVOS.items()}
     sal, tot = linhas_salario(por, nomes)
     met, tot_m = linhas_metas(por, nomes)
@@ -187,7 +189,7 @@ if __name__ == "__main__":
     # Pela cadeia: a linha de cada pessoa sai de `folha_mes.apurar` e `metas`
     # de verdade, na forma que `do_mes` monta.
     _d = 22 * 480
-    _f = _fm_t.apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True)
+    _f = _fm_t.apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, horas_do_mes_min=_d)
     _l, _p, _v = _fm_t.metas(2200, {"col": True})
     _por = {"luiz": {"folha": _f, "metas": _l, "pct_metas": _p, "metas_valor": _v,
                      "faltas": ["2026-10-14"], "domingo_nas": [], "devidas_min": _d,
@@ -195,7 +197,7 @@ if __name__ == "__main__":
             "fulano": None}
     _s, _t = linhas_salario(_por, {"luiz": "Luiz"})
     ok("salário: a falta sem banco desconta as 8h, sem domingo (dono, 30/10), e o total soma",
-       _s[0]["Faltas de dia inteiro"] == "1" and _s[0]["Desconto"] == "− R$ 88,00"
+       _s[0]["Faltas de dia inteiro"] == "1" and _s[0]["Desconto"] == "− R$ 100,00"
        and _t["pagar"] == _f["salario_pagar"] and len(_s) == 1)
     _m, _tm = linhas_metas(_por, {"luiz": "Luiz"})
     ok("metas: coletiva paga R$ 264, as outras marcadas ✗", _tm == 264.0
