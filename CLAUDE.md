@@ -779,6 +779,11 @@ a trava é mecânica, e não depende de eu lembrar.
   fecha o bloco HTML, e tag partida em duas linhas vira parágrafo. `<p>` dentro
   de `<svg>` faz o navegador fechar o svg ali. A TV escapa disso porque monta a
   página inteira sem markdown.
+- **O Streamlit APAGA a declaração inline que tem `!important`** (`style="text-align:center
+  !important"` vira nada). E as regras de tabela do `app.py` com `!important` vencem o
+  inline simples. Alinhamento e cor de célula se medem no `checar_navegador`, com o
+  Streamlit de verdade — numa página solta o `!important` funciona, e foi assim que eu
+  "corrigi" o Balanço headcount sem corrigir (30/10).
 - **Nunca commitar valor de secret.** `.streamlit/secrets.toml` está no
   `.gitignore` — um commit dele já derrubou o Fim de Expediente.
 

@@ -159,9 +159,15 @@ def consolidado(pessoa, lins):
 
 
 def _tab(cab, rows, alinhar):
-    th = "".join(f'<th style="text-align:{a} !important;padding:6px 8px;">{c}</th>'
+    """Tabela do holerite. A COR vai num <span> dentro da célula, e não no
+    <td>: o app.py tem `td { color: ... !important }`, que vence o estilo do
+    <td>, e o Streamlit APAGA qualquer declaração inline com `!important`
+    (medido no Chromium, 30/10). O alinhamento do <th> é inline e simples —
+    a regra geral do <th> deixou de ser !important para ele valer."""
+    th = "".join(f'<th style="text-align:{a};padding:6px 8px;">{c}</th>'
                  for c, a in zip(cab, alinhar))
-    tr = "".join("<tr>" + "".join(f'<td style="text-align:{a};padding:6px 8px;{st}">{c}</td>'
+    tr = "".join("<tr>" + "".join(f'<td style="text-align:{a};padding:6px 8px;">'
+                                  + (f'<span style="{st}">{c}</span>' if st else str(c)) + "</td>"
                                   for (c, st), a in zip(r, alinhar)) + "</tr>" for r in rows)
     return f'<table style="width:100%;border-collapse:collapse;"><tr>{th}</tr>{tr}</table>'
 
@@ -234,10 +240,11 @@ def html(pessoa, nome, assinatura=None):
 
 
 def _quinto(pag):
+    """O 5º dia útil das metas do mês do pagamento (`headcount.quinto_dia_util`
+    recebe o mês das METAS e devolve o dia no mês seguinte)."""
     try:
         import headcount as _hc
-        a, m = (pag.year + 1, 1) if pag.month == 12 else (pag.year, pag.month + 1)
-        return _hc.quinto_dia_util(a, m) if pag.day >= 28 else _hc.quinto_dia_util(pag.year, pag.month)
+        return _hc.quinto_dia_util(pag.year, pag.month)
     except Exception:
         return None
 
@@ -356,7 +363,10 @@ if __name__ == "__main__":
     _ht = html(_pes, "Beatriz", {"nome": "Beatriz", "assinado_em": "30/10/2026 09:14"})
     ok("html de uma linha só, com o líquido, as metas e a assinatura",
        "\n" not in _ht and _brl(_f["salario_pagar"]) in _ht and "Coletiva" in _ht
-       and "assinada por Beatriz" in _ht and "!important" in _ht)
+       and "assinada por Beatriz" in _ht and "!important" not in _ht
+       and '<span style="color:#E34948;">' in _ht)
+    ok("metas de outubro: 5º dia útil é 07/11 (e não 05/12)",
+       "(07/11)" in _ht)
     ok("pode assinar a partir do dia do pagamento, não antes",
        pode_assinar(2026, 10, date(2026, 10, 30)) and not pode_assinar(2026, 10, date(2026, 10, 29))
        and pode_assinar(2026, 8, date(2026, 8, 28)))

@@ -652,7 +652,7 @@ def _svg_uc(d, hoje, ano):
 
 def _tabela(d, fat_mes, hoje, ano, bling=False):
     # CENTRALIZADO (dono, 20/10: "esses números devem estar centralizados").
-    th = lambda c: (f'<th style="text-align:center !important;padding:7px 8px;color:{SEC};font-size:11px;font-weight:700;'
+    th = lambda c: (f'<th style="text-align:center;padding:7px 8px;color:{SEC};font-size:11px;font-weight:700;'
                     f'border-bottom:1px solid {BORDA};white-space:nowrap">{c}</th>')
     td = lambda v, c=TEXTO, b=False: (f'<td style="text-align:center;padding:6px 8px;font-size:12px;white-space:nowrap;'
                                       f'color:{c};{"font-weight:800;" if b else ""}">{v}</td>')

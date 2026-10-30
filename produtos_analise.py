@@ -603,7 +603,7 @@ def panorama_html(linhas, produto, ate_mes, med=None, prim=None):
     kps = ('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:14px 0">'
            + "".join(f'<div class="pa-k"><div class="pa-kt">{a}</div><div class="pa-kv" style="font-size:19px">{b}</div>'
                      f'<div class="pa-kd">{c}</div></div>' for a, b, c in kp) + '</div>')
-    th = lambda cols: "<tr>" + "".join(f'<th style="text-align:{"left" if i == 0 else "right"} !important;font-size:10.5px;color:{SEC};'
+    th = lambda cols: "<tr>" + "".join(f'<th style="text-align:{"left" if i == 0 else "right"};font-size:10.5px;color:{SEC};'
                                        f'letter-spacing:.08em;text-transform:uppercase;padding:5px 6px;border-bottom:1px solid {_hg.BORDA}">{c}</th>'
                                        for i, c in enumerate(cols)) + "</tr>"
     td = lambda v, esq=False: f'<td style="padding:6px;border-bottom:1px solid #3a3a3a;text-align:{"left" if esq else "right"}">{v}</td>'

@@ -683,7 +683,7 @@ def _v(x, casas=2):
 def _tabela_html(cab, linhas, total=None, grupo=(), esquerda=1):
     """Tabela sem quebra de linha (o markdown do Streamlit fecharia o HTML)."""
     th = "".join(
-        f'<th style="text-align:{"left" if i < esquerda else "center"} !important;padding:6px 8px;'
+        f'<th style="text-align:{"left" if i < esquerda else "center"};padding:6px 8px;'
         f'border-bottom:1px solid var(--ms-borda);color:'
         f'{"#7FB8F0" if c in grupo else "var(--ms-texto-sec)"};font-weight:600;">'
         f'{c}</th>' for i, c in enumerate(cab))

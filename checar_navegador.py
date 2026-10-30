@@ -41,6 +41,18 @@ if aba == "Painel":
     # morria quando ele saía da tela, e em Produtos nenhum clique abria.
     st.markdown("<div " + clique.alvo("hg", "X") + ">Quadro X</div>", unsafe_allow_html=True)
     clique.botoes("hg", ["X"])
+    # A TABELA (30/10): a regra geral de tabela do app.py de VERDADE, lida do
+    # arquivo, e a tabela do Balanço headcount e a do holerite como elas são
+    # desenhadas. O que se mede é o que o Chromium calcula.
+    import re, headcount, holerite
+    _css = re.search(r"/\* ── TABELAS.*?(?=tr:last-child)",
+                     open({raiz!r} + "/app.py", encoding="utf-8").read(), re.S).group(0)
+    st.markdown("<style>" + _css + "</style>", unsafe_allow_html=True)
+    st.markdown(headcount._tabela_html(["Colaborador", "Cargo", "Salário"],
+                                       [["Bia", "Aux", "2.006,58"]], esquerda=2),
+                unsafe_allow_html=True)
+    st.markdown(holerite._tab(["Data", "Valor"], [[("07/10", ""), ("− R$ 100,00", "color:#E34948;")]],
+                              ["left", "right"]), unsafe_allow_html=True)
 if aba == "Produtos":
     st.markdown("<div>" + "".join(
         f'<div ' + clique.alvo("pa", f"PRODUTO {{i}}") + f' style="padding:10px">Linha {{i}}</div>'
@@ -89,6 +101,17 @@ def main():
             pg.on("framenavigated", lambda f: navegou.append(f.url) if f == pg.main_frame else None)
             pg.goto(f"http://127.0.0.1:{porta}")
             pg.wait_for_timeout(3500)
+            # O TÍTULO SOBRE O VALOR (30/10): o 3º título do Balanço no centro
+            # como o valor, o da coluna de valor do holerite à direita, e a
+            # cor do desconto vermelha — calculados pelo navegador.
+            _al = pg.eval_on_selector_all("th", "e => e.map(x => getComputedStyle(x).textAlign)")
+            ok = len(_al) >= 5 and _al[2] == "center" and _al[4] == "right"
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"título da coluna alinhado com o valor ({_al})")
+            _cor = pg.eval_on_selector_all("td span", "e => e.map(x => getComputedStyle(x).color)")
+            ok = "rgb(227, 73, 72)" in _cor
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"o desconto do holerite sai vermelho ({_cor})")
             pg.get_by_text("Produtos", exact=True).click()
             pg.wait_for_timeout(1500)
             for i in (2, 0, 3):

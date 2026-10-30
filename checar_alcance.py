@@ -1132,17 +1132,28 @@ def main():
                     f"(30/10).")
     print(f"ok    {_vistas_rx} busca(s) de texto do pandas varrida(s)")
 
-    # ── CABEÇALHO DE TABELA FORA DA ESQUERDA PRECISA DE !important (30/10) ──
+    # ── CABEÇALHO DE TABELA ALINHADO COM O VALOR (30/10) ──────────────────
     #
-    # `app.py` tem `th { text-align: left !important; }`. Um `<th
-    # style="text-align:center">` sem `!important` PERDE para ela no
-    # navegador: o valor fica no centro e o título à esquerda, desalinhados.
-    # Foi o Balanço headcount ("centralize os valores e as colunas"), e mais
-    # oito cabeçalhos em quatro telas. Medido em Chromium: sem `!important`,
-    # 'left'; com, 'center'. A varredura é por TEXTO de string do código (AST),
-    # para comentário e docstring não contarem.
-    _rx_th = re.compile(r'<th style="[^"]*?text-align:\s*([^;"]+)')
-    _vistos_th = 0
+    # "Centralize os valores e as colunas" (Balanço headcount): o valor ficava
+    # no centro e o título à esquerda. Causa, MEDIDA no Chromium com o
+    # Streamlit de verdade: `app.py` tinha `th { text-align: left !important }`,
+    # que vence o `<th style="text-align:center">`. A primeira correção pôs
+    # `!important` no inline — e o Streamlit APAGA a declaração inline que tem
+    # `!important`: o título continuava à esquerda (eu tinha medido numa
+    # página solta, fora do Streamlit — a Forma 11).
+    #
+    # As duas metades da regra: a regra geral do <th> não força alinhamento
+    # com !important, e nenhum `<th style=...>` escrito no código usa
+    # !important (ele simplesmente some). A medida no navegador é do
+    # `checar_navegador.py`.
+    _css_app = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+                    encoding="utf-8").read()
+    for _m_css in re.finditer(r"(?m)^th\s*\{([^}]*)\}", _css_app):
+        if re.search(r"text-align\s*:[^;]*!important", _m_css.group(1)):
+            reprova("app.py — a regra geral `th { ... }` força text-align com "
+                    "!important: ela vence o alinhamento de toda tabela do Studio, "
+                    "e o título fica fora do valor (Balanço headcount, 30/10).")
+    _rx_th = re.compile(r'<th style="[^"]*?!important')
     for _nome_th in _arquivos():
         if os.path.basename(_nome_th).startswith("checar_"):
             continue
@@ -1159,15 +1170,10 @@ def main():
                 _txt_th = _no_th.value
             else:
                 continue
-            for _m_th in _rx_th.finditer(_txt_th):
-                _alin = _m_th.group(1).strip()
-                if _alin.startswith("left") or "!important" in _alin:
-                    continue
-                _vistos_th += 1
-                reprova(f"{_nome_th}:{_no_th.lineno} — `<th>` com text-align "
-                        f"`{_alin}` sem `!important`: a regra `th {{ text-align: "
-                        f"left !important }}` do app.py vence no navegador, e o "
-                        f"título fica à esquerda do valor (Balanço headcount, 30/10).")
+            if _rx_th.search(_txt_th):
+                reprova(f"{_nome_th}:{_no_th.lineno} — `<th style=...!important`: o "
+                        f"Streamlit APAGA a declaração inline com !important, e o "
+                        f"alinhamento some (medido no Chromium, 30/10).")
     print("ok    cabeçalhos de tabela alinhados de verdade")
 
     for _m in _conferir_isentos():
