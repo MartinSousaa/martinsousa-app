@@ -20,9 +20,12 @@ desconta. Dia que devia horas consome o banco; sem banco, o banco fica
 NEGATIVO, e o colaborador vê o alerta. Se o mês FECHAR negativo:
 
     desconto = horas negativas × (salário ÷ DIVISOR_HORAS)
-             + o domingo (salário ÷ 30) de cada semana com falta de dia
-               inteiro sem batida e sem abono — Lei 605/49, art. 6º: falta
-               sem justificativa na semana tira o repouso remunerado
+
+O DOMINGO FICA DESLIGADO (dono, 30/10: "por enquanto não vamos considerar o
+domingo como desconto também, somente o dia de falta completa e as horas").
+A conta dele existe — o domingo (salário ÷ 30) de cada semana com falta de
+dia inteiro, Lei 605/49, art. 6º — e liga em `DESCONTA_DOMINGO`. A falta de
+dia inteiro continua descontada: são as 8h dela que deixam o banco negativo.
 
 Banco positivo só é mostrado (dono: "só mostra o saldo").
 
@@ -44,6 +47,7 @@ DE ONDE VEM CADA NÚMERO (nada é contado de novo aqui)
 from datetime import date
 
 DIVISOR_HORAS = 200
+DESCONTA_DOMINGO = False   # dono, 30/10: "por enquanto" — ver o topo
 NIVEIS = (("col", "Coletiva"), ("maxx", "Coletiva MAXX"),
           ("ind", "Individual"), ("ind_maxx", "Individual MAXX"))
 
@@ -60,7 +64,7 @@ def semanas_com_falta(datas_iso):
 
 
 def apurar(salario, trab_min, abono_min, devido_min, banco_anterior_min=0.0,
-           faltas_dia_inteiro=(), fechado=False):
+           faltas_dia_inteiro=(), fechado=False, com_domingo=None):
     """O salário de uma pessoa no mês. Pura.
 
     Devolve {"salario","saldo_mes_min","banco_final_min","usado_do_banco_min",
@@ -77,7 +81,10 @@ def apurar(salario, trab_min, abono_min, devido_min, banco_anterior_min=0.0,
     negativo = max(-final, 0.0)
     valor_hora = salario / DIVISOR_HORAS if salario else 0.0
     desc_h = round(negativo / 60 * valor_hora, 2)
-    semanas = semanas_com_falta(faltas_dia_inteiro) if negativo > 0 else 0
+    if com_domingo is None:
+        com_domingo = DESCONTA_DOMINGO
+    semanas = (semanas_com_falta(faltas_dia_inteiro)
+               if com_domingo and negativo > 0 else 0)
     desc_dom = round(semanas * salario / 30, 2)
     desconto = round(desc_h + desc_dom, 2)
     return {"salario": salario, "saldo_mes_min": round(saldo, 1),
@@ -204,11 +211,17 @@ if __name__ == "__main__":
     b = apurar(2200, _d - 120, 0, _d, 300, [], True)
     ok("devendo 2h com 5h de banco: o banco cobre, fica +3h, sem desconto",
        b["banco_final_min"] == 180 and b["usado_do_banco_min"] == 120 and b["desconto"] == 0)
-    c = apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True)
-    ok("falta de dia inteiro sem banco: 8h + o domingo da semana",
+    _sem = apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True)
+    ok("dono, 30/10: a falta de dia inteiro desconta as 8h, e o domingo NÃO",
+       not DESCONTA_DOMINGO and _sem["desconto_horas"] == 88.0
+       and _sem["desconto_domingo"] == 0 and _sem["semanas_falta"] == 0
+       and _sem["salario_pagar"] == 2112.0)
+    # A conta do domingo continua existindo para quando ele ligar.
+    c = apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, com_domingo=True)
+    ok("com o domingo ligado: 8h + o domingo da semana",
        c["desconto_horas"] == 88.0 and c["desconto_domingo"] == round(2200 / 30, 2)
        and c["semanas_falta"] == 1)
-    c2 = apurar(2200, _d - 480, 0, _d, 600, ["2026-10-14"], True)
+    c2 = apurar(2200, _d - 480, 0, _d, 600, ["2026-10-14"], True, com_domingo=True)
     ok("falta de dia inteiro coberta pelo banco: não perde o domingo",
        c2["desconto"] == 0 and c2["banco_final_min"] == 120)
     ok("duas faltas na mesma semana tiram um domingo; em semanas diferentes, dois",
@@ -247,9 +260,9 @@ if __name__ == "__main__":
     _r = do_mes(2026, 9, _dados, _pont, {_u: {"col": True}}, _hoje,
                 salarios={_u: 3000.0}, bancos_anteriores={_u: 120.0})
     _f = _r[_u]["folha"]
-    ok("cadeia: setembro fechado, devendo 8h com 2h de banco → −6h, 6h e o domingo descontados",
+    ok("cadeia: setembro fechado, devendo 8h com 2h de banco → −6h, só as 6h descontadas",
        _f["fechado"] and _f["banco_final_min"] == -360 and _f["desconto_horas"] == 90.0
-       and _f["desconto_domingo"] == 100.0 and _f["salario_pagar"] == 2810.0
+       and _f["desconto_domingo"] == 0 and _f["salario_pagar"] == 2910.0
        and _r[_u]["faltas"] == ["2026-09-15"] and _r[_u]["metas_valor"] == 360.0)
     ok("cadeia: quem não tem salário na folha fica de fora, e não recebendo zero",
        all(v is None for k, v in _r.items() if k != _u))

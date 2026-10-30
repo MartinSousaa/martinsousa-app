@@ -4551,8 +4551,15 @@ MUTACOES = [
     (
         'o domingo volta a ser descontado da falta coberta pelo banco (30/10)',
         "folha_mes.py",
-        [('    semanas = semanas_com_falta(faltas_dia_inteiro) if negativo > 0 else 0\n',
-          '    semanas = semanas_com_falta(faltas_dia_inteiro)\n')],
+        [('               if com_domingo and negativo > 0 else 0)\n',
+          '               if com_domingo else 0)\n')],
+        None,
+        ["python3", "folha_mes.py"],
+    ),
+    (
+        'o domingo volta a ser descontado sem o dono ter ligado (30/10)',
+        "folha_mes.py",
+        [('DESCONTA_DOMINGO = False', 'DESCONTA_DOMINGO = True')],
         None,
         ["python3", "folha_mes.py"],
     ),

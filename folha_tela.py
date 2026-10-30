@@ -26,7 +26,9 @@ def linhas_salario(por_pessoa, nomes):
             "Colaborador": nomes.get(u, u),
             "Salário base": _brl(f["salario"]),
             "Saldo do mês": _fm.h(f["saldo_mes_min"]),
-            "Faltas de dia inteiro": len(d["faltas"]) or "—",
+            # Texto, e nao numero: a coluna mistura 2 e "—", e o Streamlit
+            # reclama de tipo misturado ao montar a tabela.
+            "Faltas de dia inteiro": str(len(d["faltas"])) if d["faltas"] else "—",
             "Coberto pelo banco": _fm.h(f["usado_do_banco_min"]).lstrip("+") if f["usado_do_banco_min"] else "—",
             "Desconto": ("− " + _brl(f["desconto"])
                          + (f" ({f['semanas_falta']} domingo)" if f["semanas_falta"] else ""))
@@ -126,8 +128,8 @@ if __name__ == "__main__":
                      "faltas": ["2026-10-14"], "devidas_min": _d, "total": 0},
             "fulano": None}
     _s, _t = linhas_salario(_por, {"luiz": "Luiz"})
-    ok("salário: a falta sem banco desconta 8h + o domingo, e o total soma",
-       _s[0]["Faltas de dia inteiro"] == 1 and "1 domingo" in _s[0]["Desconto"]
+    ok("salário: a falta sem banco desconta as 8h, sem domingo (dono, 30/10), e o total soma",
+       _s[0]["Faltas de dia inteiro"] == "1" and _s[0]["Desconto"] == "− R$ 88,00"
        and _t["pagar"] == _f["salario_pagar"] and len(_s) == 1)
     _m, _tm = linhas_metas(_por, {"luiz": "Luiz"})
     ok("metas: coletiva paga R$ 264, as outras marcadas ✗", _tm == 264.0
