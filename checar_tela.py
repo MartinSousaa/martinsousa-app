@@ -3710,6 +3710,10 @@ def _balanco_headcount(conta):
     import reserva_tela as _rt
     import tabela_tributos as _tt
 
+    import meu_desempenho as _md_hc
+    import folha_mes as _fm_hc
+    import placar_core as _pc_hc
+    _g_res_hc = _md_hc.resumo_do_mes
     _guard = (_co.carregar, _aj.carregar, _hc._apurado_do_mes, _tt.carregar,
               _au.eh_dono, _rt.carregar, _fs.carregar, _hc.carregar,
               _hc.carregar_params, _co.carregar_taxas)
@@ -3735,6 +3739,12 @@ def _balanco_headcount(conta):
         _fs.carregar = lambda *a, **k: pd.DataFrame(columns=_fs.COLUNAS)
         _hc.carregar = lambda *a, **k: pd.DataFrame(columns=_hc.COLUNAS)
         _hc.carregar_params = lambda *a, **k: _hc.parametros_padrao()
+        # O DESCONTO DO PONTO (30/10): a Apuração do mês na forma de
+        # `folha_mes.do_mes`, com a conta de verdade (`apurar`): o Gabriel
+        # devendo 8h num período de 168h.
+        _u_g = _pc_hc.username_do_login("Gabriel")
+        _md_hc.resumo_do_mes = lambda a, m: {_u_g: {"dinheiro": {"folha": _fm_hc.apurar(
+            3000.0, 0, 0, 480, 0, [], False, horas_do_mes_min=168 * 60)}}}
         _falso = instalar()
         for _m in (_hc, _rt, _co, _tt, _fs, _aj):
             _m.st = _falso
@@ -3747,6 +3757,9 @@ def _balanco_headcount(conta):
         _hc.pagina("martinsousa")
         _tudo = " ".join(_textos)
         conta("Balanço headcount monta, com a Reserva dentro", True, "")
+        conta("Balanço: o desconto do ponto do Gabriel (8h × R$ 17,86) e o a pagar",
+              "Desconto ponto" in _tudo and "A pagar dia 30" in _tudo
+              and "− 142,86" in _tudo and "2.857,14" in _tudo, _tudo[:300])
         conta("o bônus do Gabriel chega ao quadro (12% + 8% de 3.000)",
               "600,00" in _tudo and "360,00" in _tudo, "")
         conta("e a Reserva e os aportes vêm depois do bônus",
@@ -3758,6 +3771,7 @@ def _balanco_headcount(conta):
         conta("Balanço headcount monta, com a Reserva dentro", False,
               f"{type(e).__name__}: {e}")
     finally:
+        _md_hc.resumo_do_mes = _g_res_hc
         (_co.carregar, _aj.carregar, _hc._apurado_do_mes, _tt.carregar,
          _au.eh_dono, _rt.carregar, _fs.carregar, _hc.carregar,
          _hc.carregar_params, _co.carregar_taxas) = _guard
@@ -4933,10 +4947,39 @@ def _meu_desempenho(conta):
         # com o `_pont` e o `_bon` desta mesma apuração; só o salário e o
         # banco do mês anterior (planilha e RHiD) são dados aqui.
         import folha_mes as _fm_md
-        _pont["beatriz51"].update({"min_trab": 0.0, "min_abono": 0.0})
-        _din = _fm_md.do_mes(2026, 10, _dados, _pont, _bon,
+        import relogio_ponto as _rp_md
+        import rhid_api as _rh_md
+        from datetime import date as _date_md, timedelta as _td_md
+        # O ponto do PERÍODO pela leitura de verdade (`get_ponto_do_periodo`),
+        # só a RHiD trocada: de 30/09 a 25/10, o dia 09/10 sem batida e o
+        # resto com 8h; o banco anterior (0) no dia 29/09.
+        _regs_md, _dd = [], _date_md(2026, 9, 29)
+        while _dd <= _date_md(2026, 10, 25):
+            _b = ([] if _dd == _date_md(2026, 10, 9) or not _pc_md.eh_dia_util(_dd)
+                  else ["09:00", "12:00", "13:00", "18:00"])
+            _regs_md.append({"data": _dd, "batidas": _b, "entrada": _b[0] if _b else None,
+                             "saida_almoco": _b[1] if _b else None,
+                             "volta_almoco": _b[2] if _b else None,
+                             "saida": _b[3] if _b else None, "minutos_atraso": 0.0,
+                             "minutos_trabalhados": 480.0 if _b else 0.0, "faltou": not _b,
+                             "saldo_banco": 0.0 if _dd.day == 29 else None,
+                             "minutos_abonados": 0.0})
+            _dd += _td_md(days=1)
+        _g_rh_md = (_rh_md.get_persons, _rh_md.get_registros_diarios,
+                    _rp_md._rhid_nome_para_trello, _rp_md.hoje_local)
+        try:
+            _rh_md.get_persons = lambda: [{"id": 1, "name": "Beatriz"}]
+            _rh_md.get_registros_diarios = lambda a, b, c: (_regs_md, {})
+            _rp_md._rhid_nome_para_trello = lambda n: "beatriz51"
+            _rp_md.hoje_local = lambda: _date_md(2026, 10, 26)
+            getattr(_rp_md._pontualidade_rhid_intervalo, "clear", lambda: None)()
+            _ponto_md = _rp_md.get_ponto_do_periodo(_date_md(2026, 9, 23), _date_md(2026, 10, 29))[0]
+        finally:
+            (_rh_md.get_persons, _rh_md.get_registros_diarios,
+             _rp_md._rhid_nome_para_trello, _rp_md.hoje_local) = _g_rh_md
+        _din = _fm_md.do_mes(2026, 10, _dados, _ponto_md, _bon,
                              _dt_md(2026, 10, 26, 10, tzinfo=_pc_md.FUSO),
-                             salarios={"beatriz51": 2400.0}, bancos_anteriores={},
+                             salarios={"beatriz51": 2400.0},
                              domingos=_fm_md.domingos_de(
                                  [{"mes": "2026-10", "username": "beatriz51",
                                    "data": "2026-10-09"}], 2026, 10))
@@ -4948,8 +4991,21 @@ def _meu_desempenho(conta):
                   {"name": "Porta-relógios", "idList": "L1", "idMembers": ["m1"],
                    "labels": [{"name": "EM ANDAMENTO"}]}]
         _pc_md._buscar_board = lambda: (_li, _cards, {"m1": "beatriz51"}, None, None, None)
-        _md.pagina("Beatriz")
+        # O painel no dia 26/10, o mesmo dia da apuração acima: o aviso do
+        # ponto filtra pelo período ABERTO, e com o relógio de hoje o
+        # período de outubro já pode ter fechado. As assinaturas vão à
+        # planilha; aqui ninguém assinou.
+        _g_ag_md, _g_as_md = _pc_md.agora_br, _md._assinaturas_guardadas
+        _pc_md.agora_br = lambda: _dt_md(2026, 10, 26, 10, tzinfo=_pc_md.FUSO)
+        _md._assinaturas_guardadas = lambda a, m: {}
+        try:
+            _md.pagina("Beatriz")
+        finally:
+            _pc_md.agora_br, _md._assinaturas_guardadas = _g_ag_md, _g_as_md
         _j = " ".join(_txt)
+        conta("Meu desempenho: o holerite do período aparece, com a falta de 09/10 e a prévia",
+              "Holerite" in _j and "Falta de dia inteiro" in _j and "09/10" in _j
+              and "assinatura é liberada no dia 30/10" in _j, _j[-500:])
         conta("Meu desempenho: a tela monta com saudação, meta e meta coletiva",
               "Olá, Beatriz" in _j and "600" in _j and "1.500" in _j, _j[:200])
         conta("Meu desempenho: a pontuação reprovada aparece no que puxa a meta",
@@ -4957,8 +5013,8 @@ def _meu_desempenho(conta):
         conta("Meu desempenho: o ajuste de ponto pendente vira aviso no topo, com o prazo e a regra",
               "de ponto pendente" in _j and "falta não remunerada" in _j
               and _j.index("de ponto pendente") < _j.index("Minha meta individual"), _j[:300])
-        conta("Meu desempenho: o dia sem batida pede abono",
-              "09/10" in _j and "abono" in _j, "")
+        conta("Meu desempenho: o dia sem batida pede a justificativa na RHiD",
+              "09/10" in _j and "justificativa pelo app da RHiD" in _j, "")
         conta("Meu desempenho: duas demandas fora do Desativar geram o aviso",
               "2 demandas ao mesmo tempo" in _j, "")
         conta("Meu desempenho: o mês em dinheiro mostra salário, banco negativo com alerta e metas",

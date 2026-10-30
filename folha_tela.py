@@ -11,8 +11,11 @@ def _brl(v):
     return "R$ " + f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def linhas_salario(por_pessoa, nomes):
-    """As linhas da tabela de salário e o total. Pura."""
+def linhas_salario(por_pessoa, nomes, assinadas=None):
+    """As linhas da tabela de salário e o total. Pura.
+
+    `assinadas`: {username: linha da aba de assinaturas}; None quando o
+    período ainda não pode ser assinado (a coluna não aparece)."""
     import folha_mes as _fm
     linhas, tot = [], {"base": 0.0, "desc": 0.0, "pagar": 0.0}
     for u, d in sorted(por_pessoa.items(), key=lambda kv: nomes.get(kv[0], kv[0])):
@@ -35,6 +38,10 @@ def linhas_salario(por_pessoa, nomes):
                         if f["desconto"] else "—",
             "Salário a pagar": _brl(f["salario_se_fechasse_hoje"]),
             "Banco de horas": _fm.h(f["banco_final_min"])})
+        if assinadas is not None:
+            _a = assinadas.get(u)
+            linhas[-1]["Folha de ponto"] = (f"✓ {str(_a.get('assinado_em', ''))[:5]}"
+                                            if _a else "pendente")
     return linhas, tot
 
 
@@ -53,9 +60,6 @@ def linhas_metas(por_pessoa, nomes):
         total += d["metas_valor"]
         linhas.append(r)
     return linhas, total
-
-
-_DIAS = ("seg", "ter", "qua", "qui", "sex", "sáb", "dom")
 
 
 def faltas_para_marcar(por_pessoa, nomes):
@@ -86,6 +90,7 @@ def _marcar_domingos(por, nomes, ano, mes, usuario_logado):
     import pandas as pd
     from datetime import date
     import folha_mes as _fm
+    import holerite as _hl
     import meu_desempenho as _md
     base = faltas_para_marcar(por, nomes)
     with st.container(border=True):
@@ -98,7 +103,7 @@ def _marcar_domingos(por, nomes, ano, mes, usuario_logado):
                    "O colaborador vê o mesmo no painel dele.")
         df = pd.DataFrame([{"Colaborador": nomes.get(u, u),
                             "Dia": f"{date.fromisoformat(dt):%d/%m} "
-                                   f"({_DIAS[date.fromisoformat(dt).weekday()]})",
+                                   f"({_hl._DIAS[date.fromisoformat(dt).weekday()]})",
                             "Descontar domingo": m} for u, dt, m in base])
         ed = st.data_editor(df, hide_index=True, use_container_width=True,
                             disabled=["Colaborador", "Dia"],
@@ -147,16 +152,26 @@ def pagina(usuario_logado=None):
         st.info("Sem salário cadastrado ou sem dado do mês. O salário vem da folha "
                 "(Financeiro › Custos fixos › Colaboradores).")
         return
-    fechado = (ano, mes) < (hoje.year, hoje.month)
+    import holerite as _hl
+    _d0 = next(d for d in por.values() if d)
+    fechado = _d0["folha"]["fechado"]
     q = _hc.quinto_dia_util(ano, mes)
-    st.caption(("Mês fechado" if fechado else "Mês aberto: o que seria se fechasse hoje")
-               + " · ponto da RHiD até ontem · salário no dia 30 · metas no 5º dia útil"
+    _ini, _fim = _d0["periodo"]
+    st.caption(("Período fechado" if fechado else "Período aberto: o que seria se fechasse hoje")
+               + f" · ponto de {_ini[8:10]}/{_ini[5:7]} a {_fim[8:10]}/{_fim[5:7]} (RHiD, até ontem)"
+               + f" · salário em {_d0['pagamento'][8:10]}/{_d0['pagamento'][5:7]} · metas do mês no 5º dia útil"
                + (f" ({q:%d/%m})" if q else "")
                + " · valor da hora = salário ÷ horas do mês"
                + (f" ({next(d for d in por.values() if d)['horas_do_mes_min'] / 60:.0f}h)"
                   if any(por.values()) else ""))
     nomes = {u: str(n).split(" ")[0] for u, n in _pc.MEMBROS_ATIVOS.items()}
-    sal, tot = linhas_salario(por, nomes)
+    assinadas = None
+    if _hl.pode_assinar(ano, mes, hoje):
+        try:
+            assinadas = _md._assinaturas_guardadas(ano, mes)
+        except Exception as e:
+            st.warning(f"Não consegui ler as assinaturas: {str(e)[:120]}")
+    sal, tot = linhas_salario(por, nomes, assinadas)
     met, tot_m = linhas_metas(por, nomes)
     k = st.columns(4)
     k[0].metric("Salários · dia 30", _brl(tot["pagar"]))
@@ -172,6 +187,14 @@ def pagina(usuario_logado=None):
         st.dataframe(pd.DataFrame(met), use_container_width=True, hide_index=True)
         st.caption("Cada metade paga o nível mais alto: a MAXX substitui a mensal. "
                    "Os critérios são os mesmos da Análise de Metas.")
+    with st.container(border=True):
+        st.markdown("**🧾 HOLERITE**")
+        _quem = [u for u, d in sorted(por.items(), key=lambda kv: nomes.get(kv[0], kv[0])) if d]
+        _u = st.selectbox("Colaborador", _quem, format_func=lambda u: nomes.get(u, u),
+                          key=f"folha_holerite_{ano}_{mes}")
+        if _u:
+            st.markdown(_hl.html(por[_u], _pc.MEMBROS_ATIVOS.get(_u, _u),
+                                 (assinadas or {}).get(_u)), unsafe_allow_html=True)
     sem = [nomes.get(u, u) for u, d in por.items() if not d]
     if sem:
         st.caption("Sem salário cadastrado na folha: " + ", ".join(sorted(sem)))
@@ -196,6 +219,10 @@ if __name__ == "__main__":
                      "total": 0},
             "fulano": None}
     _s, _t = linhas_salario(_por, {"luiz": "Luiz"})
+    _sa, _ = linhas_salario(_por, {"luiz": "Luiz"}, {"luiz": {"assinado_em": "30/10/2026 09:14"}})
+    ok("coluna da folha de ponto: só com o período assinável, e com a data",
+       "Folha de ponto" not in _s[0] and _sa[0]["Folha de ponto"] == "✓ 30/10"
+       and linhas_salario(_por, {}, {})[0][0]["Folha de ponto"] == "pendente")
     ok("salário: a falta sem banco desconta as 8h, sem domingo (dono, 30/10), e o total soma",
        _s[0]["Faltas de dia inteiro"] == "1" and _s[0]["Desconto"] == "− R$ 100,00"
        and _t["pagar"] == _f["salario_pagar"] and len(_s) == 1)

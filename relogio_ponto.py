@@ -870,13 +870,32 @@ def pendencia_do_dia(reg, hoje_iso, dia_util):
 
 @st.cache_data(ttl=300)   # 5 min — o painel precisa acompanhar o dia
 def _pontualidade_rhid(ano: int, mes: int):
-    """Pontualidade a partir do relógio de ponto físico (RHiD).
+    """Pontualidade a partir do relógio de ponto físico (RHiD), no mês.
 
     A equipe bate ponto SOMENTE no relógio — nunca pelo Studio. Esta é a fonte
     real; a planilha só entra como reserva.
 
     Devolve ({username: resumo}, diagnostico). O diagnóstico nunca fica vazio:
-    quando não há dado, ele diz por quê.
+    quando não há dado, ele diz por quê. A conta é a de
+    `_pontualidade_rhid_intervalo`, do dia 1 ao fim do mês (ou até hoje).
+    """
+    ini = date(ano, mes, 1)
+    prox = date(ano + (1 if mes == 12 else 0), 1 if mes == 12 else mes + 1, 1)
+    return _pontualidade_rhid_intervalo(ini, min(prox - timedelta(days=1), hoje_local()))
+
+
+@st.cache_data(ttl=300)
+def _pontualidade_rhid_intervalo(ini, fim):
+    """A mesma apuração, num intervalo de datas qualquer.
+
+    Existe para a FOLHA (dono, 30/10): o salário cai no dia 30 e o ponto é
+    apurado do dia 30 do mês anterior ao 29 — não do dia 1 ao 31. As metas
+    continuam no mês (`_pontualidade_rhid`), e as duas passam por AQUI: uma
+    conta só para "quanto esta pessoa trabalhou neste dia".
+
+    Cada pessoa traz também `dias`: um registro por dia lido, com as batidas,
+    os minutos trabalhados e abonados, se é dia útil, se já fechou e a
+    pendência do dia — é o que o holerite mostra linha a linha.
     """
     diag = {"fonte": "RHiD", "erro": None, "pessoas": 0, "mapeadas": 0,
             "dias_com_batida": 0, "chaves_exemplo": [],
@@ -890,9 +909,6 @@ def _pontualidade_rhid(ano: int, mes: int):
         return {}, diag
     diag["pessoas"] = len(persons)
 
-    ini = date(ano, mes, 1)
-    prox = date(ano + (1 if mes == 12 else 0), 1 if mes == 12 else mes + 1, 1)
-    fim = min(prox - timedelta(days=1), hoje_local())
     if fim < ini:
         diag["erro"] = "Mês ainda não começou."
         return {}, diag
@@ -955,7 +971,9 @@ def _pontualidade_rhid(ano: int, mes: int):
                "min_trab_fechado": 0.0, "abono_fechado_min": 0.0,
                # O PONTO PENDENTE (dono, 24/10): dias fechados com batida
                # faltando, ou sem batida e sem abono (`pendencia_do_dia`).
-               "pendencias": []}
+               "pendencias": [],
+               # Um registro por dia (30/10): o holerite mostra dia a dia.
+               "dias": []}
         # Saldo do banco: o ULTIMO dia que trouxer o valor, porque o campo da
         # RHiD ja e acumulado — somar os dias contaria tudo de novo.
         for reg in reversed(regs):
@@ -972,11 +990,21 @@ def _pontualidade_rhid(ano: int, mes: int):
             acc["abono_total_min"] += float(reg.get("minutos_abonados") or 0)
             if _fechado:
                 acc["abono_fechado_min"] += float(reg.get("minutos_abonados") or 0)
-            _pend = pendencia_do_dia(
-                reg, _hoje_iso,
-                bool(_d_reg) and _pc.eh_dia_util(date.fromisoformat(_d_reg)))
+            _util = bool(_d_reg) and _pc.eh_dia_util(date.fromisoformat(_d_reg))
+            _pend = pendencia_do_dia(reg, _hoje_iso, _util)
             if _pend:
                 acc["pendencias"].append(_pend)
+            if _d_reg:
+                _sem = reg["faltou"] or not reg["batidas"]
+                acc["dias"].append({
+                    "data": _d_reg, "dia_util": _util, "fechado": _fechado,
+                    "batidas": [str(b) for b in reg.get("batidas") or []],
+                    "min_trab": 0.0 if _sem else float(reg.get("minutos_trabalhados") or 0),
+                    "min_abono": float(reg.get("minutos_abonados") or 0),
+                    "entrada": reg.get("entrada"), "saida_almoco": reg.get("saida_almoco"),
+                    "volta_almoco": reg.get("volta_almoco"), "saida": reg.get("saida"),
+                    "saldo_banco": reg.get("saldo_banco"),
+                    "pendencia": (_pend or {}).get("tipo", "")})
             if reg["faltou"] or not reg["batidas"]:
                 continue
             diag["dias_com_batida"] += 1
@@ -1050,11 +1078,17 @@ def _pontualidade_rhid(ano: int, mes: int):
 
 def limpar_cache_ponto():
     """Descarta o cache de ponto para a próxima leitura vir do zero."""
-    for f in (_pontualidade_rhid, _carregar_ponto_todos):
+    for f in (_pontualidade_rhid, _pontualidade_rhid_intervalo, _carregar_ponto_todos):
         try:
             f.clear()
         except Exception:
             pass
+
+
+def get_ponto_do_periodo(ini, fim):
+    """({username: resumo com `dias`}, diagnóstico) de ini a fim (datas),
+    limitado a hoje. É a leitura da FOLHA (30→29); a das metas é o mês."""
+    return _pontualidade_rhid_intervalo(ini, min(fim, hoje_local()))
 
 
 def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
@@ -2246,7 +2280,7 @@ if __name__ == "__main__":
     # meio do mês, na tela que decide bônus. Ler o código-fonte do bloco, e
     # não o arquivo: guarda que varre o arquivo se encontra a si mesma.
     import ast as _ast_rp
-    _arv_pr = _ast_rp.parse(_insp_rp.getsource(_pontualidade_rhid).lstrip())
+    _arv_pr = _ast_rp.parse(_insp_rp.getsource(_pontualidade_rhid_intervalo).lstrip())
     _desempacota = [
         _n for _n in _ast_rp.walk(_arv_pr)
         if isinstance(_n, _ast_rp.Assign)
@@ -2377,6 +2411,26 @@ if __name__ == "__main__":
         ok("ponto pendente: falta sem abono e batida ímpar, nada mais",
            [(x["data"], x["tipo"]) for x in _pend]
            == [("2026-08-04", "sem_batida"), ("2026-08-06", "incompleta")])
+        # A FOLHA lê o mesmo agosto por intervalo (30/10): os `dias` saem
+        # da MESMA conta, um por registro, com a pendência de cada um.
+        _limpa = getattr(_pontualidade_rhid_intervalo, "clear", lambda: None)
+        _limpa()
+        _per = get_ponto_do_periodo(date(2026, 8, 3), date(2026, 8, 8))[0][_u_rh]
+        _dd = {d["data"]: d for d in _per["dias"]}
+        ok("período: um registro por dia, com batidas, abono, dia útil e pendência",
+           len(_per["dias"]) == 6 and _dd["2026-08-04"]["pendencia"] == "sem_batida"
+           and _dd["2026-08-05"]["min_abono"] == 480.0 and _dd["2026-08-05"]["pendencia"] == ""
+           and _dd["2026-08-06"]["batidas"] == ["08:50", "12:01", "13:02"]
+           and not _dd["2026-08-08"]["dia_util"] and _dd["2026-08-03"]["dia_util"])
+        ok("período e mês contam igual: as pendências são as mesmas",
+           _per["pendencias"] == _pend)
+        # limpar_cache_ponto apaga TAMBÉM a leitura por período: sem isso, o
+        # botão de recarregar mostraria a folha de 5 minutos atrás.
+        _rhid.get_registros_diarios = lambda a, b, c: (_regs_ago[:1], {})
+        _velho = len(get_ponto_do_periodo(date(2026, 8, 3), date(2026, 8, 8))[0][_u_rh]["dias"])
+        limpar_cache_ponto()
+        _novo = len(get_ponto_do_periodo(date(2026, 8, 3), date(2026, 8, 8))[0][_u_rh]["dias"])
+        ok("limpar_cache_ponto também limpa a leitura do período", _velho == 6 and _novo == 1)
         ok("ponto pendente: o dia de hoje ainda não fechou e não é cobrado",
            pendencia_do_dia({"data": hoje_local(), "batidas": ["09:00"]},
                             hoje_local().isoformat(), True) is None)

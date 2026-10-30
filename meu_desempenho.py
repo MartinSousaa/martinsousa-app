@@ -88,11 +88,24 @@ def resumo_do_mes(ano, mes):
     fora = {u: resumo_da_pessoa(u, dados, bonus, pont, hoje) for u in membros}
     # O MÊS EM DINHEIRO (dono, 30/10): salário pelo ponto e metas, da MESMA
     # apuração — a aba do dono (`folha_tela`) lê daqui também.
+    # O SALÁRIO É DO PERÍODO (30→29), as metas do mês: a RHiD é lida de novo
+    # no intervalo da folha, uma semana antes do início (é de lá que sai o
+    # banco anterior). Cache de 5 min, como o resto desta apuração.
     try:
         import folha_mes as _fm
-        for u, f in _fm.do_mes(ano, mes, dados, pont, bonus, hoje).items():
+        import relogio_ponto as _rp
+        from datetime import timedelta as _td
+        _ini, _fim = _fm.periodo(ano, mes)
+        _ponto, _dp = _rp.get_ponto_do_periodo(_ini - _td(days=7), _fim)
+        if _dp.get("erro") and not _ponto:
+            raise RuntimeError(f"RHiD: {_dp['erro']}")
+        for u, f in _fm.do_mes(ano, mes, dados, _ponto, bonus, hoje).items():
             if u in fora:
                 fora[u]["dinheiro"] = f
+                # O ponto pendente do PERÍODO da folha, que pode começar no
+                # dia 30 do mês anterior — o do mês do calendário não vê.
+                if f:
+                    fora[u]["pendencias"] = list(f["pendencias"])
     except Exception as e:
         for u in fora:
             fora[u]["dinheiro_erro"] = str(e)[:160]
@@ -190,26 +203,21 @@ def aparece_para(usuario_logado):
     return _pc.username_do_login(usuario_logado) in _pc.MEMBROS_ATIVOS
 
 
-def dia_do_pagamento(ano, mes):
-    """O dia em que o salário cai (dono, 30/10): dia 30; em fevereiro, dia 28;
-    em sábado ou domingo, na sexta antes. Feriado não entra — o Studio não
-    tem o calendário de feriados para isto. Pura."""
-    from datetime import date, timedelta
-    d = date(ano, mes, 28 if mes == 2 else 30)
-    return d - timedelta(days=max(d.weekday() - 4, 0))
-
-
 def prazo_do_ajuste(hoje):
-    """Último dia para ajustar o ponto: a véspera do pagamento deste mês — o
-    dia 29 quando o salário cai no 30. Depois dela o período já virou, e o
-    prazo é a véspera do pagamento do mês seguinte. Pura."""
-    from datetime import timedelta
-    d = hoje.date() if hasattr(hoje, "date") else hoje
-    prazo = dia_do_pagamento(d.year, d.month) - timedelta(days=1)
-    if d > prazo:
-        a, m = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
-        prazo = dia_do_pagamento(a, m) - timedelta(days=1)
-    return prazo
+    """Último dia para ajustar o ponto: o fim do período ABERTO — a véspera do
+    pagamento (dia 29 quando o salário cai no 30). O período é um só, o de
+    `folha_mes.periodo`: o aviso e o salário não podem discordar. Pura."""
+    import folha_mes as _fm
+    return _fm.periodo(*_fm.competencia(hoje))[1]
+
+
+def pendencias_em_aberto(pendencias, hoje):
+    """Só as pendências do período ABERTO: as de um período já fechado viraram
+    desconto no holerite, e avisar delas com o prazo do mês seguinte seria
+    mentir o prazo. Pura."""
+    import folha_mes as _fm
+    ini = _fm.periodo(*_fm.competencia(hoje))[0].isoformat()
+    return [p for p in pendencias or [] if str(p.get("data", ""))[:10] >= ini]
 
 
 def alerta_de_ponto(pendencias, hoje):
@@ -271,7 +279,8 @@ def pagina(usuario_logado):
     st.markdown(f"## Olá, {nome} 👋")
     st.caption(f"Seu mês até agora · {res['decorridos']} de {res['uteis']} "
                "dias úteis · atualiza a cada 5 minutos")
-    _alerta_de_ponto(res["pendencias"], agora)
+    _pend_ab = pendencias_em_aberto(res["pendencias"], agora)
+    _alerta_de_ponto(_pend_ab, agora)
 
     c1, c2 = st.columns([1.3, 1])
     with c1:
@@ -310,25 +319,104 @@ def pagina(usuario_logado):
                        "não vem para você.")
 
         st.markdown("#### 🕘 Ponto pendente — resolva com o RH")
-        _pend = res["pendencias"]
+        _pend = _pend_ab
         if not _pend:
             st.caption("Nenhuma marcação faltando nos dias anteriores.")
         for p in _pend:
             _d = f"{p['data'][8:10]}/{p['data'][5:7]}"
             if p["tipo"] == "sem_batida":
                 st.warning(f"**{_d}** · dia útil sem nenhuma batida e sem abono. "
-                           "Se foi atestado ou outro motivo, peça o abono na aba 🙋 Abono.")
+                           "Se foi atestado ou outro motivo, envie a justificativa pelo "
+                           "app da RHiD (Minhas solicitações) ou fale com o RH.")
             else:
                 st.warning(f"**{_d}** · marcação faltando — batidas do dia: "
                            + ", ".join(p["batidas"]))
 
     _meu_mes_em_dinheiro(res)
+    _meu_holerite(u, agora, res)
 
 
 def _brl_md(v):
     """Real no formato brasileiro, com o $ escapado para o markdown."""
     s = f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return "R\\$ " + s
+
+
+# A assinatura começa no período de outubro/2026: o que veio antes não teve
+# holerite no Studio, e cobrar assinatura dele seria um aviso eterno.
+INICIO_ASSINATURA = (2026, 10)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _assinaturas_guardadas(ano, mes):
+    import holerite as _hl
+    return _hl.assinaturas(ano, mes)
+
+
+def holerite_a_assinar(hoje, assinados_ant, u):
+    """(ano, mes) do holerite que a pessoa ainda precisa assinar, ou None.
+
+    O do mês corrente quando o pagamento dele já chegou (dia 30); senão o do
+    mês anterior, se ficou sem assinar. Pura."""
+    import holerite as _hl
+    d = hoje.date() if hasattr(hoje, "date") else hoje
+    if _hl.pode_assinar(d.year, d.month, d):
+        return d.year, d.month
+    ant = (d.year - 1, 12) if d.month == 1 else (d.year, d.month - 1)
+    if ant >= INICIO_ASSINATURA and u not in (assinados_ant or {}):
+        return ant
+    return None
+
+
+def _meu_holerite(u, agora, res):
+    """O holerite do colaborador, igual ao do dono, e o botão de assinar."""
+    import holerite as _hl
+    d = res.get("dinheiro")
+    if not d:
+        return
+    nome = _pc.MEMBROS_ATIVOS.get(u, u)
+    ano, mes = agora.year, agora.month
+    ant = (ano - 1, 12) if mes == 1 else (ano, mes - 1)
+    try:
+        ass_ant = _assinaturas_guardadas(*ant) if ant >= INICIO_ASSINATURA else {}
+        ass_cur = _assinaturas_guardadas(ano, mes)
+    except Exception as e:
+        st.error(f"Não consegui ler as assinaturas da folha de ponto: {str(e)[:120]}")
+        return
+    alvo = holerite_a_assinar(agora, ass_ant, u)
+    if alvo == ant:
+        try:
+            d_alvo = ((resumo_do_mes(*ant) or {}).get(u) or {}).get("dinheiro")
+        except Exception:
+            d_alvo = None
+        if d_alvo:
+            st.error(f"✍️ Falta assinar a folha de ponto de {ant[1]:02d}/{ant[0]}.")
+            _bloco_holerite(u, nome, ant, d_alvo, None, True)
+    st.markdown("---")
+    _fechado = d["folha"]["fechado"]
+    _bloco_holerite(u, nome, (ano, mes), d, ass_cur.get(u),
+                    alvo == (ano, mes) and u not in ass_cur)
+    if not _fechado:
+        st.caption(f"Prévia do período aberto. A assinatura é liberada no dia "
+                   f"{d['pagamento'][8:10]}/{d['pagamento'][5:7]}, depois do fechamento.")
+
+
+def _bloco_holerite(u, nome, am, d, assinatura, pode):
+    import holerite as _hl
+    st.markdown("#### 🧾 Meu holerite")
+    st.markdown(_hl.html(d, nome, assinatura), unsafe_allow_html=True)
+    if not pode:
+        return
+    ini, fim = d["periodo"]
+    if st.button(f"✍️ Conferi e assino a folha de ponto de {ini[8:10]}/{ini[5:7]} a "
+                 f"{fim[8:10]}/{fim[5:7]}", type="primary", key=f"assinar_{am[0]}_{am[1]}"):
+        try:
+            _hl.assinar(am[0], am[1], u, nome, d)
+        except Exception as e:
+            st.error(f"Não consegui gravar a assinatura: {str(e)[:120]}")
+            return
+        _assinaturas_guardadas.clear()
+        st.rerun()
 
 
 def _meu_mes_em_dinheiro(res):
@@ -481,6 +569,7 @@ if __name__ == "__main__":
     # O AVISO DO PONTO (dono, 30/10): prazo no 29, crítico no 28 e no 29.
     # As pendências na forma de `relogio_ponto.pendencia_do_dia`, de verdade.
     import relogio_ponto as _rp_t
+    import folha_mes as _fm_t
     _pd = [_rp_t.pendencia_do_dia({"data": "2026-10-09", "batidas": []}, "2026-10-20", True),
            _rp_t.pendencia_do_dia({"data": "2026-10-14", "batidas": ["09:00"]}, "2026-10-20", True)]
     _dia = lambda d, m=10: datetime(2026, m, d, 10, tzinfo=_pc.FUSO)
@@ -498,13 +587,27 @@ if __name__ == "__main__":
        prazo_do_ajuste(_dia(30)).isoformat() == "2026-11-29"
        and prazo_do_ajuste(_dia(31, 12)).isoformat() == "2027-01-28")
     ok("pagamento: 30; fevereiro 28; sábado ou domingo, a sexta antes",
-       dia_do_pagamento(2026, 10).isoformat() == "2026-10-30"
-       and dia_do_pagamento(2027, 2).isoformat() == "2027-02-26"
-       and dia_do_pagamento(2026, 8).isoformat() == "2026-08-28"
-       and dia_do_pagamento(2027, 1).isoformat() == "2027-01-29")
+       _fm_t.dia_do_pagamento(2026, 10).isoformat() == "2026-10-30"
+       and _fm_t.dia_do_pagamento(2027, 2).isoformat() == "2027-02-26"
+       and _fm_t.dia_do_pagamento(2026, 8).isoformat() == "2026-08-28"
+       and _fm_t.dia_do_pagamento(2027, 1).isoformat() == "2027-01-29")
+    ok("no dia 30 as pendências do período fechado saem do aviso; as do aberto ficam",
+       pendencias_em_aberto(_pd, _dia(30)) == []
+       and pendencias_em_aberto(_pd, _dia(20)) == _pd
+       and pendencias_em_aberto([{"data": "2026-09-30", "tipo": "sem_batida"}], _dia(5))
+       == [{"data": "2026-09-30", "tipo": "sem_batida"}])
     ok("pagamento na sexta 28/08: prazo 27/08, e o 26 já é crítico",
        prazo_do_ajuste(_dia(10, 8)).isoformat() == "2026-08-27"
        and alerta_de_ponto(_pd, _dia(26, 8))["critico"]
        and not alerta_de_ponto(_pd, _dia(25, 8))["critico"])
+    # QUAL HOLERITE ASSINAR (dono, 30/10: "assinem (...) sempre após o dia de
+    # fechamento, no dia 30, através de um botão").
+    from datetime import date as _date_t
+    ok("dia 29: nada a assinar (outubro ainda aberto; setembro é antes do início)",
+       holerite_a_assinar(_date_t(2026, 10, 29), {}, "bia") is None)
+    ok("dia 30: assina outubro", holerite_a_assinar(_date_t(2026, 10, 30), {}, "bia") == (2026, 10))
+    ok("05/11 sem ter assinado: ainda cobra outubro; assinado, nada",
+       holerite_a_assinar(_date_t(2026, 11, 5), {}, "bia") == (2026, 10)
+       and holerite_a_assinar(_date_t(2026, 11, 5), {"bia": {}}, "bia") is None)
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

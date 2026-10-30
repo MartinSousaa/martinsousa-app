@@ -143,43 +143,119 @@ def metas(salario, b):
     return linhas, total_pct, round(salario * total_pct / 100, 2)
 
 
-def do_mes(ano, mes, dados, pont, bonus, hoje, salarios=None, bancos_anteriores=None,
-           domingos=None):
-    """{username: {"folha", "metas", "pct_metas", "metas_valor", "total"}} do mês.
+def dia_do_pagamento(ano, mes):
+    """O dia em que o salário cai (dono, 30/10): dia 30; em fevereiro, dia 28;
+    em sábado ou domingo, na sexta antes. Feriado não entra — o Studio não
+    tem o calendário de feriados para isto. Pura."""
+    from datetime import timedelta
+    d = date(ano, mes, 28 if mes == 2 else 30)
+    return d - timedelta(days=max(d.weekday() - 4, 0))
 
-    Recebe a apuração JÁ FEITA (a do `meu_desempenho.resumo_do_mes`): nada de
-    Trello lido duas vezes. Só busca o que ela não tem — o salário do mês e o
-    banco da RHiD no fim do mês anterior. Quem não tem salário cadastrado
-    fica de fora (None), em vez de aparecer recebendo zero."""
-    import analise_metas as _am
+
+def periodo(ano, mes):
+    """(início, fim) do ponto que paga o salário de (ano, mes). Pura.
+
+    Dono, 30/10: "do dia 30 do mês anterior até dia 29", porque o depósito sai
+    no dia 30 e não dá para esperar ele acabar. Em regra geral: do dia do
+    pagamento anterior até a véspera do pagamento deste mês."""
+    from datetime import timedelta
+    a, m = (ano - 1, 12) if mes == 1 else (ano, mes - 1)
+    return dia_do_pagamento(a, m), dia_do_pagamento(ano, mes) - timedelta(days=1)
+
+
+def competencia(hoje):
+    """(ano, mes) do período ABERTO em `hoje`: depois da véspera do pagamento
+    o período já é o do mês seguinte. Pura."""
+    d = hoje.date() if hasattr(hoje, "date") else hoje
+    if d > periodo(d.year, d.month)[1]:
+        return (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+    return d.year, d.month
+
+
+def _dias_uteis(ini, fim):
+    import placar_core as _pc
+    from datetime import timedelta
+    n, d = 0, ini
+    while d <= fim:
+        n += bool(_pc.eh_dia_util(d))
+        d += timedelta(days=1)
+    return n
+
+
+def ponto_da_pessoa(dias, ini, fim, hoje, jornada=480.0):
+    """O ponto de uma pessoa no período, a partir dos `dias` da RHiD
+    (`relogio_ponto._pontualidade_rhid_intervalo`). Pura.
+
+    Só conta dia FECHADO (o de hoje ainda não acabou) e dentro do período.
+    Devolve trabalhado, abonado, devido (dias úteis fechados × jornada),
+    horas do período inteiro (o divisor do valor da hora), as faltas de dia
+    inteiro, as pendências e os dias em ordem."""
+    from datetime import timedelta
+    d_hoje = hoje.date() if hasattr(hoje, "date") else hoje
+    i_s, f_s = ini.isoformat(), fim.isoformat()
+    meus = sorted([x for x in dias or [] if i_s <= str(x.get("data", ""))[:10] <= f_s],
+                  key=lambda x: x["data"])
+    fech = [x for x in meus if x.get("fechado")]
+    ate = min(fim, d_hoje - timedelta(days=1))
+    return {"min_trab": sum(float(x.get("min_trab") or 0) for x in fech),
+            "min_abono": sum(float(x.get("min_abono") or 0) for x in fech),
+            "devidas_min": (_dias_uteis(ini, ate) if ate >= ini else 0) * jornada,
+            "horas_do_mes_min": _dias_uteis(ini, fim) * jornada,
+            "faltas": [x["data"] for x in fech if x.get("pendencia") == "sem_batida"],
+            "pendencias": [{"data": x["data"], "tipo": x["pendencia"],
+                            "batidas": list(x.get("batidas") or [])}
+                           for x in fech if x.get("pendencia")],
+            "dias": meus}
+
+
+def banco_antes(dias, ini):
+    """O saldo do banco da RHiD no último dia ANTES do período (minutos). O
+    campo da RHiD já é acumulado; o último valor preenchido é o saldo. Pura."""
+    for x in sorted(dias or [], key=lambda x: x["data"], reverse=True):
+        if str(x["data"])[:10] < ini.isoformat() and x.get("saldo_banco") not in (None, ""):
+            return float(x["saldo_banco"])
+    return 0.0
+
+
+def do_mes(ano, mes, dados, ponto, bonus, hoje, salarios=None, domingos=None):
+    """{username: {"folha", "metas", "pct_metas", "metas_valor", "total", ...}}.
+
+    O SALÁRIO é do PERÍODO (`periodo`: do dia 30 ao 29); as METAS são do mês
+    do calendário, da apuração já feita (`bonus`, a do `meu_desempenho`).
+    `ponto` é a leitura da RHiD por intervalo, começando uma semana antes do
+    período — de lá sai o banco anterior (`banco_antes`). Quem não tem
+    salário cadastrado fica de fora (None), em vez de aparecer recebendo zero."""
     import placar_core as _pc
     if salarios is None:
         salarios = salarios_do_mes(ano, mes)
-    if bancos_anteriores is None:
-        bancos_anteriores = bancos_do_mes_anterior(ano, mes)
     if domingos is None:
         domingos = domingos_marcados(ano, mes)
-    devidas = _am.horas_devidas_min(dados, (dados[-1] or {}).get("cfg") if dados else None, hoje)
-    fechado = (ano, mes) < (hoje.year, hoje.month)
+    ini, fim = periodo(ano, mes)
+    d_hoje = hoje.date() if hasattr(hoje, "date") else hoje
+    fechado = d_hoje > fim
     jornada = float(((dados[-1] or {}).get("cfg") or {}).get("jornada_diaria_min", 480) or 480) \
         if dados else 480.0
-    horas_mes = _pc.dias_uteis_do_mes(ano, mes)[0] * jornada
     fora = {}
     for u in _pc.MEMBROS_ATIVOS:
         sal = salarios.get(u)
         if not sal:
             fora[u] = None
             continue
-        p = (pont or {}).get(u) or {}
-        faltas = [x.get("data") for x in p.get("pend") or [] if x.get("tipo") == "sem_batida"]
+        dias = ((ponto or {}).get(u) or {}).get("dias") or []
+        pp = ponto_da_pessoa(dias, ini, fim, hoje, jornada)
+        faltas = pp["faltas"]
         marcados = [d for d in domingos.get(u, []) if d in faltas]
-        f = apurar(sal, p.get("min_trab", 0.0), p.get("min_abono", 0.0), devidas,
-                   bancos_anteriores.get(u, 0.0), faltas, fechado, marcados,
-                   horas_do_mes_min=horas_mes)
+        anterior = banco_antes(dias, ini)
+        f = apurar(sal, pp["min_trab"], pp["min_abono"], pp["devidas_min"], anterior,
+                   faltas, fechado, marcados, horas_do_mes_min=pp["horas_do_mes_min"])
+        f["banco_anterior_min"] = anterior
         linhas, pct, valor = metas(sal, (bonus or {}).get(u))
         fora[u] = {"folha": f, "metas": linhas, "pct_metas": pct, "metas_valor": valor,
-                   "faltas": faltas, "domingo_nas": marcados, "devidas_min": devidas,
-                   "horas_do_mes_min": horas_mes,
+                   "faltas": faltas, "domingo_nas": marcados,
+                   "devidas_min": pp["devidas_min"], "horas_do_mes_min": pp["horas_do_mes_min"],
+                   "pendencias": pp["pendencias"], "dias": pp["dias"],
+                   "periodo": (ini.isoformat(), fim.isoformat()),
+                   "pagamento": dia_do_pagamento(ano, mes).isoformat(),
                    "total": round(f["salario_pagar"] + valor, 2)}
     return fora
 
@@ -240,28 +316,18 @@ def gravar_domingos(ano, mes, marcas, por):
 
 
 def salarios_do_mes(ano, mes):
-    """{username: salário base do mês}, pela folha (com os reajustes)."""
+    """{username: salário base do mês}, pela folha (com os reajustes).
+
+    NÃO engole erro (30/10): devolver {} com a planilha fora do ar fazia a
+    tela dizer "sem salário cadastrado" — o defeito virava cadastro. O erro
+    sobe e vira `dinheiro_erro`, que a tela mostra."""
     import colaboradores as _co
     import placar_core as _pc
-    try:
-        df = _co.carregar()
-        aj = _co._aj().carregar()
-        linhas = _co.folha_clt(df, ano, mes, _co.carregar_taxas(), aj)
-    except Exception:
-        return {}
+    df = _co.carregar()
+    aj = _co._aj().carregar()
+    linhas = _co.folha_clt(df, ano, mes, _co.carregar_taxas(), aj)
     return {_pc.username_do_login(l.get("funcionario", "")): float(l.get("base") or 0)
             for l in linhas if l.get("funcionario")}
-
-
-def bancos_do_mes_anterior(ano, mes):
-    """{username: banco da RHiD no fim do mês anterior, em minutos}."""
-    import relogio_ponto as _rp
-    a, m = (ano - 1, 12) if mes == 1 else (ano, mes - 1)
-    try:
-        return {u: float((r or {}).get("banco_min", 0.0) or 0.0)
-                for u, r in (_rp.get_pontualidade_mes(a, m) or {}).items()}
-    except Exception:
-        return {}
 
 
 def h(minutos):
@@ -371,39 +437,76 @@ if __name__ == "__main__":
        _p == 30.0 and _v == 720.0 and _l[0][2] == 0.0 and _l[1][2] == 432.0)
     _l, _p, _v = metas(2000, {"el": {"entra_col": False}})
     ok("quem não entrou na coletiva vê o motivo", _l[0][4] == "não entrou" and _v == 0)
-    # PELA CADEIA: `do_mes` com o `pont` na forma de
-    # `analise_metas._pontualidade_do_periodo` (as chaves são as dela, lidas
-    # no código: min_trab, min_abono, pend) e as horas devidas pela função de
-    # verdade — setembro fechado, 21 dias úteis.
-    import analise_metas as _am_t
+    # PELA CADEIA, DA RHiD À FOLHA: os registros no formato de
+    # `rhid_api.get_registros_diarios`, passados pela leitura de verdade
+    # (`relogio_ponto.get_ponto_do_periodo`); só a rede é trocada.
+    # Setembro/2026 paga o período 28/08 (sexta, pagamento de agosto) a 29/09:
+    # 22 dias úteis (07/09 é feriado) = 176h; R$ 3.000 ÷ 176 = R$ 17,045/h.
     import placar_core as _pc_t
-    from datetime import datetime as _dt_t
-    _u = next(iter(_pc_t.MEMBROS_ATIVOS))
+    import relogio_ponto as _rp_t
+    import rhid_api as _rh_t
+    from datetime import datetime as _dt_t, timedelta as _td_t
+    _u = next(u for u in _pc_t.MEMBROS_ATIVOS if u in _rp_t.MEMBROS)
     _hoje = _dt_t(2026, 10, 30, 10, 0, tzinfo=_pc_t.FUSO)
+    ok("período de setembro: 28/08 (sexta) a 29/09; pagamento 30/09",
+       periodo(2026, 9) == (date(2026, 8, 28), date(2026, 9, 29))
+       and dia_do_pagamento(2026, 9) == date(2026, 9, 30))
+    ok("período de outubro: 30/09 a 29/10 — o do dono",
+       periodo(2026, 10) == (date(2026, 9, 30), date(2026, 10, 29)))
+    ok("competência: até 29/10 é outubro; no dia 30, novembro",
+       competencia(date(2026, 10, 29)) == (2026, 10) and competencia(date(2026, 10, 30)) == (2026, 11))
+
+    def _reg(d, bat, trab, banco=None):
+        return {"data": d, "batidas": bat, "entrada": bat[0] if bat else None,
+                "saida_almoco": None, "volta_almoco": None,
+                "saida": bat[-1] if len(bat) > 1 else None, "minutos_atraso": 0.0,
+                "minutos_trabalhados": trab, "faltou": not bat,
+                "saldo_banco": banco, "minutos_abonados": 0.0}
+    _regs = [_reg(date(2026, 8, 21), ["09:00", "18:00"], 480.0, banco=120.0)]
+    _dt = date(2026, 8, 28)
+    while _dt <= date(2026, 9, 29):
+        if _pc_t.eh_dia_util(_dt):
+            if _dt == date(2026, 9, 15):
+                _regs.append(_reg(_dt, [], 0.0))                         # falta
+            elif _dt == date(2026, 9, 16):
+                _regs.append(_reg(_dt, ["09:00", "12:00", "13:00"], 420.0))  # ímpar, 7h
+            else:
+                _regs.append(_reg(_dt, ["09:00", "12:00", "13:00", "18:00"], 480.0))
+        _dt += _td_t(days=1)
+    _g = (_rh_t.get_persons, _rh_t.get_registros_diarios, _rp_t._rhid_nome_para_trello)
+    try:
+        _rh_t.get_persons = lambda: [{"id": 1, "name": "X"}]
+        _rh_t.get_registros_diarios = lambda a, b, c: (_regs, {})
+        _rp_t._rhid_nome_para_trello = lambda n: _u
+        getattr(_rp_t._pontualidade_rhid_intervalo, "clear", lambda: None)()
+        _ponto = _rp_t.get_ponto_do_periodo(date(2026, 8, 21), date(2026, 9, 29))[0]
+    finally:
+        _rh_t.get_persons, _rh_t.get_registros_diarios, _rp_t._rhid_nome_para_trello = _g
     _dados = [{"filtro_mes": (2026, 9), "cfg": {}}]
-    _dev = _am_t.horas_devidas_min(_dados, {}, _hoje)
-    _pont = {_u: {"min_trab": _dev - 480, "min_abono": 0.0,
-                  "pend": [{"data": "2026-09-15", "tipo": "sem_batida"},
-                           {"data": "2026-09-16", "tipo": "incompleta"}]}}
-    _r = do_mes(2026, 9, _dados, _pont, {_u: {"col": True}}, _hoje,
-                salarios={_u: 3000.0}, bancos_anteriores={_u: 120.0}, domingos={})
+    _r = do_mes(2026, 9, _dados, _ponto, {_u: {"col": True}}, _hoje,
+                salarios={_u: 3000.0}, domingos={})
     _f = _r[_u]["folha"]
-    # Setembro/2026: 21 dias úteis = 168h; R$ 3.000 ÷ 168 = R$ 17,857/h.
-    ok("cadeia: setembro fechado, devendo 8h com 2h de banco → −6h, só as 6h descontadas",
-       _f["fechado"] and _f["banco_final_min"] == -360
-       and _r[_u]["horas_do_mes_min"] == 21 * 480 and _f["desconto_horas"] == 107.14
-       and _f["desconto_domingo"] == 0 and _f["salario_pagar"] == 2892.86
+    ok("cadeia: 22 dias úteis no período = 176h, e o banco anterior (2h) vem do dia 21/08",
+       _r[_u]["horas_do_mes_min"] == 22 * 480 and _r[_u]["devidas_min"] == 22 * 480
+       and _f["banco_anterior_min"] == 120.0 and _r[_u]["periodo"] == ("2026-08-28", "2026-09-29"))
+    ok("cadeia: falta 8h + 1h do dia ímpar − 2h de banco = 7h descontadas (R$ 119,32)",
+       _f["fechado"] and _f["saldo_mes_min"] == -540 and _f["banco_final_min"] == -420
+       and _f["desconto_horas"] == 119.32 and _f["salario_pagar"] == 2880.68
        and _r[_u]["faltas"] == ["2026-09-15"] and _r[_u]["metas_valor"] == 360.0)
+    ok("cadeia: a pendência ímpar do período chega, para o aviso e o holerite",
+       [(x["data"], x["tipo"]) for x in _r[_u]["pendencias"]]
+       == [("2026-09-15", "sem_batida"), ("2026-09-16", "incompleta")]
+       and _r[_u]["dias"][0]["data"] == "2026-08-28")
     # A marca do dono pela cadeia, no formato que `domingos_de` devolve da
     # aba — e a da data que é só "incompleta" não conta.
-    _r2 = do_mes(2026, 9, _dados, _pont, {_u: {"col": True}}, _hoje,
-                 salarios={_u: 3000.0}, bancos_anteriores={_u: 120.0},
+    _r2 = do_mes(2026, 9, _dados, _ponto, {_u: {"col": True}}, _hoje,
+                 salarios={_u: 3000.0},
                  domingos=domingos_de([{"mes": "2026-09", "username": _u, "data": "2026-09-15"},
                                        {"mes": "2026-09", "username": _u, "data": "2026-09-16"}],
                                       2026, 9))
     ok("cadeia: com a falta de 15/09 marcada, soma o domingo (R$ 100) e só ele",
        _r2[_u]["domingo_nas"] == ["2026-09-15"] and _r2[_u]["folha"]["desconto_domingo"] == 100.0
-       and _r2[_u]["folha"]["salario_pagar"] == 2792.86)
+       and _r2[_u]["folha"]["salario_pagar"] == 2780.68)
     ok("cadeia: quem não tem salário na folha fica de fora, e não recebendo zero",
        all(v is None for k, v in _r.items() if k != _u))
     ok("valor-hora = salário ÷ horas do mês (176h → R$ 12,50; 152h → R$ 14,47)",
@@ -415,12 +518,38 @@ if __name__ == "__main__":
     except ValueError:
         _sem_div = True
     ok("sem as horas do mês, recusa em vez de inventar um divisor", _sem_div)
-    # O mês ABERTO divide pelo mês inteiro, e não pelas horas até ontem.
-    _ro = do_mes(2026, 10, [{"filtro_mes": (2026, 10), "cfg": {}}],
-                 {_u: {"min_trab": 0.0, "min_abono": 0.0, "pend": []}}, {}, _dt_t(2026, 10, 6, 10, tzinfo=_pc_t.FUSO),
-                 salarios={_u: 2100.0}, bancos_anteriores={}, domingos={})
-    ok("mês aberto: valor da hora pelo outubro inteiro (21 dias = 168h → R$ 12,50)",
-       _ro[_u]["horas_do_mes_min"] == 21 * 480 and _ro[_u]["folha"]["valor_hora"] == 12.5)
+    # O período ABERTO divide pelo período inteiro, e não pelas horas até ontem.
+    _ro = do_mes(2026, 10, [{"filtro_mes": (2026, 10), "cfg": {}}], {}, {},
+                 _dt_t(2026, 10, 6, 10, tzinfo=_pc_t.FUSO), salarios={_u: 2100.0}, domingos={})
+    ok("período aberto: valor da hora por 30/09–29/10 inteiro (21 dias = 168h → R$ 12,50)",
+       _ro[_u]["horas_do_mes_min"] == 21 * 480 and _ro[_u]["folha"]["valor_hora"] == 12.5
+       and not _ro[_u]["folha"]["fechado"] and _ro[_u]["devidas_min"] == 4 * 480)
+    # O SALÁRIO DA FOLHA pela cadeia: `colaboradores.folha_clt` de verdade,
+    # com a grade sugerida; só a planilha trocada.
+    import colaboradores as _co_t
+    import pandas as _pd_t
+    _g_co = (_co_t.carregar, _co_t._aj, _co_t.carregar_taxas)
+    _pad = {"cargo": _co_t.CARGO_PADRAO, "registrado": "Sim",
+            "salario_base": _co_t.SALARIO_PADRAO, "admissao": "2026-01",
+            "dias_uteis": 22, "no_aporte": "Sim"}
+    try:
+        _co_t.carregar = lambda *a, **k: _pd_t.DataFrame([{**_pad, **p} for p in _co_t.SUGESTOES])
+        _aj_mod = _co_t._aj()
+        _co_t._aj = lambda: type("A", (), {"carregar": staticmethod(
+            lambda *a, **k: _pd_t.DataFrame(columns=_aj_mod.COLUNAS))})
+        _co_t.carregar_taxas = lambda *a, **k: _co_t.taxas_padrao()
+        _sal_t = salarios_do_mes(2026, 10)
+        _ok_sal = _sal_t.get(_pc_t.username_do_login("Gabriel"), 0) > 0
+        _co_t.carregar = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("planilha fora"))
+        try:
+            salarios_do_mes(2026, 10)
+            _sobe = False
+        except RuntimeError:
+            _sobe = True
+    finally:
+        _co_t.carregar, _co_t._aj, _co_t.carregar_taxas = _g_co
+    ok("salarios_do_mes: o salário da folha chega por username; planilha fora sobe erro",
+       _ok_sal and _sobe)
     ok("h: formata saldo com sinal", h(380) == "+6h20" and h(-75) == "−1h15" and h(0) == "0h00")
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
