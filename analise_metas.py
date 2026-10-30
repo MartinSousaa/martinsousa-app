@@ -6403,8 +6403,12 @@ def _secao_colunas(dados):
     # A MESMA pergunta da TV e da configuração (`colunas_sem_config`): por
     # grafia exata, coluna configurada com um espaço de diferença seguia aqui.
     novas = _pc.colunas_sem_config(do_board, salvas)
+    # O aviso mora num container que existe SEMPRE. Elemento que aparece ou
+    # some acima de um expander faz o Streamlit recriar o expander fechado —
+    # salvar a ultima coluna nova apagava o aviso e recolhia todas as linhas.
+    _aviso_novas = st.container()
     if novas:
-        st.warning(
+        _aviso_novas.warning(
             "**Colunas novas no Trello, ainda sem configuração:** "
             + ", ".join(novas)
             + ". Estão rodando com prioridade 5 e 1h de tempo estimado."
@@ -6447,7 +6451,11 @@ def _secao_colunas(dados):
                         st.rerun()
                     else:
                         st.error(f"Não consegui remover: {_erro or _msg}")
-            c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+            # Formulario (dono, 30/10): fora dele cada setinha refazia a pagina
+            # inteira (~5 s, Trello + analise) e a linha recolhia no meio da
+            # edicao. Dentro dele nada roda nem grava ate o "Salvar".
+            _form_col = st.form(key=f"col_f_{nome}", border=False)
+            c1, c2, c3, c4 = _form_col.columns([1, 1, 1, 1])
             p = c1.number_input("Prioridade", 0, 10, int(cfg.get("prioridade", 5)),
                                 key=f"col_p_{nome}")
             t = c2.number_input("Tempo estimado (min)", 0, 2000,
@@ -6465,7 +6473,7 @@ def _secao_colunas(dados):
                     f'{"dentro" if delta <= 0 else f"+{delta:.0f}min acima"} do estimado</div>',
                     unsafe_allow_html=True,
                 )
-            if st.button("Salvar", key=f"col_s_{nome}", use_container_width=True):
+            if _form_col.form_submit_button("Salvar", use_container_width=True):
                 try:
                     _cc.salvar(nome, p, t, e or None)
                     st.success(f"{rotulo} salva.")
@@ -6494,7 +6502,7 @@ def _secao_colunas(dados):
 
 def _secao_configuracao(dados=None, carregar_periodo=None):
     st.markdown("#### ⚙️ Configurar Metas por Mês")
-    st.caption("Configure as metas de qualquer mês, inclusive meses futuros. As configurações são salvas automaticamente no banco de dados.")
+    st.caption("Configure as metas de qualquer mês, inclusive meses futuros. Nada é gravado até você clicar em **Salvar** (em cada coluna) ou em **Salvar configuração** (no mês).")
 
     agora = _pc.agora_br()
     col_a, col_m, col_go_cfg = st.columns([1, 2, 1])
