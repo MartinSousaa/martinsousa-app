@@ -4541,6 +4541,28 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'a falta volta a descontar mesmo com banco de horas para cobrir (30/10)',
+        "folha_mes.py",
+        [('    final = anterior + saldo\n', '    final = saldo\n')],
+        None,
+        ["python3", "folha_mes.py"],
+    ),
+    (
+        'o domingo volta a ser descontado da falta coberta pelo banco (30/10)',
+        "folha_mes.py",
+        [('    semanas = semanas_com_falta(faltas_dia_inteiro) if negativo > 0 else 0\n',
+          '    semanas = semanas_com_falta(faltas_dia_inteiro)\n')],
+        None,
+        ["python3", "folha_mes.py"],
+    ),
+    (
+        'o colaborador volta a ficar sem o mes em dinheiro (30/10)',
+        "meu_desempenho.py",
+        [('    _meu_mes_em_dinheiro(res)\n', '')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
 ]
 
 

@@ -4929,6 +4929,15 @@ def _meu_desempenho(conta):
                                          "batidas": []}]}}
         _res = {"beatriz51": _md.resumo_da_pessoa(
             "beatriz51", _dados, _bon, _pont, _dt_md(2026, 10, 26, 10, tzinfo=_pc_md.FUSO))}
+        # O MÊS EM DINHEIRO (30/10), pela conta de verdade (`folha_mes.do_mes`)
+        # com o `_pont` e o `_bon` desta mesma apuração; só o salário e o
+        # banco do mês anterior (planilha e RHiD) são dados aqui.
+        import folha_mes as _fm_md
+        _pont["beatriz51"].update({"min_trab": 0.0, "min_abono": 0.0})
+        _din = _fm_md.do_mes(2026, 10, _dados, _pont, _bon,
+                             _dt_md(2026, 10, 26, 10, tzinfo=_pc_md.FUSO),
+                             salarios={"beatriz51": 2400.0}, bancos_anteriores={})
+        _res["beatriz51"]["dinheiro"] = _din["beatriz51"]
         _md.resumo_do_mes = lambda a, m: _res
         _li = {"L1": "PRODUÇÃO", "L2": "DESATIVAR ANÚNCIOS"}
         _cards = [{"name": "Caneca", "idList": "L1", "idMembers": ["m1"],
@@ -4946,6 +4955,24 @@ def _meu_desempenho(conta):
               "09/10" in _j and "abono" in _j, "")
         conta("Meu desempenho: duas demandas fora do Desativar geram o aviso",
               "2 demandas ao mesmo tempo" in _j, "")
+        conta("Meu desempenho: o mês em dinheiro mostra salário, banco negativo com alerta e metas",
+              "Meu mês em dinheiro" in _j and "SALÁRIO DO MÊS" in _j
+              and "Banco negativo" in _j and "METAS" in _j and "Total previsto" in _j, _j[-400:])
+        # E A ABA DO DONO lê a mesma apuração (folha_tela).
+        import folha_tela as _ft_md
+        import auth as _auth_md
+        _g_ft = (_ft_md.st, _auth_md.eh_dono)
+        _tabs_ft = []
+        try:
+            _ft_md.st = f
+            _auth_md.eh_dono = lambda u: True
+            f.dataframe = lambda df, *a, **k: _tabs_ft.append(df)
+            _ft_md.pagina("MartinSousa")
+        finally:
+            _ft_md.st, _auth_md.eh_dono = _g_ft
+        conta("Apuração do mês: a aba do dono mostra a mesma pessoa nas duas tabelas",
+              len(_tabs_ft) == 2 and list(_tabs_ft[0]["Colaborador"]) == ["Beatriz"]
+              and "Metas a pagar" in _tabs_ft[1].columns, str(len(_tabs_ft)))
         # Sem cartão rodando e dentro do expediente batido: ociosidade agora.
         _txt.clear()
         _cards[:] = []

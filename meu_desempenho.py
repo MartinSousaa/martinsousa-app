@@ -85,7 +85,18 @@ def resumo_do_mes(ano, mes):
     medias = _am._media_execucao_por_membro(dados) or {}
     bonus = _am.apuracao_bonus(dados, membros, pont, ocio, tem_ponto, medias)
     hoje = _pc.agora_br()
-    return {u: resumo_da_pessoa(u, dados, bonus, pont, hoje) for u in membros}
+    fora = {u: resumo_da_pessoa(u, dados, bonus, pont, hoje) for u in membros}
+    # O MÊS EM DINHEIRO (dono, 30/10): salário pelo ponto e metas, da MESMA
+    # apuração — a aba do dono (`folha_tela`) lê daqui também.
+    try:
+        import folha_mes as _fm
+        for u, f in _fm.do_mes(ano, mes, dados, pont, bonus, hoje).items():
+            if u in fora:
+                fora[u]["dinheiro"] = f
+    except Exception as e:
+        for u in fora:
+            fora[u]["dinheiro_erro"] = str(e)[:160]
+    return fora
 
 
 # ── O instante (puro, testável) ──────────────────────────────────────────────
@@ -251,6 +262,63 @@ def pagina(usuario_logado):
             else:
                 st.warning(f"**{_d}** · marcação faltando — batidas do dia: "
                            + ", ".join(p["batidas"]))
+
+    _meu_mes_em_dinheiro(res)
+
+
+def _brl_md(v):
+    """Real no formato brasileiro, com o $ escapado para o markdown."""
+    s = f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return "R\\$ " + s
+
+
+def _meu_mes_em_dinheiro(res):
+    """Salário pelo ponto, banco de horas e metas (dono, 30/10)."""
+    import folha_mes as _fm
+    import headcount as _hc
+    d = res.get("dinheiro")
+    st.markdown("---")
+    st.markdown("#### 💰 Meu mês em dinheiro")
+    if not d:
+        st.caption("Seu salário ainda não está cadastrado na folha — fale com o RH."
+                   if "dinheiro_erro" not in res else
+                   f"Não consegui montar: {res['dinheiro_erro']}")
+        return
+    f = d["folha"]
+    agora = _pc.agora_br()
+    q = _hc.quinto_dia_util(agora.year, agora.month)
+    st.caption("Pelo ponto da RHiD até ontem · horas devidas: "
+               f"{_fm.h(d['devidas_min']).lstrip('+')} (8h por dia útil)")
+    a, b, c = st.columns(3)
+    with a.container(border=True):
+        st.caption("SALÁRIO DO MÊS · PAGO DIA 30")
+        st.markdown(f"### {_brl_md(f['salario_se_fechasse_hoje'])}")
+        st.markdown(f"Base **{_brl_md(f['salario'])}**")
+        if f["desconto"]:
+            st.markdown(f":red[Se o mês fechasse hoje: − {_brl_md(f['desconto'])} "
+                        f"({_fm.h(-f['negativo_min'])} no banco"
+                        + (f" e {f['semanas_falta']} domingo(s)" if f["semanas_falta"] else "")
+                        + ")]")
+    with b.container(border=True):
+        st.caption("BANCO DE HORAS")
+        st.markdown(f"### {_fm.h(f['banco_final_min'])}")
+        st.markdown(f"Este mês: {_fm.h(f['saldo_mes_min'])}"
+                    + (f" · {_fm.h(f['usado_do_banco_min']).lstrip('+')} usadas do banco"
+                       if f["usado_do_banco_min"] else ""))
+        if f["banco_final_min"] < 0:
+            st.error("⚠️ Banco negativo. Se o mês fechar assim, estas horas serão "
+                     "descontadas do salário.")
+    with c.container(border=True):
+        st.caption(f"METAS · PAGAS NO 5º DIA ÚTIL ({q:%d/%m})" if q else "METAS · 5º DIA ÚTIL")
+        st.markdown(f"### {_brl_md(d['metas_valor'])} · {d['pct_metas']:.0f}%")
+        st.markdown("  \n".join(
+            ("✅ " if bateu else "❌ ") + f"**{rot}** {pct:.0f}%"
+            + (f" · {_brl_md(v)}" if pago else "")
+            + (f" — {mot}" if mot else "")
+            for rot, pct, v, bateu, mot, pago in d["metas"]))
+    st.info(f"**Total previsto do mês: {_brl_md(f['salario_se_fechasse_hoje'] + d['metas_valor'])}** · "
+            f"{_brl_md(f['salario_se_fechasse_hoje'])} no dia 30 + {_brl_md(d['metas_valor'])} "
+            "no 5º dia útil")
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────

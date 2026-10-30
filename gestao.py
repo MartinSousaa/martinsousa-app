@@ -308,6 +308,8 @@ SUBTELAS = {
     "🎯 Meta de gastos": _meta_gastos,
     # Dono, 27/10: quanto o Studio custa, por serviço, ferramenta e pessoa.
     "💸 Custos do Studio": lambda u: _abrir_tela("custos_studio", u),
+    # Dono, 30/10: salário pelo ponto (dia 30) e metas (5º dia útil).
+    "🧮 Apuração do mês": lambda u: _abrir_tela("folha_tela", u),
 }
 
 
