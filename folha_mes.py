@@ -62,6 +62,25 @@ NIVEIS = (("col", "Coletiva"), ("maxx", "Coletiva MAXX"),
           ("ind", "Individual"), ("ind_maxx", "Individual MAXX"))
 
 
+def reais(minutos, salario, horas_do_mes_min):
+    """O valor em R$ de `minutos` de trabalho: minutos × salário ÷ horas do
+    mês, arredondado em CENTAVOS, meio centavo para cima. Pura.
+
+    Conta exata (frações), e não em ponto flutuante: 5h27 × R$ 12,50 dá
+    R$ 68,125, que o `round` do Python deixava em 68,12 — o holerite saía um
+    centavo diferente da conta feita à mão (30/10). Uma regra só, usada pela
+    folha e pelo holerite."""
+    from decimal import Decimal, ROUND_HALF_UP
+    from fractions import Fraction
+    if not horas_do_mes_min:
+        return 0.0
+    q = Fraction(str(minutos)) * Fraction(str(salario)) / Fraction(str(horas_do_mes_min))
+    neg = q < 0
+    v = (Decimal(abs(q.numerator)) / Decimal(q.denominator)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return float(-v if neg else v)
+
+
 def semanas_com_falta(datas_iso):
     """Quantas semanas (seg–dom) têm ao menos uma falta de dia inteiro. Pura."""
     sem = set()
@@ -97,10 +116,10 @@ def apurar(salario, trab_min, abono_min, devido_min, banco_anterior_min=0.0,
     if not horas_do_mes_min:
         raise ValueError("apurar: falta horas_do_mes_min (dias úteis do mês × jornada)")
     valor_hora = salario / (float(horas_do_mes_min) / 60) if salario else 0.0
-    desc_h = round(negativo / 60 * valor_hora, 2)
+    desc_h = reais(negativo, salario, horas_do_mes_min)
     _faltas = {str(x)[:10] for x in faltas_dia_inteiro or ()}
     semanas = semanas_com_falta([x for x in domingo_nas or () if str(x)[:10] in _faltas])
-    desc_dom = round(semanas * salario / 30, 2)
+    desc_dom = reais(semanas, salario, 30)
     desconto = round(desc_h + desc_dom, 2)
     return {"salario": salario, "saldo_mes_min": round(saldo, 1),
             "banco_final_min": round(final, 1), "usado_do_banco_min": round(usado, 1),
@@ -550,6 +569,9 @@ if __name__ == "__main__":
         _co_t.carregar, _co_t._aj, _co_t.carregar_taxas = _g_co
     ok("salarios_do_mes: o salário da folha chega por username; planilha fora sobe erro",
        _ok_sal and _sobe)
+    ok("reais: meio centavo para cima, em conta exata (5h27 × R$ 12,50 = R$ 68,13)",
+       reais(327, 2100, 168 * 60) == 68.13 and reais(-327, 2100, 168 * 60) == -68.13
+       and _ap(2100, 9600 - 327, 0, 9600)["desconto_horas"] == round(327 * 2100 / (176 * 60) + 1e-9, 2))
     ok("h: formata saldo com sinal", h(380) == "+6h20" and h(-75) == "−1h15" and h(0) == "0h00")
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

@@ -97,8 +97,9 @@ def linhas(pessoa, jornada=480.0):
 
     Uma linha por dia fechado em que o feito difere do devido, e uma pelo
     domingo de cada falta que o dono marcou."""
+    import folha_mes as _fm
     f = pessoa["folha"]
-    vh = float(f["valor_hora"] or 0)
+    sal, hm = float(f["salario"]), float(pessoa["horas_do_mes_min"])
     fora = []
     for d in pessoa.get("dias") or []:
         if not d.get("fechado"):
@@ -111,10 +112,10 @@ def linhas(pessoa, jornada=480.0):
         fora.append({"data": d["data"], "dia": _dia(d["data"]),
                      "batidas": " · ".join(d.get("batidas") or []) or "nenhuma",
                      "motivo": motivo(d, jornada), "min": dif,
-                     "valor": round(dif / 60 * vh, 2),
+                     "valor": _fm.reais(dif, sal, hm),
                      "falta": d.get("pendencia") == "sem_batida", "domingo": False})
     if f.get("desconto_domingo"):
-        por_dom = round(float(f["salario"]) / 30, 2)
+        por_dom = _fm.reais(1, sal, 30)
         vistas = set()
         from datetime import date, timedelta
         for dt in sorted(pessoa.get("domingo_nas") or []):
@@ -136,8 +137,9 @@ def consolidado(pessoa, lins):
     A última conta é a de `folha_mes.apurar` — não é refeita aqui. As linhas
     acima dela EXPLICAM o número, e a soma delas bate com o saldo do período
     (o auto-teste confere)."""
+    import folha_mes as _fm
     f = pessoa["folha"]
-    vh = float(f["valor_hora"] or 0)
+    sal, hm = float(f["salario"]), float(pessoa["horas_do_mes_min"])
     falta = sum(-x["min"] for x in lins if x["min"] is not None and x["min"] < 0)
     mais = sum(x["min"] for x in lins if x["min"] is not None and x["min"] > 0)
     ant = float(f.get("banco_anterior_min") or 0)
@@ -147,10 +149,10 @@ def consolidado(pessoa, lins):
              round(sum(x["valor"] for x in lins if not x["domingo"] and x["valor"] > 0), 2))]
     if ant > 0:
         fora.append(("Coberto pelo banco de horas anterior", f["usado_do_banco_min"],
-                     round(f["usado_do_banco_min"] / 60 * vh, 2)))
+                     _fm.reais(f["usado_do_banco_min"], sal, hm)))
     elif ant < 0:
         fora.append(("Banco de horas negativo que veio do período anterior", ant,
-                     round(ant / 60 * vh, 2)))
+                     _fm.reais(ant, sal, hm)))
     fora.append(("Horas descontadas", -f["negativo_min"], -f["desconto_horas"]))
     if f.get("desconto_domingo"):
         fora.append((f"Repouso semanal ({f['semanas_falta']} domingo)", None,
@@ -351,12 +353,14 @@ if __name__ == "__main__":
        and "Almoço de 1h15" in _li[3]["motivo"] and "Saída às 17:30" in _li[3]["motivo"]
        and "Sem almoço" in _li[4]["motivo"])
     ok("valor de cada linha = horas × valor da hora (R$ 12,50)",
-       _li[0]["valor"] == -100.0 and _li[2]["valor"] == round(-22 / 60 * 12.5, 2)
-       and _li[4]["valor"] == round(100 / 60 * 12.5, 2) and _li[1]["valor"] == -70.0)
+       _li[0]["valor"] == -100.0 and _li[2]["valor"] == -4.58
+       and _li[4]["valor"] == 20.83 and _li[1]["valor"] == -70.0)
     ok("a soma das linhas de hora é o saldo do período da conta",
        sum(x["min"] for x in _li if x["min"] is not None) == _f["saldo_mes_min"])
     _c = consolidado(_pes, _li)
     _desc = [v for r, m, v in _c if r == "Horas descontadas"][0]
+    ok("holerite de exemplo: 5h27 descontadas = R$ 68,13 e líquido R$ 1.961,87 (a conta à mão)",
+       _f["desconto_horas"] == 68.13 and _f["salario_pagar"] == 1961.87)
     ok("consolidado: o descontado é o de `apurar`, e o banco anterior aparece",
        _desc == -_f["desconto_horas"]
        and any(r.startswith("Coberto pelo banco") for r, m, v in _c))

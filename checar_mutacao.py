@@ -4648,6 +4648,14 @@ MUTACOES = [
         ["python3", "checar_navegador.py"],
     ),
     (
+        'o desconto volta a arredondar em ponto flutuante e perde o centavo (30/10)',
+        "folha_mes.py",
+        [('    desc_h = reais(negativo, salario, horas_do_mes_min)\n',
+          '    desc_h = round(negativo / 60 * valor_hora, 2)\n')],
+        None,
+        ["python3", "holerite.py"],
+    ),
+    (
         'o valor da hora volta ao 200 fixo, e nao as horas do mes (30/10)',
         "folha_mes.py",
         [('            "horas_do_mes_min": _dias_uteis(ini, fim) * jornada,\n',
