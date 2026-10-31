@@ -34,7 +34,7 @@ import sys
 sys.path.insert(0, {raiz!r})
 import streamlit as st
 import clique
-aba = st.radio("Home", ["Painel", "Produtos"], horizontal=True, key="home_aba")
+aba = st.radio("Home", ["Painel", "Produtos", "Metas"], horizontal=True, key="home_aba")
 if aba == "Painel":
     # O PAINEL TEM CLIQUE PRÓPRIO, como a Home de verdade (28/10). Sem isto o
     # verificador não via o defeito: a escuta nascia na caixinha do Painel,
@@ -62,6 +62,19 @@ if aba == "Produtos":
         st.session_state["aberto"] = ab
     if st.session_state.get("aberto"):
         st.write("ABERTO=" + st.session_state["aberto"])
+if aba == "Metas":
+    # AS COLUNAS DO TRELLO (30/10): a `_secao_colunas` de verdade. So o que vai
+    # ao Trello e a planilha e trocado. Cada setinha fora de formulario refazia
+    # a pagina inteira (~5 s) e a linha recolhia no meio da edicao.
+    import placar_core as _pc, colunas_config as _cc, analise_metas as _am
+    _pc.colunas_do_board = lambda: ["VÍDEO IA TIKTOK", "Porta 2 Relógio + Jóias (2)?"]
+    _cc.carregar = lambda: {{}}
+    _cc.ocultas = lambda: set()
+    _grav = st.session_state.setdefault("grav", [])
+    _cc.salvar = lambda *a: _grav.append(a)
+    st.session_state["passadas"] = st.session_state.get("passadas", 0) + 1
+    st.markdown(f"PASSADAS={{st.session_state['passadas']}} GRAVOU={{len(_grav)}}")
+    _am._secao_colunas([{{"tempo_lista": {{"VÍDEO IA TIKTOK": [80, 90]}}}}])
 '''
 
 
@@ -128,6 +141,28 @@ def main():
             ok = "Produtos" in marcada
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"a sub-aba continua em Produtos ({marcada.strip()})")
+            # A LINHA DA COLUNA NAO RECOLHE E NAO RECARREGA A CADA SETINHA (30/10).
+            import re as _re
+            pg.get_by_text("Metas", exact=True).click()
+            pg.wait_for_timeout(2500)
+            _placar = lambda: _re.search(r"PASSADAS=(\d+) GRAVOU=(\d+)", pg.inner_text("body")).groups()
+            _antes = _placar()
+            pg.locator("summary").first.click()
+            pg.wait_for_timeout(800)
+            for _ in range(3):
+                pg.locator("[data-testid=stNumberInputStepUp]").nth(1).click()
+                pg.wait_for_timeout(1200)
+            _depois = _placar()
+            _aberta = pg.evaluate("document.querySelector('details').open")
+            ok = _depois == _antes and _aberta
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"3 setinhas na coluna: nenhuma passada nova e a linha aberta "
+                  f"(passadas {_antes[0]}→{_depois[0]}, aberta={_aberta})")
+            pg.get_by_role("button", name="Salvar").first.click()
+            pg.wait_for_timeout(3000)
+            ok = _placar()[1] == "1"
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"o Salvar grava uma vez (gravou={_placar()[1]})")
             nav.close()
     except Exception as e:
         falhas += 1

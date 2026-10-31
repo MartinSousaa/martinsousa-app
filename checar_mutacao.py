@@ -4641,6 +4641,15 @@ MUTACOES = [
         ["python3", "checar_alcance.py"],
     ),
     (
+        'a coluna do Trello volta a recarregar a pagina a cada setinha (30/10)',
+        "analise_metas.py",
+        [('_form_col = st.form(key=f"col_f_{nome}", border=False)', '_form_col = st.container()'),
+         ('if _form_col.form_submit_button("Salvar", use_container_width=True):',
+          'if st.button("Salvar", key=f"col_s_{nome}", use_container_width=True):')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
+    (
         'a cor do desconto do holerite volta para o td e some (30/10)',
         "holerite.py",
         [("(f'<span style=\"{st}\">{c}</span>' if st else str(c))", "str(c)")],
