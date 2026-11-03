@@ -75,6 +75,7 @@ def pagina(usuario_logado=None):
             fila_total += _processar(
                 arq, _itau, _inter, _fv, _lan, usuario_logado) or []
         fila_total = juntar_filas(fila_total)
+        _avisos_da_fila()
         if fila_total:
             st.warning("Estes nomes não têm histórico. Responda uma vez e "
                        "eles nunca mais aparecem aqui.")
@@ -204,6 +205,7 @@ def pagina_faturas(usuario_logado=None):
                 continue
             fila_total += _fatura(arq, _tipo, usuario_logado) or []
         fila_total = juntar_filas(fila_total)
+        _avisos_da_fila()
         if fila_total:
             st.warning("Estes nomes não têm histórico. Responda uma vez e "
                        "eles nunca mais aparecem aqui.")
@@ -1194,13 +1196,14 @@ def _perguntar(fila, _fv, usuario_logado):
     por_linha = respostas_por_linha(fila, editado.to_dict("records"),
                                     None if _massa == ESCOLHA else _massa,
                                     vazio=ESCOLHA)
+    _avisos = []
     if por_linha:
         import lancamentos as _lan_pl
         feitas = [i for i, fin in por_linha if _lan_pl.atualizar(i, {"finalidade": fin}, usuario_logado)[0]]
-        st.success(f"✅ {len(feitas)} lançamento(s) sem destinatário classificado(s), "
-                   "cada um na própria linha.")
+        _avisos.append(("success", f"✅ {len(feitas)} lançamento(s) sem destinatário "
+                        "classificado(s), cada um na própria linha."))
         if not respostas:
-            return
+            _redesenhar_fila(_avisos)
     sem_id = [i for i in fila if i.get("sem_destinatario") and not i.get("ids")]
     if sem_id and not respostas and not por_linha:
         st.warning("Linha sem destinatário ainda não gravada: classifique na aba "
@@ -1215,8 +1218,8 @@ def _perguntar(fila, _fv, usuario_logado):
     if erro:
         st.error(f"Não consegui salvar: {erro}")
         return
-    st.success(f"✅ {n} nome(s) classificados. Valem para o histórico "
-               "inteiro e para as próximas faturas.")
+    _avisos.append(("success", f"✅ {n} nome(s) classificados. Valem para o "
+                    "histórico inteiro e para as próximas faturas."))
     # O CADASTRO APRENDE A GRAFIA DO EXTRATO (dono, 09/10). KLING no
     # cadastro, KLINGAI.COM na fatura: confirmado aqui, KLINGAI entra no
     # «Como aparece no extrato» e o valor do mês passa a ser lido sozinho.
@@ -1226,10 +1229,10 @@ def _perguntar(fila, _fv, usuario_logado):
     if _apr:
         _n_apr, _err_apr = gravar_apelidos(_apr, usuario_logado)
         if _n_apr:
-            st.success(_rot.tela(
+            _avisos.append(("success", _rot.tela(
                 "🔗 O cadastro aprendeu como o extrato escreve: "
                 + " · ".join(f"{it} → {w}" for _o, it, w in _apr)
-                + ". O valor de cada mês passa a vir do extrato."))
+                + ". O valor de cada mês passa a vir do extrato.")))
             try:
                 import custo_real as _cr_a
                 from datetime import datetime as _dt_a
@@ -1239,8 +1242,32 @@ def _perguntar(fila, _fv, usuario_logado):
             except Exception:
                 pass
         for _e in _err_apr:
-            st.warning(f"Não ensinei ao cadastro — {_e}. Escreva a grafia "
-                       "do extrato em «Como aparece no extrato».")
+            _avisos.append(("warning", f"Não ensinei ao cadastro — {_e}. Escreva "
+                            "a grafia do extrato em «Como aparece no extrato»."))
+    _redesenhar_fila(_avisos)
+
+
+# A TABELA DA FILA E DESENHADA ANTES DO SALVAR (dono, 03/11): sem redesenhar,
+# os nomes gravados continuavam nela, e o "classificados" nascia no fim da
+# pagina. Os avisos atravessam o redesenho e aparecem no topo da fila.
+_AVISOS_FILA = "ext_fila_avisos"
+
+
+def _redesenhar_fila(avisos):
+    """Guarda os avisos, esquece as marcacoes e redesenha a tela.
+
+    A tabela da fila guarda as marcacoes pela POSICAO da linha: com os nomes
+    gravados fora, a marca da linha 1 cairia em outro nome.
+    """
+    st.session_state[_AVISOS_FILA] = list(avisos)
+    st.session_state.pop("ext_fila_ed", None)
+    st.rerun()
+
+
+def _avisos_da_fila():
+    """Mostra (uma vez) o que o ultimo Salvar da fila gravou."""
+    for _tipo, _txt in st.session_state.pop(_AVISOS_FILA, None) or []:
+        (st.warning if _tipo == "warning" else st.success)(_txt)
 
 
 def representante(item):

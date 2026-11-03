@@ -4641,6 +4641,13 @@ MUTACOES = [
         ["python3", "checar_alcance.py"],
     ),
     (
+        'salvar a fila volta a deixar os nomes na tabela (03/11)',
+        "extratos_tela.py",
+        [('    st.session_state.pop("ext_fila_ed", None)\n    st.rerun()\n', '')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
+    (
         'a coluna do Trello volta a recarregar a pagina a cada setinha (30/10)',
         "analise_metas.py",
         [('_form_col = st.form(key=f"col_f_{nome}", border=False)', '_form_col = st.container()'),
