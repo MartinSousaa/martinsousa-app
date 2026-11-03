@@ -1667,6 +1667,43 @@ if __name__ == "__main__":
        respostas_da_fila([{"favorecido": "A", "sentido": "saida"}],
                          [{"marcar": False, "finalidade": "— escolher —"}]) == [])
     _src_pq = _insp.getsource(_perguntar)
+    # SALVOU, REDESENHA E AVISA NO TOPO (dono, 03/11). O aviso atravessa o
+    # redesenho uma vez so; as marcacoes, que valem pela posicao da linha,
+    # nao atravessam; e as duas telas que perguntam mostram o aviso ANTES
+    # da fila — inclusive quando ela ficou vazia.
+    import types as _ty
+    _vis = []
+
+    class _RR(Exception):
+        pass
+
+    def _rr():
+        raise _RR()
+    _st_v = st
+    _fake = _ty.SimpleNamespace(
+        session_state={"ext_fila_ed": {"edited_rows": {0: {"marcar": True}}}},
+        success=lambda t: _vis.append(("success", t)),
+        warning=lambda t: _vis.append(("warning", t)), rerun=_rr)
+    globals()["st"] = _fake
+    try:
+        try:
+            _redesenhar_fila([("success", "ok 5"), ("warning", "w")])
+            _rerodou = False
+        except _RR:
+            _rerodou = True
+        _marcas_fora = "ext_fila_ed" not in _fake.session_state
+        _avisos_da_fila()
+        _primeira = list(_vis)
+        _avisos_da_fila()
+    finally:
+        globals()["st"] = _st_v
+    ok("salvar a fila redesenha, esquece as marcacoes e avisa uma vez so",
+       _rerodou and _marcas_fora
+       and _primeira == [("success", "ok 5"), ("warning", "w")] and _vis == _primeira)
+    _antes_da_fila = ("fila_total = juntar_filas(fila_total)\n        _avisos_da_fila()\n"
+                      "        if fila_total:")
+    ok("as duas telas mostram o aviso antes de perguntar a fila",
+       all(_antes_da_fila in _insp.getsource(_f) for _f in (pagina, pagina_faturas)))
     ok("a tabela abre em '— escolher —', e nao numa finalidade pronta",
        "or ESCOLHA," in _src_pq and "options=[ESCOLHA] + _opcoes" in _src_pq)
     ok("a finalidade em massa vale para os marcados, a da linha manda, "
