@@ -75,6 +75,7 @@ def pagina(usuario_logado=None):
             fila_total += _processar(
                 arq, _itau, _inter, _fv, _lan, usuario_logado) or []
         fila_total = juntar_filas(fila_total)
+        _avisos_da_fila()
         if fila_total:
             st.warning("Estes nomes não têm histórico. Responda uma vez e "
                        "eles nunca mais aparecem aqui.")
@@ -204,6 +205,7 @@ def pagina_faturas(usuario_logado=None):
                 continue
             fila_total += _fatura(arq, _tipo, usuario_logado) or []
         fila_total = juntar_filas(fila_total)
+        _avisos_da_fila()
         if fila_total:
             st.warning("Estes nomes não têm histórico. Responda uma vez e "
                        "eles nunca mais aparecem aqui.")
@@ -1194,13 +1196,14 @@ def _perguntar(fila, _fv, usuario_logado):
     por_linha = respostas_por_linha(fila, editado.to_dict("records"),
                                     None if _massa == ESCOLHA else _massa,
                                     vazio=ESCOLHA)
+    _avisos = []
     if por_linha:
         import lancamentos as _lan_pl
         feitas = [i for i, fin in por_linha if _lan_pl.atualizar(i, {"finalidade": fin}, usuario_logado)[0]]
-        st.success(f"✅ {len(feitas)} lançamento(s) sem destinatário classificado(s), "
-                   "cada um na própria linha.")
+        _avisos.append(("success", f"✅ {len(feitas)} lançamento(s) sem destinatário "
+                        "classificado(s), cada um na própria linha."))
         if not respostas:
-            return
+            _redesenhar_fila(_avisos)
     sem_id = [i for i in fila if i.get("sem_destinatario") and not i.get("ids")]
     if sem_id and not respostas and not por_linha:
         st.warning("Linha sem destinatário ainda não gravada: classifique na aba "
@@ -1215,8 +1218,8 @@ def _perguntar(fila, _fv, usuario_logado):
     if erro:
         st.error(f"Não consegui salvar: {erro}")
         return
-    st.success(f"✅ {n} nome(s) classificados. Valem para o histórico "
-               "inteiro e para as próximas faturas.")
+    _avisos.append(("success", f"✅ {n} nome(s) classificados. Valem para o "
+                    "histórico inteiro e para as próximas faturas."))
     # O CADASTRO APRENDE A GRAFIA DO EXTRATO (dono, 09/10). KLING no
     # cadastro, KLINGAI.COM na fatura: confirmado aqui, KLINGAI entra no
     # «Como aparece no extrato» e o valor do mês passa a ser lido sozinho.
@@ -1226,10 +1229,10 @@ def _perguntar(fila, _fv, usuario_logado):
     if _apr:
         _n_apr, _err_apr = gravar_apelidos(_apr, usuario_logado)
         if _n_apr:
-            st.success(_rot.tela(
+            _avisos.append(("success", _rot.tela(
                 "🔗 O cadastro aprendeu como o extrato escreve: "
                 + " · ".join(f"{it} → {w}" for _o, it, w in _apr)
-                + ". O valor de cada mês passa a vir do extrato."))
+                + ". O valor de cada mês passa a vir do extrato.")))
             try:
                 import custo_real as _cr_a
                 from datetime import datetime as _dt_a
@@ -1239,8 +1242,32 @@ def _perguntar(fila, _fv, usuario_logado):
             except Exception:
                 pass
         for _e in _err_apr:
-            st.warning(f"Não ensinei ao cadastro — {_e}. Escreva a grafia "
-                       "do extrato em «Como aparece no extrato».")
+            _avisos.append(("warning", f"Não ensinei ao cadastro — {_e}. Escreva "
+                            "a grafia do extrato em «Como aparece no extrato»."))
+    _redesenhar_fila(_avisos)
+
+
+# A TABELA DA FILA E DESENHADA ANTES DO SALVAR (dono, 03/11): sem redesenhar,
+# os nomes gravados continuavam nela, e o "classificados" nascia no fim da
+# pagina. Os avisos atravessam o redesenho e aparecem no topo da fila.
+_AVISOS_FILA = "ext_fila_avisos"
+
+
+def _redesenhar_fila(avisos):
+    """Guarda os avisos, esquece as marcacoes e redesenha a tela.
+
+    A tabela da fila guarda as marcacoes pela POSICAO da linha: com os nomes
+    gravados fora, a marca da linha 1 cairia em outro nome.
+    """
+    st.session_state[_AVISOS_FILA] = list(avisos)
+    st.session_state.pop("ext_fila_ed", None)
+    st.rerun()
+
+
+def _avisos_da_fila():
+    """Mostra (uma vez) o que o ultimo Salvar da fila gravou."""
+    for _tipo, _txt in st.session_state.pop(_AVISOS_FILA, None) or []:
+        (st.warning if _tipo == "warning" else st.success)(_txt)
 
 
 def representante(item):
@@ -1640,6 +1667,43 @@ if __name__ == "__main__":
        respostas_da_fila([{"favorecido": "A", "sentido": "saida"}],
                          [{"marcar": False, "finalidade": "— escolher —"}]) == [])
     _src_pq = _insp.getsource(_perguntar)
+    # SALVOU, REDESENHA E AVISA NO TOPO (dono, 03/11). O aviso atravessa o
+    # redesenho uma vez so; as marcacoes, que valem pela posicao da linha,
+    # nao atravessam; e as duas telas que perguntam mostram o aviso ANTES
+    # da fila — inclusive quando ela ficou vazia.
+    import types as _ty
+    _vis = []
+
+    class _RR(Exception):
+        pass
+
+    def _rr():
+        raise _RR()
+    _st_v = st
+    _fake = _ty.SimpleNamespace(
+        session_state={"ext_fila_ed": {"edited_rows": {0: {"marcar": True}}}},
+        success=lambda t: _vis.append(("success", t)),
+        warning=lambda t: _vis.append(("warning", t)), rerun=_rr)
+    globals()["st"] = _fake
+    try:
+        try:
+            _redesenhar_fila([("success", "ok 5"), ("warning", "w")])
+            _rerodou = False
+        except _RR:
+            _rerodou = True
+        _marcas_fora = "ext_fila_ed" not in _fake.session_state
+        _avisos_da_fila()
+        _primeira = list(_vis)
+        _avisos_da_fila()
+    finally:
+        globals()["st"] = _st_v
+    ok("salvar a fila redesenha, esquece as marcacoes e avisa uma vez so",
+       _rerodou and _marcas_fora
+       and _primeira == [("success", "ok 5"), ("warning", "w")] and _vis == _primeira)
+    _antes_da_fila = ("fila_total = juntar_filas(fila_total)\n        _avisos_da_fila()\n"
+                      "        if fila_total:")
+    ok("as duas telas mostram o aviso antes de perguntar a fila",
+       all(_antes_da_fila in _insp.getsource(_f) for _f in (pagina, pagina_faturas)))
     ok("a tabela abre em '— escolher —', e nao numa finalidade pronta",
        "or ESCOLHA," in _src_pq and "options=[ESCOLHA] + _opcoes" in _src_pq)
     ok("a finalidade em massa vale para os marcados, a da linha manda, "

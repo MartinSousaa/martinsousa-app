@@ -4641,6 +4641,30 @@ MUTACOES = [
         ["python3", "checar_alcance.py"],
     ),
     (
+        'as marcas da fila voltam a atravessar o redesenho e cair em outro nome (03/11)',
+        "extratos_tela.py",
+        [('    st.session_state.pop("ext_fila_ed", None)\n', '')],
+        None,
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        'a tela de faturas volta a nao mostrar o aviso do Salvar (03/11)',
+        "extratos_tela.py",
+        [('            fila_total += _fatura(arq, _tipo, usuario_logado) or []\n'
+          '        fila_total = juntar_filas(fila_total)\n        _avisos_da_fila()\n',
+          '            fila_total += _fatura(arq, _tipo, usuario_logado) or []\n'
+          '        fila_total = juntar_filas(fila_total)\n')],
+        None,
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        'salvar a fila volta a deixar os nomes na tabela (03/11)',
+        "extratos_tela.py",
+        [('    st.session_state.pop("ext_fila_ed", None)\n    st.rerun()\n', '')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
+    (
         'a coluna do Trello volta a recarregar a pagina a cada setinha (30/10)',
         "analise_metas.py",
         [('_form_col = st.form(key=f"col_f_{nome}", border=False)', '_form_col = st.container()'),

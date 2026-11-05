@@ -34,7 +34,7 @@ import sys
 sys.path.insert(0, {raiz!r})
 import streamlit as st
 import clique
-aba = st.radio("Home", ["Painel", "Produtos", "Metas"], horizontal=True, key="home_aba")
+aba = st.radio("Home", ["Painel", "Produtos", "Metas", "Fila"], horizontal=True, key="home_aba")
 if aba == "Painel":
     # O PAINEL TEM CLIQUE PRÓPRIO, como a Home de verdade (28/10). Sem isto o
     # verificador não via o defeito: a escuta nascia na caixinha do Painel,
@@ -75,6 +75,27 @@ if aba == "Metas":
     st.session_state["passadas"] = st.session_state.get("passadas", 0) + 1
     st.markdown(f"PASSADAS={{st.session_state['passadas']}} GRAVOU={{len(_grav)}}")
     _am._secao_colunas([{{"tempo_lista": {{"VÍDEO IA TIKTOK": [80, 90]}}}}])
+if aba == "Fila":
+    # A FILA DE NOMES SEM FINALIDADE (dono, 03/11): salvou, e os nomes
+    # continuavam na tabela. So o Google e trocado; a fila de verdade sai
+    # do que ficou sem gravar.
+    import extratos_tela as _et
+    _gr = st.session_state.setdefault("fila_gravados", set())
+    class _FV:
+        @staticmethod
+        def salvar_varios(resp, u):
+            _gr.update(f for f, _fin, _tp in resp)
+            return len(resp), ""
+    _et._finalidades_conhecidas = lambda fv: ["CONSUMO INTERNO", "MERCADORIA"]
+    _et._fixos_cadastrados = lambda: ([], [])
+    _nomes = [f"Porta 2 Relógio + Jóias {{i}}" for i in range(6)]
+    _fila = [{{"favorecido": n, "sentido": "saida", "n": 1, "total": 10.0, "conta": "cartão",
+              "itens": [{{"data": "2026-10-2%d" % i, "descricao": n, "valor": -10.0, "conta": "cartão"}}],
+              "datas": ["2026-10-20"]}} for i, n in enumerate(_nomes) if n not in _gr]
+    st.markdown(f"FILA={{len(_fila)}}")
+    _et._avisos_da_fila()
+    if _fila:
+        _et._perguntar(_fila, _FV, "teste")
 '''
 
 
@@ -163,6 +184,31 @@ def main():
             ok = _placar()[1] == "1"
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"o Salvar grava uma vez (gravou={_placar()[1]})")
+            # SALVOU, SAIU DA TABELA (03/11): marca duas linhas, escolhe a
+            # finalidade em cima e salva. Os dois nomes somem da tabela, o
+            # aviso fica ACIMA dela e nenhuma marca cai em outro nome.
+            pg.get_by_text("Fila", exact=True).click()
+            pg.wait_for_timeout(2500)
+            _tab = pg.locator("[data-testid=stDataFrameResizable]").first
+            _bx = _tab.bounding_box()
+            for _r in (0, 1):
+                pg.mouse.click(_bx["x"] + 37, _bx["y"] + 36 + 35 * _r + 17)
+                pg.wait_for_timeout(500)
+            pg.locator("[data-testid=stSelectbox]").first.click()
+            pg.wait_for_timeout(500)
+            pg.get_by_role("option", name="CONSUMO INTERNO").click()
+            pg.wait_for_timeout(500)
+            pg.get_by_role("button", name=_re.compile("Salvar")).click()
+            pg.wait_for_timeout(4000)
+            _fl = _re.search(r"FILA=(\d+)", pg.inner_text("body")).group(1)
+            _txt_tab = _tab.inner_text() if _tab.count() else ""
+            _acima = pg.evaluate("(()=>{const a=document.querySelector('[data-testid=stAlertContentSuccess]');"
+                                 "const t=document.querySelector('[data-testid=stDataFrameResizable]');"
+                                 "return !!(a&&t&&a.getBoundingClientRect().top<t.getBoundingClientRect().top)})()")
+            ok = _fl == "4" and "Jóias 0" not in _txt_tab and "Jóias 1" not in _txt_tab and _acima
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"salvar a fila tira os nomes da tabela e avisa acima dela "
+                  f"(fila={_fl}, aviso acima={_acima})")
             nav.close()
     except Exception as e:
         falhas += 1
