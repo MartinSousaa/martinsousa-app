@@ -598,6 +598,18 @@ def pagina(usuario_logado=None):
         return
     with st.spinner("Lendo extratos, cadastro e planilha…"):
         itens, ml, lpv, co, avisos = dados_do_ano(int(ano), hoje)
+    valores, fontes = resumo(itens, ano)
+    # O MÊS DE BATER O OLHO (layout A, dono, 05/11): placar, para onde foi o
+    # dinheiro e onde o gasto fugiu do previsto. O mesmo mês do detalhe por
+    # modalidade, lá embaixo — um seletor só.
+    padrao = hoje.month - 1 if int(ano) == hoje.year else 11
+    mes_txt = st.radio("Mês", list(MESES), index=padrao,
+                       horizontal=True, key="vg_mes",
+                       label_visibility="collapsed")
+    m = MESES.index(mes_txt) + 1
+    import visao_financeira as _vfin
+    _vfin.mostrar(int(ano), m, mes_txt, valores, fontes, lpv)
+    st.markdown("&nbsp;", unsafe_allow_html=True)
     if int(ano) == hoje.year:
         try:
             rest, err_r = saidas_restantes(hoje)
@@ -611,15 +623,9 @@ def pagina(usuario_logado=None):
             st.caption("⚠️ Saídas restantes sem: " + " · ".join(map(str, err_r)))
     modo = st.radio("Mostrar", ["R$", "%"], horizontal=True, key="vg_modo",
                     label_visibility="collapsed")
-    valores, fontes = resumo(itens, ano)
     st.markdown(html_resumo(valores, fontes, colunas(itens), lpv, co, ano,
                             em_pct=(modo == "%")), unsafe_allow_html=True)
     st.markdown("&nbsp;", unsafe_allow_html=True)
-    padrao = hoje.month - 1 if int(ano) == hoje.year else 11
-    mes_txt = st.radio("Mês do detalhe", list(MESES), index=padrao,
-                       horizontal=True, key="vg_mes",
-                       label_visibility="collapsed")
-    m = MESES.index(mes_txt) + 1
     st.markdown(_caixa(f"DETALHE POR MODALIDADE · {mes_txt}", AZUL,
                        html_modulos(modulos(itens, f"{int(ano):04d}-{m:02d}"),
                                     ml.get(m))),

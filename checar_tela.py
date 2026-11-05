@@ -4069,6 +4069,12 @@ def _visao_geral(conta):
               and "ESTE MÊS" in _j, "")
         conta("Visão Geral: planilha (P) e Studio (S) no mesmo resumo",
               "EMBALAGEM" in _j and "CUSTO FIXO" in _j and "R$ 16,90" in _j, "")
+        # O PAINEL DO MÊS (layout A, 05/11) desenha em cima da tabela, e
+        # mês sem extrato de entrada diz isso em vez de pintar de vermelho.
+        conta("Visão Geral: o painel do mês desenha acima do resumo",
+              "PARA ONDE FOI O DINHEIRO" in _j
+              and _j.index("PARA ONDE FOI O DINHEIRO") < _j.index("RESUMO POR FINALIDADE")
+              and "sem extrato de entrada" in _j, "")
     except (_Rerun, _Parou):
         conta("Visão Geral: a tela monta", True, "")
     except Exception as e:
