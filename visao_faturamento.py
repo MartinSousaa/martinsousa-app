@@ -146,13 +146,16 @@ def resumo_mensal(linhas, ano, lpv_reserva):
         if a != int(ano):
             continue
         r = fora.setdefault(m, {"fat_total": 0.0, "fat_liq": 0.0, "dev": 0.0,
-                                "lb": 0.0, "vendas": 0.0, "uc_total": 0.0,
+                                "lb": 0.0, "mc": 0.0, "vendas": 0.0, "uc_total": 0.0,
                                 "linhas": 0, "sem_sku": 0, "sem_custo": 0})
         r["linhas"] += 1
         r["fat_total"] += _num(l.get("FAT TOTAL"))
         r["fat_liq"] += _num(l.get("FAT - DEV"))
         r["dev"] += _num(l.get("DEVOLUÇÃO"))
         r["lb"] += _num(l.get("L.B"))
+        # A margem de contribuição do mês (col. Y): o lucro líquido do painel
+        # financeiro é MC − LPV × vendas, a conta da Home (05/11).
+        r["mc"] += _num(l.get("MARGEM C."))
         r["vendas"] += venda_da_linha(l)
         r["uc_total"] += uc_da_linha(l, lpv_reserva)
         r["sem_sku"] += _vazio(l.get("SKU"))

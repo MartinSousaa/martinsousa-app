@@ -4641,6 +4641,28 @@ MUTACOES = [
         ["python3", "checar_alcance.py"],
     ),
     (
+        'impostos voltam a contar como compromisso previsto (05/11)',
+        "visao_financeira.py",
+        [('COMPROMISSOS = ("CUSTO FIXO", "ASSINATURAS", "FOLHA", "NÃO OPERACIONAL",\n                "CHEQUES")',
+          'COMPROMISSOS = ("CUSTO FIXO", "ASSINATURAS", "FOLHA", "NÃO OPERACIONAL",\n                "CHEQUES", "IMPOSTOS")')],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
+        'extrato sem venda entrando volta a dividir por zero no painel (05/11)',
+        "visao_financeira.py",
+        [('    sem_ext = entrou is None or entrou <= 0\n', '    sem_ext = entrou is None\n')],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
+        'o painel do mes some da Visao Geral (05/11)',
+        "visao_geral.py",
+        [('    _vfin.mostrar(int(ano), m, mes_txt, valores, fontes, lpv)\n', '')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
         'as marcas da fila voltam a atravessar o redesenho e cair em outro nome (03/11)',
         "extratos_tela.py",
         [('    st.session_state.pop("ext_fila_ed", None)\n', '')],
