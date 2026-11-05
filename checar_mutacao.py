@@ -4641,6 +4641,21 @@ MUTACOES = [
         ["python3", "checar_alcance.py"],
     ),
     (
+        'o token do ML vaza para a tela do diagnostico de ADS (05/11)',
+        "ads_diagnostico.py",
+        [('                     str(r.get("escopo") or ""), str(r.get("expira_em") or "")))',
+          '                     str(r.get("escopo") or "") + str(r.get("access_token") or ""), str(r.get("expira_em") or "")))')],
+        None,
+        ["python3", "ads_diagnostico.py"],
+    ),
+    (
+        'o diagnostico de ADS some da tela ADS-Cross (05/11)',
+        "fatura_ml_tela.py",
+        [('    _adsd.mostrar(_pc_a.agora_br().year)\n', '')],
+        None,
+        ["python3", "ads_diagnostico.py"],
+    ),
+    (
         'impostos voltam a contar como compromisso previsto (05/11)',
         "visao_financeira.py",
         [('COMPROMISSOS = ("CUSTO FIXO", "ASSINATURAS", "FOLHA", "NÃO OPERACIONAL",\n                "CHEQUES")',

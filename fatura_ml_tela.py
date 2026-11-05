@@ -49,6 +49,11 @@ def pagina(usuario_logado=None):
     import fatura_ml as _fm
 
     st.markdown("#### 🛒 ADS-Cross — a fatura do Mercado Livre")
+    # O QUE O STUDIO ENXERGA DE ADS (dono, 05/11): "não é mais fácil trazer
+    # o que o sistema consegue acessar ao invés de eu ficar respondendo?".
+    import ads_diagnostico as _adsd
+    import placar_core as _pc_a
+    _adsd.mostrar(_pc_a.agora_br().year)
 
     arquivos = st.file_uploader(
         "Relatórios do ML", type=["xlsx"], accept_multiple_files=True,
