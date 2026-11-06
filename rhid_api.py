@@ -827,14 +827,42 @@ if __name__ == "__main__":
                _regs and _regs[0]["saida"] is None and _regs[0]["entrada"] == _ini.strftime("%H:%M"))
             import relogio_ponto as _rp
             _r = _regs[0]
-            ok("e o dia de hoje não gera janela até a pessoa bater a saída",
-               _rp._janelas_do_dia(_r["data"], _rp._parse_horario(_r["entrada"]),
-                                   _rp._parse_horario(_r["saida_almoco"]),
-                                   _rp._parse_horario(_r["volta_almoco"]),
-                                   _rp._parse_horario(_r["saida"])) == [])
+            _jn = _rp._janelas_do_dia(_r["data"], _rp._parse_horario(_r["entrada"]),
+                                      _rp._parse_horario(_r["saida_almoco"]),
+                                      _rp._parse_horario(_r["volta_almoco"]),
+                                      _rp._parse_horario(_r["saida"]))
+            ok("e a janela de hoje vai da entrada até AGORA — nunca até a saída prevista",
+               len(_jn) == 1 and _jn[0][0].strftime("%H:%M") == _ini.strftime("%H:%M")
+               and _jn[0][1] <= datetime.now(_pc.FUSO) + timedelta(seconds=5)
+               and _jn[0][1] >= _hj - timedelta(seconds=5))
         finally:
             globals()["get_apuracao"] = _orig
     else:
         print("PULADO a cadeia: perto da meia-noite o 'hoje' do teste vira outro dia")
+
+    # explorar_endpoints (admin): cada caminho volta com o status, e o que
+    # recusa (404) ou devolve texto não derruba a varredura dos outros.
+    class _R:
+        def __init__(self, cod, txt):
+            self.status_code, self.text = cod, txt
+
+        def json(self):
+            import json as _j
+            return _j.loads(self.text)
+    _get_orig, _hd_orig = requests.get, globals()["_headers"]
+    try:
+        globals()["_headers"] = lambda: {}
+        _n = [0]
+
+        def _get(url, **kw):
+            _n[0] += 1
+            return _R(404, "") if _n[0] == 1 else _R(200, "<html>nao e json</html>")
+        requests.get = _get
+        _ex = explorar_endpoints("2026-11-01", "2026-11-06", 1)
+        ok("explorar_endpoints: um item por caminho, com o status de cada um",
+           len(_ex) == len(_ENDPOINTS_CANDIDATOS) and _ex[0]["status"] == 404
+           and (len(_ex) < 2 or _ex[1]["tipo"] == "não-JSON"))
+    finally:
+        requests.get, globals()["_headers"] = _get_orig, _hd_orig
     print(f"\nfalhas: {falhas}")
     raise SystemExit(1 if falhas else 0)
