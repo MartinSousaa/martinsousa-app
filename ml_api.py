@@ -346,20 +346,23 @@ def get(conta, caminho, params=None):
     return requisitar("GET", conta, tok, caminho, params)
 
 
-def requisitar(metodo, conta, tok, caminho, params=None, corpo=None):
+def requisitar(metodo, conta, tok, caminho, params=None, corpo=None, cabecalhos=None):
     """A ÚNICA ida à API, com o token já em mãos. (json, erro), nunca levanta.
 
     Separada de `get` para a leitura das quatro contas em paralelo
     (`promocoes_ml`): o token é buscado ANTES, na thread da tela, e a thread
     só faz rede. E a escrita (`escrever`) passa pela mesma porta — dois
     caminhos para a API passariam a tratar erro de jeitos diferentes.
+    `cabecalhos` existe para a API de publicidade (`ml_ads`), que exige o
+    `Api-Version`. O Authorization é sempre este — ninguém o sobrescreve.
     """
     url = BASE + ("" if caminho.startswith("/") else "/") + caminho
     for tentativa in range(2):
         try:
             r = requests.request(metodo, url, params=params or {}, json=corpo,
                                  timeout=TIMEOUT,
-                                 headers={"Authorization": f"Bearer {tok}"})
+                                 headers={**(cabecalhos or {}),
+                                          "Authorization": f"Bearer {tok}"})
         except Exception as e:
             return (None, f"Mercado Livre não respondeu: {type(e).__name__}")
         if r.status_code == 429 and tentativa == 0:
@@ -719,6 +722,14 @@ if __name__ == "__main__":
                             corpo={"deal_price": 1})
         ok("requisitar: a recusa do ML volta com o motivo dele",
            _r is None and "deal_price invalid" in _e and _vistos[-1][2] == {"deal_price": 1})
+        _cab = []
+        requests.request = lambda m, url, **kw: (_cab.append(kw.get("headers")),
+                                                 _Resp(200, '{"a": 1}'))[1]
+        requisitar("GET", "ml1", "T", "/advertising/advertisers", {"product_id": "PADS"},
+                   None, {"Api-Version": "1", "Authorization": "Bearer OUTRO"})
+        ok("requisitar: o Api-Version da publicidade chega ao ML (ml_ads, 06/11)",
+           _cab[-1].get("Api-Version") == "1")
+        ok("requisitar: ninguém sobrescreve o Authorization", _cab[-1]["Authorization"] == "Bearer T")
         ok("escrever: só grava com método de escrita",
            escrever("ml1", "GET", "/x")[1].startswith("método de escrita"))
     finally:
