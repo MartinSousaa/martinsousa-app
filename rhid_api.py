@@ -502,8 +502,10 @@ def marcacoes_do_registro(reg: dict):
     Versao publica de _extrair_marcacoes, para a tela de ponto poder mostrar as
     batidas do dia. A apuracao da RHiD so preenche totalHorasTrabalhadas quando
     fecha o dia; as batidas, essas, chegam assim que o relogio registra.
+    Passa pelo mesmo filtro de `get_registros_diarios`: a saida prevista de
+    hoje viraria horas trabalhadas que ainda nao aconteceram (06/11).
     """
-    return _extrair_marcacoes(reg)
+    return sem_batida_no_futuro(_extrair_data(reg), _extrair_marcacoes(reg))
 
 
 def minutos_das_marcacoes(marc):
@@ -558,6 +560,32 @@ def _extrair_batidas(reg: dict) -> list[str]:
                 return sorted(horas)
 
     return []
+
+
+def sem_batida_no_futuro(dia, marcacoes, agora=None):
+    """As marcações do dia sem as que ainda não aconteceram. Pura (com `agora`).
+
+    06/11, 15:01: a ociosidade de uma colaboradora mostrou o trecho 14:59 →
+    18:00 — três horas que ainda nem tinham passado. O dia só entra na conta
+    com hora de saída (`relogio_ponto._janelas_do_dia`), então a RHiD entregou
+    18:00 como saída de um dia em aberto — o mais provável é o horário PREVISTO
+    da escala, mas o registro cru só existe no Railway e não foi visto.
+
+    Seja qual for o campo, batida no futuro não existe. Ela sai AQUI, onde todo
+    leitor da RHiD passa (ociosidade, atraso, tela de ponto), e não num deles.
+    Sem a saída, o dia de hoje espera a pessoa bater o ponto — a regra que já
+    valia. Dois minutos de folga para relógio da RHiD adiantado.
+    """
+    if not dia:
+        return tuple(marcacoes)
+    if agora is None:
+        import placar_core as _pc
+        agora = datetime.now(_pc.FUSO)
+    if dia != agora.date():
+        return tuple(marcacoes)
+    lim = agora + timedelta(minutes=2)
+    teto = lim.strftime("%H:%M") if lim.date() == dia else "23:59"
+    return tuple(m if (not m or m <= teto) else None for m in marcacoes)
 
 
 def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
@@ -627,7 +655,7 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
     for reg in brutos:
         if not isinstance(reg, dict):
             continue
-        marcacoes = _extrair_marcacoes(reg)
+        marcacoes = sem_batida_no_futuro(_extrair_data(reg), _extrair_marcacoes(reg))
         batidas = [m for m in marcacoes if m]
         if batidas:
             diag["com_batidas"] += 1
@@ -750,3 +778,91 @@ def explorar_endpoints(data_ini: str, data_final: str, id_person: int) -> list[d
         resultados.append(item)
 
     return resultados
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    from datetime import date as _date, timezone as _tz
+    import placar_core as _pc
+    _ag = datetime(2026, 11, 6, 15, 1, tzinfo=_pc.FUSO)
+    _hoje = _date(2026, 11, 6)
+    ok("hoje às 15:01, a saída de 18:00 não existe ainda",
+       sem_batida_no_futuro(_hoje, ("09:26", "12:57", "14:59", "18:00"), _ag)
+       == ("09:26", "12:57", "14:59", None))
+    ok("dia que já passou fica como veio",
+       sem_batida_no_futuro(_date(2026, 11, 5), ("09:26", "12:57", "14:59", "18:00"), _ag)
+       == ("09:26", "12:57", "14:59", "18:00"))
+    ok("batida de agora (relógio da RHiD 1 min adiantado) fica",
+       sem_batida_no_futuro(_hoje, ("09:26", "15:02", None, None), _ag)[1] == "15:02")
+    ok("sem data, nada é tocado", sem_batida_no_futuro(None, ("18:00",), _ag) == ("18:00",))
+
+    # A CADEIA de verdade: a apuração na forma que a RHiD manda (colunaMix em
+    # NÚMERO HHMM, `_extrair_hhmm`) → get_registros_diarios → as janelas que a
+    # ociosidade usa. O dia de hoje é o do relógio do container, em Brasília.
+    _hj = datetime.now(_pc.FUSO)
+    _ini = (_hj - timedelta(hours=3)).replace(second=0, microsecond=0)
+    _fut = _hj + timedelta(hours=2)
+    if _ini.date() == _hj.date() and _fut.date() == _hj.date():
+        _orig = get_apuracao
+        try:
+            globals()["get_apuracao"] = lambda a, b, c: {"registros": [{
+                "dateTimeStr": _hj.strftime("%Y-%m-%dT00:00:00"),
+                "colunaMix1": float(_ini.hour * 100 + _ini.minute),
+                "colunaMix2": 0.0, "colunaMix3": 0.0,
+                "colunaMix4": float(_fut.hour * 100 + _fut.minute),
+                "totalHorasTrabalhadas": 0}]}
+            _regs, _ = get_registros_diarios("x", "y", 1)
+            _bruto = get_apuracao("x", "y", 1)["registros"][0]
+            ok("a tela de ponto (marcacoes_do_registro) também não vê a saída futura",
+               marcacoes_do_registro(_bruto)[3] is None
+               and marcacoes_do_registro(_bruto)[0] == _ini.strftime("%H:%M"))
+            ok("pela cadeia: a saída prevista de daqui a 2 h some do registro de hoje",
+               _regs and _regs[0]["saida"] is None and _regs[0]["entrada"] == _ini.strftime("%H:%M"))
+            import relogio_ponto as _rp
+            _r = _regs[0]
+            _jn = _rp._janelas_do_dia(_r["data"], _rp._parse_horario(_r["entrada"]),
+                                      _rp._parse_horario(_r["saida_almoco"]),
+                                      _rp._parse_horario(_r["volta_almoco"]),
+                                      _rp._parse_horario(_r["saida"]))
+            ok("e a janela de hoje vai da entrada até AGORA — nunca até a saída prevista",
+               len(_jn) == 1 and _jn[0][0].strftime("%H:%M") == _ini.strftime("%H:%M")
+               and _jn[0][1] <= datetime.now(_pc.FUSO) + timedelta(seconds=5)
+               and _jn[0][1] >= _hj - timedelta(seconds=5))
+        finally:
+            globals()["get_apuracao"] = _orig
+    else:
+        print("PULADO a cadeia: perto da meia-noite o 'hoje' do teste vira outro dia")
+
+    # explorar_endpoints (admin): cada caminho volta com o status, e o que
+    # recusa (404) ou devolve texto não derruba a varredura dos outros.
+    class _R:
+        def __init__(self, cod, txt):
+            self.status_code, self.text = cod, txt
+
+        def json(self):
+            import json as _j
+            return _j.loads(self.text)
+    _get_orig, _hd_orig = requests.get, globals()["_headers"]
+    try:
+        globals()["_headers"] = lambda: {}
+        _n = [0]
+
+        def _get(url, **kw):
+            _n[0] += 1
+            return _R(404, "") if _n[0] == 1 else _R(200, "<html>nao e json</html>")
+        requests.get = _get
+        _ex = explorar_endpoints("2026-11-01", "2026-11-06", 1)
+        ok("explorar_endpoints: um item por caminho, com o status de cada um",
+           len(_ex) == len(_ENDPOINTS_CANDIDATOS) and _ex[0]["status"] == 404
+           and (len(_ex) < 2 or _ex[1]["tipo"] == "não-JSON"))
+    finally:
+        requests.get, globals()["_headers"] = _get_orig, _hd_orig
+    print(f"\nfalhas: {falhas}")
+    raise SystemExit(1 if falhas else 0)

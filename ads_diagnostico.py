@@ -49,10 +49,26 @@ def ads_dos_lancamentos(lancs):
             "por_mes": r(por_mes), "total": round(total, 2), "linhas": n}
 
 
-def contas_ml(regs):
-    """[(conta, situação, apelido, user_id, escopo, vence)] das 4 contas. Pura.
+def vence_txt(v):
+    """O `expira_em` da aba `ml_tokens` legível em Brasília. Pura.
 
-    Nunca devolve token: só se ele existe.
+    Quem grava é `ml_api._guardar` via `bling_api.vencimento`: um EPOCH, que a
+    planilha devolve como número ou texto ("1793925014.63"). O print de 06/11
+    mostrou o número cru — o teste antigo usava uma data que eu escrevi.
+    """
+    from datetime import datetime as _dt
+    import placar_core as _pc
+    try:
+        return _dt.fromtimestamp(float(v), _pc.FUSO).strftime("%d/%m %H:%M")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return str(v or "")
+
+
+def contas_ml(regs):
+    """[(conta, situação, apelido, user_id, permite ADS, vence)] das 4. Pura.
+
+    Nunca devolve token: só se ele existe. Do escopo, só a pergunta que
+    importa aqui — a autorização inclui publicidade (`mktp:ads`)?
     """
     import ml_api as _ml
     fora = []
@@ -61,7 +77,8 @@ def contas_ml(regs):
         tem = bool(str(r.get("refresh_token") or "").strip())
         fora.append((c.upper(), "autorizada" if tem else "não autorizada",
                      str(r.get("apelido") or ""), str(r.get("user_id") or ""),
-                     str(r.get("escopo") or ""), str(r.get("expira_em") or "")))
+                     "sim" if "mktp:ads" in str(r.get("escopo") or "") else "não",
+                     vence_txt(r.get("expira_em"))))
     return fora
 
 
@@ -92,12 +109,19 @@ def _dados(ano):
     return ads, pub, contas, avisos
 
 
+def _esc(t):
+    import html as _h
+    return _h.escape(str(t))
+
+
 def _dinheiro(v):
     return ("− " if v < 0 else "") + "R$ " + f"{abs(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def html(ads, pub, contas, ano):
-    """As três fontes lado a lado. Pura."""
+def html(ads, pub, contas, ano, api=None):
+    """As fontes lado a lado. `api` = `ml_ads.buscar(...)`, quando o botão
+    já foi apertado; sem ele a coluna da API não aparece. Pura."""
+    import ml_ads as _mla
     from headcount import _tabela_html
     MES = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set",
            "out", "nov", "dez")
@@ -105,15 +129,38 @@ def html(ads, pub, contas, ano):
     t1 = (_tabela_html(["Quem recebeu (como o extrato escreve)", "Total no ano"],
                        [[n, _dinheiro(v)] for n, v in nomes], esquerda=1)
           if nomes else "<p>Nenhum lançamento com finalidade ADS no ano.</p>")
-    meses = sorted(set(ads["por_mes"]) | {f"{int(ano)}-{m:02d}" for m in pub})
+    api_mes, parcial = _mla.por_mes(api) if api is not None else ({}, set())
+    meses = sorted(set(ads["por_mes"]) | {f"{int(ano)}-{m:02d}" for m in pub}
+                   | {f"{int(ano)}-{m:02d}" for m in api_mes})
+    cab = ["Mês", "ADS pago (extratos e faturas)", "Publicidade ML (planilha ADS E CROSS)"]
+    if api is not None:
+        cab.append("Publicidade ML (direto do ML)")
+
+    def _api(m):
+        k = int(m[5:7])
+        if k not in api_mes:
+            return "—"
+        return _dinheiro(api_mes[k]) + (" (parcial)" if k in parcial else "")
     t2 = _tabela_html(
-        ["Mês", "ADS pago (extratos e faturas)", "Publicidade ML (planilha ADS E CROSS)"],
+        cab,
         [[f"{MES[int(m[5:7]) - 1]}/{m[:4]}",
           _dinheiro(ads["por_mes"].get(m, 0.0)),
-          _dinheiro(pub.get(int(m[5:7]), 0.0))] for m in meses if m[:4] == str(ano)],
+          _dinheiro(pub.get(int(m[5:7]), 0.0))] + ([_api(m)] if api is not None else [])
+         for m in meses if m[:4] == str(ano)],
         esquerda=1) if meses else ""
-    t3 = _tabela_html(["Conta", "Situação", "Apelido no ML", "user_id", "Escopo", "Token vence"],
-                      [list(c) for c in contas], esquerda=6)
+    t3 = _tabela_html(["Conta", "Situação", "Apelido no ML", "user_id",
+                       "Autorizou publicidade", "Token vence"],
+                      [list(c) for c in contas], esquerda=1)
+    t4 = ""
+    if api is not None:
+        t4 = ("<p><b>4 · O que o ML respondeu</b> — conta a conta; aviso é o que o ML "
+              "disse, sem tradução.</p>" + _tabela_html(
+                  ["Conta", "Anunciante", "Total no ano", "Caminho que respondeu", "Avisos"],
+                  [[c.upper(), d.get("anunciante") or "—",
+                    _dinheiro(sum(d.get("por_mes", {}).values())),
+                    d.get("caminho") or "—",
+                    " · ".join(_esc(a) for a in d.get("avisos", [])) or "—"]
+                   for c, d in api.items()], esquerda=1))
     contas_txt = " · ".join(f"{k}: {_dinheiro(v)}" for k, v in
                             sorted(ads["por_conta"].items(), key=lambda x: -x[1]))
     return (f"<p><b>1 · ADS que saiu da conta em {ano}:</b> {_dinheiro(ads['total'])} "
@@ -121,16 +168,27 @@ def html(ads, pub, contas, ano):
             + (f"<p style='font-size:12px'>Por onde saiu: {contas_txt}</p>" if contas_txt else "")
             + t1
             + f"<p><b>2 · Mês a mês</b> — a publicidade do ML é paga pelo saldo do Mercado "
-              f"Pago e não passa no extrato: ela só existe na planilha.</p>" + t2
+              f"Pago e não passa no extrato: vem da planilha ou, pelo botão acima, direto "
+              f"do ML.</p>" + t2
             + "<p><b>3 · Contas do Mercado Livre no Studio</b> — autorizada é a que tem token "
-              "gravado; o escopo é o que o ML liberou na autorização.</p>" + t3)
+              "gravado; o vencimento se renova sozinho a cada 6 h.</p>" + t3 + t4)
 
 
 def mostrar(ano):
     """O bloco na tela ADS-Cross. Só leitura."""
     with st.expander("🔎 Diagnóstico de ADS — o que o Studio enxerga hoje", expanded=False):
         ads, pub, contas, avisos = _dados(int(ano))
-        st.markdown(html(ads, pub, contas, int(ano)), unsafe_allow_html=True)
+        api = None
+        if st.button("Buscar a publicidade direto no Mercado Livre", key="adsd_buscar_ml"):
+            st.session_state["adsd_api_ligada"] = True
+        if st.session_state.get("adsd_api_ligada"):
+            import ml_ads as _mla
+            import placar_core as _pc
+            hoje = _pc.agora_br()
+            # Só depois do botão: até 48 idas ao ML. Depois, cache de 1 h.
+            api = _mla.buscar(int(ano), hoje.month if hoje.year == int(ano) else 12,
+                              hoje.day if hoje.year == int(ano) else 31)
+        st.markdown(html(ads, pub, contas, int(ano), api), unsafe_allow_html=True)
         for a in avisos:
             st.caption(f"⚠️ Não li: {a}")
 
@@ -164,8 +222,10 @@ if __name__ == "__main__":
 
     # As contas do ML na forma da aba `ml_tokens` (`ml_api.COLUNAS`).
     _regs = {"ml1": {"conta": "ml1", "access_token": "SEGREDO-A", "refresh_token": "SEGREDO-R",
-                     "escopo": "offline_access read write", "user_id": 123, "apelido": "LOJA1",
-                     "expira_em": "2026-11-05 20:00"}}
+                     "escopo": "offline_access read urn:ml:mktp:ads:/read-write", "user_id": 123,
+                     "apelido": "LOJA1",
+                     # como a aba devolve: epoch em TEXTO (ml_api._guardar, RAW)
+                     "expira_em": "1793925014.6316743"}}
     _c = contas_ml(_regs)
     ok("as quatro contas aparecem, autorizadas ou não",
        [x[0] for x in _c] == ["ML1", "ML2", "ML3", "ML4"]
@@ -173,7 +233,21 @@ if __name__ == "__main__":
     _h = html(_a, {10: 1234.5}, _c, 2026)
     ok("o token NUNCA vai para a tela", "SEGREDO" not in _h)
     ok("a publicidade do ML da planilha aparece no mês dela", "1.234,50" in _h)
-    ok("o escopo aparece", "offline_access read write" in _h)
+    ok("o vencimento sai em Brasília, não o número cru",
+       "05/11 21:30" in _h and "1793925014" not in _h)
+    ok("diz se a autorização inclui publicidade", _c[0][4] == "sim" and _c[1][4] == "não")
+    ok("sem o botão, a coluna da API não aparece", "(direto do ML)" not in _h)
+    _api = {"ml1": {"anunciante": "777", "caminho": "/advertising/x", "por_mes": {10: 300.0, 11: 50.0},
+                    "avisos": []},
+            "ml2": {"anunciante": "888", "caminho": "/advertising/x", "por_mes": {10: 20.0},
+                    "avisos": ["mês 11: Mercado Livre respondeu 500: <erro> & cia"]}}
+    _h2 = html(_a, {10: 1234.5}, _c, 2026, _api)
+    ok("com o botão, a publicidade do ML entra no mês, somando as contas",
+       "(direto do ML)" in _h2 and "320,00" in _h2)
+    ok("mês em que uma conta falhou aparece como parcial", "50,00 (parcial)" in _h2)
+    ok("o aviso do ML vai escapado (não quebra o HTML)",
+       "&lt;erro&gt; &amp; cia" in _h2 and "<erro>" not in _h2)
+    ok("o HTML com a API não tem linha só de espaço", all(x.strip() for x in _h2.split("\n")))
     ok("o HTML não tem linha só de espaço",
        all(x.strip() for x in _h.split("\n")))
     ok("ano sem ADS diz isso, e não desenha tabela vazia",

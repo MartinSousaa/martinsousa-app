@@ -754,11 +754,17 @@ def _dt_soma(t, minutos):
     return (_d.combine(hoje_local(), t) + _td(minutes=minutos)).time()
 
 
-def _janelas_do_dia(data, entrada, saida_almoco, volta_almoco, saida):
+def _janelas_do_dia(data, entrada, saida_almoco, volta_almoco, saida, agora=None):
     """[(ini, fim)] do expediente efetivo, em hora local com data.
 
-    Duas janelas quando o almoco esta registrado, uma so quando nao esta. Sem
-    a saida do dia, usa o fim contratual — melhor que descartar o dia inteiro.
+    Duas janelas quando o almoco esta registrado, uma so quando nao esta.
+
+    O DIA DE HOJE CONTA ATE AGORA, E SO ATE AGORA (dono, 06/11): "a ociosidade
+    tem que contar quando ela de fato ocorrer e nao estimar ela". Sem a saida,
+    hoje fecha no instante presente — nem no fim do contrato (estimativa do que
+    ainda nao aconteceu), nem fora da conta ate a pessoa ir embora (o ocioso da
+    manha so apareceria a noite). Saiu para o almoco e nao voltou: so a manha.
+    Dia passado sem saida continua fora: ali nao ha "agora" que feche o dia.
     """
     from datetime import datetime as _dt
     def _dt_local(t):
@@ -767,9 +773,16 @@ def _janelas_do_dia(data, entrada, saida_almoco, volta_almoco, saida):
     fim = _dt_local(saida)
     if not ini:
         return []
-    if not fim or fim <= ini:
-        return []
     sa, va = _dt_local(saida_almoco), _dt_local(volta_almoco)
+    if not fim:
+        agora = agora or _dt.now(_pc.FUSO)
+        if agora.date() != data:
+            return []
+        if sa and not va:
+            return [(ini, min(sa, agora))] if min(sa, agora) > ini else []
+        fim = agora
+    if fim <= ini:
+        return []
     if sa and va and ini < sa < va < fim:
         return [(ini, sa), (va, fim)]
     # Foi embora durante o almoco ou logo na volta dele: so vale a manha. Sem
@@ -2549,6 +2562,28 @@ if __name__ == "__main__":
     ok(f"ociosidade: todos os trechos saem, sem teto ({len(_bur_oc)} de {_esperado_oc})",
        _esperado_oc > 60 and len(_bur_oc) == _esperado_oc)
 
+    # O DIA DE HOJE CONTA SO O QUE JA ACONTECEU (dono, 06/11). As 15:01 a
+    # ociosidade mostrava 14:59 -> 18:00: tres horas que nao tinham passado.
+    from datetime import date as _d_hj, datetime as _dt_hj, time as _t_hj
+    _ag_hj = _dt_hj(2026, 11, 6, 15, 1, tzinfo=_pc.FUSO)
+    _hj = _d_hj(2026, 11, 6)
+    _hm = lambda js: [(a.strftime("%H:%M"), b.strftime("%H:%M")) for a, b in js]
+    ok("hoje sem saida: manha e tarde ate AGORA, nunca ate o fim do contrato",
+       _hm(_janelas_do_dia(_hj, _t_hj(9, 26), _t_hj(12, 57), _t_hj(14, 59), None,
+                           agora=_ag_hj))
+       == [("09:26", "12:57"), ("14:59", "15:01")])
+    ok("hoje no almoco (saiu e nao voltou): so a manha",
+       _hm(_janelas_do_dia(_hj, _t_hj(9, 26), _t_hj(12, 57), None, None, agora=_ag_hj))
+       == [("09:26", "12:57")])
+    ok("hoje sem almoco batido: da entrada ate agora",
+       _hm(_janelas_do_dia(_hj, _t_hj(9, 26), None, None, None, agora=_ag_hj))
+       == [("09:26", "15:01")])
+    ok("dia passado sem saida continua fora (nao ha agora que o feche)",
+       _janelas_do_dia(_d_hj(2026, 11, 5), _t_hj(9, 26), None, None, None,
+                       agora=_ag_hj) == [])
+    ok("dia fechado continua como era",
+       _hm(_janelas_do_dia(_hj, _t_hj(9, 0), _t_hj(12, 0), _t_hj(13, 0), _t_hj(18, 0),
+                           agora=_ag_hj)) == [("09:00", "12:00"), ("13:00", "18:00")])
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
     # aprovado SEMPRE — e o `checar_mutacao` le exatamente isso. Era assim
