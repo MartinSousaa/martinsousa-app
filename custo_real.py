@@ -115,27 +115,38 @@ def com_apelido(linha, palavra):
                      + [str(palavra).strip().upper()])
 
 
+def cobrancas_no_mes(linha, lancamentos_do_mes):
+    """[lançamento] de SAÍDA que casam com este item no mês. Pura.
+
+    Uma regra só para "este lançamento é deste item": `cobrado_no_mes` soma
+    daqui, e o desvio item a item (`desvio_item`) lista daqui as cobranças —
+    o plano do Claude Code e cada cobrança de uso, uma a uma (dono, 07/11).
+    """
+    import assinaturas as _as
+    nomes = nomes_do_item(linha)
+    if not nomes:
+        return []
+    fora = []
+    for l in (lancamentos_do_mes or []):
+        if any(_as._casa(l, {"favorecido": n}) for n in nomes):
+            # SÓ SAÍDA: nos lançamentos gravados a saída é negativa, no
+            # extrato e na fatura (`fatura_pdf.py:152`). `assinaturas.
+            # _valor_de_saida` usa abs() e contaria o PIX recebido.
+            if _num(l.get("valor")) < 0:
+                fora.append(l)
+    return fora
+
+
 def cobrado_no_mes(linha, lancamentos_do_mes):
     """Quanto saiu para este item no mês. None quando não apareceu.
 
     Casa por "Como aparece no extrato" e pelo nome do item com 5+ letras
     (`nomes_do_item`). Sem nenhum dos dois também é None.
     """
-    import assinaturas as _as
-    nomes = nomes_do_item(linha)
-    if not nomes:
+    achadas = cobrancas_no_mes(linha, lancamentos_do_mes)
+    if not achadas:
         return None
-    total, achou = 0.0, False
-    for l in (lancamentos_do_mes or []):
-        if any(_as._casa(l, {"favorecido": n}) for n in nomes):
-            # SÓ SAÍDA: nos lançamentos gravados a saída é negativa, no
-            # extrato e na fatura (`fatura_pdf.py:152`). `assinaturas.
-            # _valor_de_saida` usa abs() e contaria o PIX recebido.
-            v = _num(l.get("valor"))
-            if v < 0:
-                total += -v
-                achou = True
-    return round(total, 2) if achou else None
+    return round(sum(-_num(l.get("valor")) for l in achadas), 2)
 
 
 def divergencias(grade, linhas, ano, mes, lancamentos_do_mes, cadastro_de):
@@ -543,5 +554,16 @@ if __name__ == "__main__":
        com_apelido({"item": "Hostgator", "favorecido": ""}, "HOSTGATORBR")
        == "Hostgator; HOSTGATORBR")
 
+    # 07/11: as cobranças uma a uma (o plano do Claude Code e o uso por
+    # cima) saem da MESMA regra que soma o mês — e estorno não é cobrança.
+    _cc = {"item": "Claude Code", "favorecido": "CLAUDE"}
+    _lc = [{"descricao": "CLAUDE.AI SUBSCRIPTION", "favorecido": "", "valor": -500.0},
+           {"descricao": "CLAUDE.AI USAGE", "favorecido": "", "valor": -310.0},
+           {"descricao": "CLAUDE.AI REFUND", "favorecido": "", "valor": 120.0},
+           {"descricao": "CLAUDETTE MODAS", "favorecido": "", "valor": -80.0}]
+    ok("cobrancas_no_mes lista cada saída do item, sem estorno nem nome parecido",
+       [x["valor"] for x in cobrancas_no_mes(_cc, _lc)] == [-500.0, -310.0])
+    ok("e cobrado_no_mes é a soma delas",
+       cobrado_no_mes(_cc, _lc) == 810.0 and cobrado_no_mes(_cc, _lc[2:]) is None)
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)

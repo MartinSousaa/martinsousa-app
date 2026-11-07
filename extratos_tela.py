@@ -1013,17 +1013,36 @@ def sugerir_fixos(fila, linhas_cf, linhas_as):
 def aprendizados(fila, linhas, massa, casamentos, vazio="— escolher —"):
     """[(origem, item, palavra)] a ensinar ao cadastro neste Salvar. Pura.
 
-    Só o casamento PARECIDO, e só quando a linha foi gravada como CUSTO FIXO
-    — a mesma regra de `respostas_da_fila` para dizer qual finalidade valeu.
-    Quem desmarcou ou escolheu outra finalidade disse que não é aquele item.
+    Só com a linha gravada como custo fixo (`FINS_COM_ITEM`) — a mesma regra
+    de `respostas_da_fila` para dizer qual finalidade valeu.
+
+    O ITEM DA LINHA MANDA (dono, 07/11). Escolhido o item:
+      - é o que o Studio reconheceu pela palavra inteira → nada a aprender;
+      - é o reconhecido pela palavra PARECIDA → aprende a grafia do extrato;
+      - é OUTRO item (ANTHROPIC → Claude Code) → aprende o nome da linha.
+    "Sem item" na linha é quem disse que não é aquele item. Linha sem a
+    coluna (fila antiga) segue o casamento, como antes.
+    Linha SEM DESTINATÁRIO nunca ensina: "PIX ENVIADO" casaria com tudo.
     """
     fora = []
     for item, l in zip(fila or [], linhas or []):
-        c = (casamentos or {}).get(chave_do_item(item))
-        if not c or not c[4]:
+        if finalidade_da_linha(l, massa, vazio).upper() not in FINS_COM_ITEM:
             continue
-        if finalidade_da_linha(l, massa, vazio).upper() == "CUSTO FIXO":
-            fora.append((c[2], c[3], c[4]))
+        c = (casamentos or {}).get(chave_do_item(item))
+        if "item" not in l:
+            if c and c[4]:
+                fora.append((c[2], c[3], c[4]))
+            continue
+        esc = item_da_linha(l)
+        if not esc:
+            continue
+        if c and (c[2], c[3]) == esc:
+            if c[4]:
+                fora.append((c[2], c[3], c[4]))
+            continue
+        nome = str(item.get("favorecido") or "").strip()
+        if nome and not item.get("sem_destinatario"):
+            fora.append((esc[0], esc[1], nome))
     return fora
 
 
@@ -1111,7 +1130,9 @@ def _perguntar(fila, _fv, usuario_logado):
     ESCOLHA = "— escolher —"
     _opcoes = _finalidades_conhecidas(_fv)
     SETA = {"entrada": "🟢 entrou", "saida": "🔴 saiu"}
-    _casa_fx = casamentos_fixos(fila, *_fixos_cadastrados())
+    _cad_fx = _fixos_cadastrados()
+    _casa_fx = casamentos_fixos(fila, *_cad_fx)
+    _opcoes_item = opcoes_de_item(*_cad_fx)
     _sug = {k: v[:2] for k, v in _casa_fx.items()}
     _n_compras = sum(int(i.get("n") or 0) for i in fila)
     _total = sum(float(i.get("total") or 0) for i in fila)
@@ -1148,6 +1169,8 @@ def _perguntar(fila, _fv, usuario_logado):
         "período": _periodo(i),
         "finalidade": (_sug.get(chave_do_item(i)) or ("",))[0] or ESCOLHA,
         "reconhecido": (_sug.get(chave_do_item(i)) or ("", ""))[1],
+        "item": (f"{_casa_fx[chave_do_item(i)][2]} › {_casa_fx[chave_do_item(i)][3]}"
+                 if chave_do_item(i) in _casa_fx else SEM_ITEM),
         "onde": str(i.get("conta") or "")[:60],
     } for i, r in zip(fila, _rep)])
 
@@ -1174,6 +1197,10 @@ def _perguntar(fila, _fv, usuario_logado):
                          "estão em «Conferir cada lançamento», abaixo."),
                 "finalidade": st.column_config.SelectboxColumn(
                     "Finalidade", options=[ESCOLHA] + _opcoes),
+                "item": st.column_config.SelectboxColumn(
+                    "Item", options=_opcoes_item,
+                    help="Custo fixo ou assinatura: qual item é. Escolhido "
+                         "uma vez, o nome passa a ser reconhecido sozinho."),
             })
         enviou = c2.form_submit_button("💾 Salvar", type="primary",
                                        use_container_width=True)
@@ -1223,6 +1250,18 @@ def _perguntar(fila, _fv, usuario_logado):
     # O CADASTRO APRENDE A GRAFIA DO EXTRATO (dono, 09/10). KLING no
     # cadastro, KLINGAI.COM na fatura: confirmado aqui, KLINGAI entra no
     # «Como aparece no extrato» e o valor do mês passa a ser lido sozinho.
+    _ign = [str(i.get("favorecido") or "")[:30]
+            for i, l in zip(fila, editado.to_dict("records"))
+            if item_da_linha(l)
+            and (chave_do_item(i) not in _casa_fx
+                 or item_da_linha(l) != tuple(_casa_fx[chave_do_item(i)][2:4]))
+            and finalidade_da_linha(
+                l, None if _massa == ESCOLHA else _massa, ESCOLHA).upper()
+            not in FINS_COM_ITEM]
+    if _ign:
+        _avisos.append(("warning", _rot.tela(
+            "Item ignorado — a finalidade escolhida não é custo fixo: "
+            + " · ".join(_ign[:10]))))
     _apr = aprendizados(fila, editado.to_dict("records"),
                         None if _massa == ESCOLHA else _massa, _casa_fx,
                         vazio=ESCOLHA)
@@ -1303,7 +1342,38 @@ def finalidade_da_linha(l, massa=None, vazio="— escolher —"):
         fin = ""
     if not fin and l.get("marcar") is True and massa:
         fin = massa
+    # ESCOLHER O ITEM JÁ DIZ A FINALIDADE (dono, 07/11): custo fixo e
+    # assinatura são CUSTO FIXO na fila (`casamentos_fixos`).
+    if not fin and item_da_linha(l):
+        fin = "CUSTO FIXO"
     return fin
+
+
+# A coluna Item da fila (dono, 07/11: "começar a colocar finalidade e item,
+# para que nada fique solto"). Vale só com finalidade de custo fixo.
+SEM_ITEM = "— sem item —"
+FINS_COM_ITEM = ("CUSTO FIXO", "ASSINATURAS")
+
+
+def item_da_linha(l):
+    """(origem, item) escolhido na coluna Item, ou None. Pura.
+
+    A opção é "Custo fixo › X" ou "Assinatura › X" (`opcoes_de_item`).
+    """
+    v = l.get("item")
+    if not isinstance(v, str) or " › " not in v:
+        return None
+    origem, item = v.split(" › ", 1)
+    return (origem.strip(), item.strip()) if item.strip() else None
+
+
+def opcoes_de_item(linhas_cf, linhas_as):
+    """As opções da coluna Item: sem item + cada item do cadastro. Pura."""
+    fora = [SEM_ITEM]
+    for origem, linhas in (("Custo fixo", linhas_cf), ("Assinatura", linhas_as)):
+        fora += sorted({f"{origem} › {str(l.get('item')).strip()}" for l in (linhas or [])
+                        if str(l.get("item") or "").strip()})
+    return fora
 
 
 def respostas_da_fila(fila, linhas, massa=None, vazio="— escolher —"):
@@ -1602,6 +1672,46 @@ if __name__ == "__main__":
        aprendizados(_fk, _lin_k, "CUSTO FIXO",
                     casamentos_fixos(_fk, [], [{**_as_k[0],
                                                 "favorecido": "KLINGAI"}])) == [])
+    # 07/11: A COLUNA ITEM. Nome sem relação com o cadastro (ANTHROPIC →
+    # Claude Code): o dono escolhe o item uma vez e o nome é aprendido. Pela
+    # cadeia: fila de `fila_dos_gravados`, aprendido por `com_apelido`, e o
+    # mês seguinte reconhecido por `custo_real.cobrado_no_mes`.
+    import custo_real as _cr_i
+    _fa = fila_dos_gravados([
+        {"data": "2026-10-09", "descricao": "ANTHROPIC* USAGE", "valor": -310.0,
+         "conta": "cartão · f.pdf", "favorecido": "ANTHROPIC"}], {})
+    _as_c = [{"item": "Claude Code", "valor_mensal": 500, "periodicidade": "Mensal",
+              "favorecido": "CLAUDE"}]
+    _ca = casamentos_fixos(_fa, [], _as_c)
+    ok("ANTHROPIC não é reconhecido sozinho (o nome não tem relação)", _ca == {})
+    ok("as opções do Item: sem item + cada item do cadastro",
+       opcoes_de_item([{"item": "Aluguel"}], _as_c)
+       == [SEM_ITEM, "Custo fixo › Aluguel", "Assinatura › Claude Code"])
+    _li = [{"marcar": False, "finalidade": "— escolher —", "item": "Assinatura › Claude Code"}]
+    _ap = aprendizados(_fa, _li, None, _ca)
+    ok("escolhido o item, o nome da linha é aprendido",
+       _ap == [("Assinatura", "Claude Code", "ANTHROPIC")])
+    ok("escolher o item já grava a finalidade CUSTO FIXO",
+       respostas_da_fila(_fa, _li) == [("ANTHROPIC", "CUSTO FIXO", "saida")])
+    _novo = {**_as_c[0], "favorecido": _cr_i.com_apelido(_as_c[0], _ap[0][2])}
+    ok("e no mês seguinte a cobrança cai no item sozinha",
+       _cr_i.cobrado_no_mes(_novo, [{"descricao": "ANTHROPIC* USAGE", "favorecido": "ANTHROPIC",
+                                     "valor": -290.0}]) == 290.0
+       and _cr_i.cobrado_no_mes(_novo, [{"descricao": "CLAUDE.AI", "favorecido": "",
+                                         "valor": -500.0}]) == 500.0)
+    ok("item com outra finalidade não ensina",
+       aprendizados(_fa, [{**_li[0], "finalidade": "MERCADORIA"}], None, _ca) == [])
+    ok("'sem item' no reconhecido parecido: nada é aprendido",
+       aprendizados(_fk, [{**_lin_k[0], "item": SEM_ITEM}], "CUSTO FIXO", _ck) == [])
+    ok("o parecido confirmado na coluna continua ensinando a grafia",
+       aprendizados(_fk, [{**_lin_k[0], "item": "Assinatura › KlingAI"}], "CUSTO FIXO", _ck)
+       == [("Assinatura", "KlingAI", "KLINGAI")])
+    ok("linha sem destinatário nunca ensina (PIX ENVIADO casaria com tudo)",
+       aprendizados([{**_fa[0], "sem_destinatario": True}], _li, None, {}) == [])
+    # Passo 13: o pior nome real como item.
+    ok("item com + e acento no nome passa inteiro",
+       item_da_linha({"item": "Custo fixo › Porta 2 Relógio + Jóias"})
+       == ("Custo fixo", "Porta 2 Relógio + Jóias"))
     # gravar_apelidos pela cadeia: relê SEM cache, grava o apelido, e não
     # grava nada quando a leitura volta vazia.
     import assinaturas as _as_g

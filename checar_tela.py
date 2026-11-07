@@ -4075,6 +4075,12 @@ def _visao_geral(conta):
               "PARA ONDE FOI O DINHEIRO" in _j
               and _j.index("PARA ONDE FOI O DINHEIRO") < _j.index("RESUMO POR FINALIDADE")
               and "sem extrato de entrada" in _j, "")
+        # 07/11: o desvio item a item desenha abaixo do painel, pelo
+        # cadastro e pelos lançamentos trocados acima.
+        conta("Visão Geral: o desvio item a item desenha abaixo do painel",
+              "O QUE COBROU ACIMA DO ESTIMADO" in _j
+              and _j.index("PARA ONDE FOI O DINHEIRO") < _j.index("O QUE COBROU ACIMA DO ESTIMADO")
+              < _j.index("RESUMO POR FINALIDADE"), "")
     except (_Rerun, _Parou):
         conta("Visão Geral: a tela monta", True, "")
     except Exception as e:
@@ -4086,6 +4092,8 @@ def _visao_geral(conta):
          _pv_v.do_mes, _au_v.eh_dono) = _g
         _vg.da_planilha.clear()
         _vg.dados_do_ano.clear()
+        import desvio_item as _dv_v
+        _dv_v.dados.clear()
 
 
 def _visao_faturamento(conta):
