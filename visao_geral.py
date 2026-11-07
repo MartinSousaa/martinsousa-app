@@ -609,6 +609,10 @@ def pagina(usuario_logado=None):
     m = MESES.index(mes_txt) + 1
     import visao_financeira as _vfin
     _vfin.mostrar(int(ano), m, mes_txt, valores, fontes, lpv)
+    # O QUE COBROU ACIMA DO ESTIMADO, item a item (dono, 07/11): o Claude
+    # Code de R$ 500 com o uso por cima. Régua = cadastro, e não o real.
+    import desvio_item as _desv
+    _desv.mostrar(int(ano), m, mes_txt, valores, usuario_logado)
     st.markdown("&nbsp;", unsafe_allow_html=True)
     if int(ano) == hoje.year:
         try:
