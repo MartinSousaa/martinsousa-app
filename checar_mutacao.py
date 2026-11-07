@@ -568,8 +568,8 @@ MUTACOES = [
     (
         'PIX recebido volta a contar como cobranca do custo fixo',
         "custo_real.py",
-        [('            if v < 0:\n                total += -v\n',
-          '            if v:\n                total += abs(v)\n')],
+        [('            if _num(l.get("valor")) < 0:\n                fora.append(l)\n',
+          '            if _num(l.get("valor")):\n                fora.append(l)\n')],
         None,
         ["python3", "custo_real.py"],
     ),
@@ -3034,8 +3034,8 @@ MUTACOES = [
     (
         "o cadastro volta a aprender de linha que nao foi custo fixo",
         "extratos_tela.py",
-        '        if finalidade_da_linha(l, massa, vazio).upper() == "CUSTO FIXO":\n',
-        "        if True:\n",
+        '        if finalidade_da_linha(l, massa, vazio).upper() not in FINS_COM_ITEM:\n            continue\n',
+        "        if False:\n            continue\n",
         ["python3", "extratos_tela.py"],
     ),
     (
