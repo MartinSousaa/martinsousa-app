@@ -2599,6 +2599,10 @@ if __name__ == "__main__":
        and "Falta para a meta" not in _h_fat)
     ok("o selo diz se o ritmo fecha acima ou abaixo do equilíbrio real",
        "do equilíbrio real</span>" in _h_fat and "sem meta cadastrada" not in _h_fat)
+    ok("_caixa abre a caixa com o título na cor dela (a do real continua)",
+       _caixa("Real · pelos gastos do mês", VERDE).endswith(
+           f'color:{VERDE};">Real · pelos gastos do mês</div>')
+       and _h_fat.count("Real · pelos gastos do mês") == 1)
     ok("sem gastos lidos, o selo diz isso em vez de inventar",
        "sem gastos do mês lidos" in _html_faturamento(
            {**_d_fat, "faturamento": {**_d_fat["faturamento"], "comprometido": None}}))
