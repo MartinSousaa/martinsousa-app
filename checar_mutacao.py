@@ -5008,6 +5008,13 @@ MUTACOES = [
         ["python3", "ml_ads.py"],
     ),
     (
+        'a meta de gastos digitada volta ao balanco da Home (09/11c)',
+        "home_gestao.py",
+        [('    meta = eq = eq2 = 0.0\n', '')],
+        None,
+        ["python3", "home_gestao.py"],
+    ),
+    (
         'o desvio item a item some da Visao Geral (07/11)',
         "visao_geral.py",
         [('    _desv.mostrar(int(ano), m, mes_txt, valores, usuario_logado)\n', '')],
