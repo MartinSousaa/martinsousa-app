@@ -256,6 +256,13 @@ def aplicar_cadastro(linhas):
         reg = _fv.casar(nome, cad, sentido)
         if reg and reg.get("finalidade"):
             l = {**l, "finalidade": reg["finalidade"]}
+        elif not str(l.get("finalidade") or "").strip():
+            # A MESMA ORDEM de `favorecidos.classificar`: sem cadastro e sem
+            # finalidade gravada, a regra do nome. Sem isto, a entrada da Shein
+            # sumia da fila (que classifica) e seguia sem finalidade nos totais.
+            regra = _fv.por_regra(nome, sentido)
+            if regra:
+                l = {**l, "finalidade": regra}
         fora.append(l)
     return fora
 
@@ -800,5 +807,22 @@ if __name__ == "__main__":
        _gn3 == 1 and len(carregar()) == 3
        and len(do_mes(2026, 11, carregar())) == 1)
 
+    # 09/11: a regra do nome também vale para o que já está gravado — a
+    # mesma ordem de `favorecidos.classificar`. Só o cadastro é trocado.
+    import favorecidos as _fv_r
+    _g_car = _fv_r.carregar
+    _fv_r.carregar = lambda: {("X", None): {"finalidade": "OUTROS"}}
+    try:
+        _ap = aplicar_cadastro([
+            {"favorecido": "SHEIN MODA MUNDIAL BRASIL PAGAMENTOS LTDA", "valor": 35.99,
+             "finalidade": ""},
+            {"favorecido": "SHEIN MODA MUNDIAL BRASIL PAGAMENTOS LTDA", "valor": 10.0,
+             "finalidade": "REEMBOLSO"}])
+    finally:
+        _fv_r.carregar = _g_car
+    _ok = _ap[0]["finalidade"] == "SHEIN" and _ap[1]["finalidade"] == "REEMBOLSO"
+    falhas += not _ok
+    print(("ok    " if _ok else "FALHA ")
+          + "aplicar_cadastro: gravado sem finalidade ganha a regra do nome; a gravada fica")
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)

@@ -5023,6 +5023,28 @@ MUTACOES = [
         ["python3", "home_gestao.py"],
     ),
     (
+        'a finalidade escrita a mao e ignorada na fila (09/11d)',
+        "extratos_tela.py",
+        [('    if isinstance(nova, str) and " ".join(nova.split()):\n',
+          '    if False:\n')],
+        None,
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        'entrada com SHEIN no nome volta a ser perguntada (09/11d)',
+        "favorecidos.py",
+        [('            if f" {alvo} " in palavras:\n', '            if False:\n')],
+        None,
+        ["python3", "favorecidos.py"],
+    ),
+    (
+        'a regra do nome some dos totais do que ja esta gravado (09/11d)',
+        "lancamentos.py",
+        [('            regra = _fv.por_regra(nome, sentido)\n', '            regra = None\n')],
+        None,
+        ["python3", "lancamentos.py"],
+    ),
+    (
         'o desvio item a item some da Visao Geral (07/11)',
         "visao_geral.py",
         [('    _desv.mostrar(int(ano), m, mes_txt, valores, usuario_logado)\n', '')],

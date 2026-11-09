@@ -1168,9 +1168,13 @@ def _perguntar(fila, _fv, usuario_logado):
         "sentido": SETA.get(i.get("sentido"), i.get("sentido") or ""),
         "período": _periodo(i),
         "finalidade": (_sug.get(chave_do_item(i)) or ("",))[0] or ESCOLHA,
-        "reconhecido": (_sug.get(chave_do_item(i)) or ("", ""))[1],
+        # AO LADO DA FINALIDADE (dono, 09/11): a coluna Item ficava depois de
+        # "reconhecido", fora da largura da tabela, e ele não a achava. E a
+        # finalidade nova, que a lista de seleção não deixa digitar.
+        NOVA_FIN: "",
         "item": (f"{_casa_fx[chave_do_item(i)][2]} › {_casa_fx[chave_do_item(i)][3]}"
                  if chave_do_item(i) in _casa_fx else SEM_ITEM),
+        "reconhecido": (_sug.get(chave_do_item(i)) or ("", ""))[1],
         "onde": str(i.get("conta") or "")[:60],
     } for i, r in zip(fila, _rep)])
 
@@ -1178,7 +1182,7 @@ def _perguntar(fila, _fv, usuario_logado):
         c1, c2 = st.columns([3, 1])
         _massa = c1.selectbox(
             "Finalidade para TODOS os marcados", [ESCOLHA] + _opcoes,
-            key="ext_fila_massa",
+            key="ext_fila_massa", accept_new_options=True,
             help="Marque as linhas na tabela, escolha aqui e salve. A "
                  "finalidade escolhida na própria linha vale mais.")
         editado = st.data_editor(
@@ -1197,6 +1201,10 @@ def _perguntar(fila, _fv, usuario_logado):
                          "estão em «Conferir cada lançamento», abaixo."),
                 "finalidade": st.column_config.SelectboxColumn(
                     "Finalidade", options=[ESCOLHA] + _opcoes),
+                NOVA_FIN: st.column_config.TextColumn(
+                    "Ou escreva uma nova",
+                    help="Finalidade que ainda não existe na lista. Escrita aqui, ela vale "
+                         "mais que a escolhida ao lado e passa a aparecer nas opções."),
                 "item": st.column_config.SelectboxColumn(
                     "Item", options=_opcoes_item,
                     help="Custo fixo ou assinatura: qual item é. Escolhido "
@@ -1217,6 +1225,9 @@ def _perguntar(fila, _fv, usuario_logado):
                              format="R$ %.2f")})
     if not enviou:
         return
+    # A finalidade nova digitada na caixa de cima, em caixa alta como as outras.
+    if isinstance(_massa, str) and _massa != ESCOLHA:
+        _massa = " ".join(_massa.split()).upper() or ESCOLHA
     respostas = respostas_da_fila(fila, editado.to_dict("records"),
                                   None if _massa == ESCOLHA else _massa,
                                   vazio=ESCOLHA)
@@ -1336,6 +1347,12 @@ def finalidade_da_linha(l, massa=None, vazio="— escolher —"):
     aprende) leem daqui — duas cópias passariam a discordar.
     """
     fin = l.get("finalidade")
+    # A FINALIDADE ESCRITA À MÃO VALE MAIS (dono, 09/11: "se eu escrever algo
+    # que não tem nas opções? O sistema tem que aceitar"). Em caixa alta, como
+    # as da lista — "aluguel" e "ALUGUEL" seriam duas finalidades.
+    nova = l.get(NOVA_FIN)
+    if isinstance(nova, str) and " ".join(nova.split()):
+        return " ".join(nova.split()).upper()
     # a tabela devolve NaN na célula vazia, e str(NaN) é "nan"
     fin = fin.strip() if isinstance(fin, str) else ""
     if fin == vazio:
@@ -1352,6 +1369,7 @@ def finalidade_da_linha(l, massa=None, vazio="— escolher —"):
 # A coluna Item da fila (dono, 07/11: "começar a colocar finalidade e item,
 # para que nada fique solto"). Vale só com finalidade de custo fixo.
 SEM_ITEM = "— sem item —"
+NOVA_FIN = "nova finalidade"
 FINS_COM_ITEM = ("CUSTO FIXO", "ASSINATURAS")
 
 
@@ -1709,6 +1727,15 @@ if __name__ == "__main__":
     ok("linha sem destinatário nunca ensina (PIX ENVIADO casaria com tudo)",
        aprendizados([{**_fa[0], "sem_destinatario": True}], _li, None, {}) == [])
     # Passo 13: o pior nome real como item.
+    # 09/11: a finalidade que não está na lista é aceita, escrita na coluna
+    # ao lado — e vale mais que a escolhida.
+    ok("finalidade nova escrita à mão vale, em caixa alta e sem espaço sobrando",
+       finalidade_da_linha({"finalidade": "CUSTO FIXO", NOVA_FIN: "  aluguel  das salas "})
+       == "ALUGUEL DAS SALAS"
+       and respostas_da_fila(_fa, [{"finalidade": "— escolher —", NOVA_FIN: "Aluguel"}])
+       == [("ANTHROPIC", "ALUGUEL", "saida")])
+    ok("célula nova vazia (NaN da tabela) não apaga a escolhida",
+       finalidade_da_linha({"finalidade": "CUSTO FIXO", NOVA_FIN: float("nan")}) == "CUSTO FIXO")
     ok("item com + e acento no nome passa inteiro",
        item_da_linha({"item": "Custo fixo › Porta 2 Relógio + Jóias"})
        == ("Custo fixo", "Porta 2 Relógio + Jóias"))

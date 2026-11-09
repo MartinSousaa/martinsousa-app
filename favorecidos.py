@@ -477,12 +477,28 @@ def casar(nome, cadastro, sentido=None):
 # setembro e nenhum cadastro o previa. Nome chinês ROMANIZADO ("Jie Meng") esta
 # regra não pega: não há como distinguí-lo de qualquer outro nome próprio, e
 # esses continuam sendo cadastro um a um.
+# A PLATAFORMA ESCRITA NO NOME (dono, 09/11: "tem uma entrada escrito
+# literalmente Shein e o sistema está perguntando de onde vem"). O SEED tinha
+# "MODA MUNDIAL BRASIL PAGAMENTOS", e o extrato escreveu "SHEIN MODA MUNDIAL
+# BRASIL PAGAMENTOS LTDA" — o nome começa diferente e o prefixo não casava.
+# Só ENTRADA e só a PALAVRA INTEIRA: "Pix ENVIADO para Shopee" é compra, e o
+# repasse com nome que não diz a plataforma (LITTLE GLASS) segue no cadastro.
+PLATAFORMAS_NO_NOME = (("MERCADO LIVRE", "MERCADO LIVRE"), ("SHEIN", "SHEIN"),
+                       ("SHOPEE", "SHOPEE"), ("TIKTOK", "TIKTOK"), ("AMAZON", "AMAZON"))
+
+
 def por_regra(nome, sentido="saida"):
     """Finalidade que se deduz do próprio nome. None quando não há regra."""
+    import re as _re
     t = str(nome or "").upper()
     if sentido == "saida" and ("CHINA" in t
                                or any("\u4e00" <= c <= "\u9fff" for c in t)):
         return "MERCADORIA"
+    if sentido == "entrada":
+        palavras = " " + " ".join(_re.sub(r"[^A-Z0-9]+", " ", chave(nome)).split()) + " "
+        for alvo, fin in PLATAFORMAS_NO_NOME:
+            if f" {alvo} " in palavras:
+                return fin
     return None
 
 
@@ -724,6 +740,17 @@ if __name__ == "__main__":
        por_regra("Jie Meng") is None)
     ok("reembolso nao e faturamento", not eh_faturamento("REEMBOLSO"))
     ok("reembolso abate o gasto do mes", abate_meta("REEMBOLSO"))
+    ok("entrada com SHEIN escrito no nome é SHEIN (o print do dono, 09/11)",
+       por_regra("SHEIN MODA MUNDIAL BRASIL PAGAMENTOS LTDA", "entrada") == "SHEIN"
+       and por_regra("Pix recebido - MERCADO LIVRE", "entrada") == "MERCADO LIVRE")
+    ok("e só entrada, só palavra inteira: saída para a Shopee e 'SHEINX' não",
+       por_regra("SHOPEE *KenZLojaOf", "saida") is None
+       and por_regra("SHEINX LTDA", "entrada") is None
+       and por_regra("LITTLE GLASS COMERCIO", "entrada") is None)
+    _fc, _fila_c = classificar([{"favorecido": "SHEIN MODA MUNDIAL BRASIL PAGAMENTOS LTDA",
+                                 "valor": 35.99}], {})
+    ok("pela cadeia: a entrada da Shein sai da fila já classificada",
+       _fc[0]["finalidade"] == "SHEIN" and _fila_c == [])
     ok("venda de plataforma nao abate gasto", not abate_meta("SHOPEE"))
     _c, _f = classificar([{"favorecido": "LOOK CHINA CARNOT", "valor": -713.12,
                            "sentido": "saida"}], {})

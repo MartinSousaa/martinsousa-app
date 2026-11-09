@@ -196,7 +196,9 @@ def html(etapas, titulo, plataformas=None, info=None, erros=()):
         v = e["valor"]
         neg = v < 0
         larg = max(abs(v) / rb * 100, 9) if rb else 9
-        cor = RUIM if neg else ("#7fd8e0" if i % 2 == 0 else "#2aa3ad")
+        # Barras ESCURAS e texto branco (dono, 09/11, print): o texto escuro da
+        # barra clara saía claro no Studio, e o % sumia.
+        cor = RUIM if neg else ("#2aa3ad" if i % 2 == 0 else "#1f7f87")
         dentro = _pct(v / rb * 100) if rb else "—"
         sub = "100%" if i == 0 else f"{_pct(margem(v, rl))} da líquida"
         fun += (f'<div style="display:grid;grid-template-columns:300px 1fr 170px;align-items:center;gap:14px;'
@@ -205,7 +207,7 @@ def html(etapas, titulo, plataformas=None, info=None, erros=()):
                 f'({e["n"]}) {e["nome"]}</div>'
                 f'<div style="display:flex;justify-content:center"><div style="width:{min(larg, 100):.1f}%;'
                 f'height:40px;background:{cor};border-radius:6px;display:flex;align-items:center;'
-                f'justify-content:center;color:#11393c;font-weight:800;font-size:15px">{dentro}</div></div>'
+                f'justify-content:center;color:#ffffff;font-weight:800;font-size:15px">{dentro}</div></div>'
                 f'<div style="text-align:right"><div style="font-size:16px;font-weight:800;'
                 f'color:{RUIM if neg else (BOM if i else "#E8EAED")}">{_r(v)}</div>'
                 f'<div style="font-size:11px;color:{SEC}">{sub}</div></div></div>')
@@ -227,7 +229,7 @@ def html(etapas, titulo, plataformas=None, info=None, erros=()):
                      f'planilha soma {_r(e["valor"] + e["dif_mc"])} — diferença de {_r(e["dif_mc"])} para a conta '
                      f'das linhas acima. A DRE segue a conta; a diferença está na planilha.</div>')
         det += (f'<details style="border-top:1px solid {BOR};padding:8px 0"><summary style="cursor:pointer;'
-                f'font-size:13px;font-weight:800;color:{SEC}">({e["n"]}) {e["nome"].upper()} — {_r(e["valor"])}'
+                f'font-size:13px;font-weight:800;color:{SEC}">({e["n"]}) {e["nome"].upper()}: {_r(e["valor"])}'
                 f'{"" if e["n"] == 1 else " · margem " + _pct(margem(e["valor"], rl))}</summary>{lins}</details>')
     avisos = ""
     if info and info.get("sem_custo"):
@@ -359,6 +361,10 @@ if __name__ == "__main__":
     ok("as seis etapas, o detalhe clicável, o aviso de venda sem custo e o erro de fonte",
        all(f"({i})" in _h for i in range(1, 7)) and "<details" in _h
        and "sem CUSTO TOTAL" in _h and "não li: folha" in _h)
+    ok("o resumo do detalhe não junta travessão com o sinal de menos (print do dono)",
+       "— −" not in _hp and "(6) LUCRO LÍQUIDO: − R$" in _hp)
+    ok("o % da barra é branco sobre barra escura", "color:#ffffff;font-weight:800" in _h
+       and "#7fd8e0" not in _h)
     ok("nome de plataforma vai escapado", "&lt;b&gt;" in html(_e, "X", {"<b>": 1.0}))
     print(f"\nfalhas: {falhas}")
     raise SystemExit(1 if falhas else 0)
