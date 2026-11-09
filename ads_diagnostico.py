@@ -136,11 +136,17 @@ def html(ads, pub, contas, ano, api=None):
     if api is not None:
         cab.append("Publicidade ML (direto do ML)")
 
+    guardado = set().union(*[set(d.get("guardado") or ()) for d in (api or {}).values()]) \
+        if api else set()
+    fora_j = sorted(set().union(*[set(d.get("fora_janela") or ()) for d in (api or {}).values()])) \
+        if api else []
+
     def _api(m):
         k = int(m[5:7])
         if k not in api_mes:
-            return "—"
-        return _dinheiro(api_mes[k]) + (" (parcial)" if k in parcial else "")
+            return "fora dos 90 dias do ML" if k in fora_j else "—"
+        return (_dinheiro(api_mes[k]) + (" (parcial)" if k in parcial else "")
+                + (" (guardado)" if k in guardado else ""))
     t2 = _tabela_html(
         cab,
         [[f"{MES[int(m[5:7]) - 1]}/{m[:4]}",
@@ -169,7 +175,11 @@ def html(ads, pub, contas, ano, api=None):
             + t1
             + f"<p><b>2 · Mês a mês</b> — a publicidade do ML é paga pelo saldo do Mercado "
               f"Pago e não passa no extrato: vem da planilha ou, pelo botão acima, direto "
-              f"do ML.</p>" + t2
+              f"do ML.</p>"
+            + ("<p style='font-size:12px'>O ML só devolve os <b>últimos 90 dias</b>. Cada mês "
+               "fechado que ele responde fica guardado no Studio (aba ml_ads_mes): o histórico "
+               "se forma daqui para a frente. Antes da janela, vale a planilha.</p>"
+               if api is not None else "") + t2
             + "<p><b>3 · Contas do Mercado Livre no Studio</b> — autorizada é a que tem token "
               "gravado; o vencimento se renova sozinho a cada 6 h.</p>" + t3 + t4)
 
@@ -188,6 +198,18 @@ def mostrar(ano):
             # Só depois do botão: até 48 idas ao ML. Depois, cache de 1 h.
             api = _mla.buscar(int(ano), hoje.month if hoje.year == int(ano) else 12,
                               hoje.day if hoje.year == int(ano) else 31)
+            # GUARDA o mês fechado: o ML esquece depois de 90 dias. A leitura
+            # do que já está guardado tem cache; só escreve o que é novo.
+            try:
+                ja = _mla.guardados(int(ano))
+                novas = _mla.a_guardar(api, int(ano),
+                                       hoje.month if hoje.year == int(ano) else 13, ja)
+                if novas:
+                    _mla.guardar(novas, hoje.strftime("%d/%m/%Y %H:%M"))
+                    ja = _mla.guardados(int(ano))
+                api = _mla.com_guardados(api, ja)
+            except Exception as e:
+                st.caption(f"⚠️ Não guardei a publicidade lida: {type(e).__name__}: {str(e)[:100]}")
         st.markdown(html(ads, pub, contas, int(ano), api), unsafe_allow_html=True)
         for a in avisos:
             st.caption(f"⚠️ Não li: {a}")
@@ -248,6 +270,18 @@ if __name__ == "__main__":
     ok("o aviso do ML vai escapado (não quebra o HTML)",
        "&lt;erro&gt; &amp; cia" in _h2 and "<erro>" not in _h2)
     ok("o HTML com a API não tem linha só de espaço", all(x.strip() for x in _h2.split("\n")))
+    # 09/11: a janela de 90 dias do ML e o mês guardado, pela cadeia
+    # (`ml_ads.com_guardados` de verdade).
+    import ml_ads as _mla_t
+    _api3 = _mla_t.com_guardados(
+        {"ml1": {"anunciante": "777", "caminho": "/x", "por_mes": {10: 300.0},
+                 "avisos": [], "fora_janela": [6, 7], "cortados": set()}},
+        {"ml1": {6: 4500.0}})
+    _a3 = dict(_a, por_mes={"2026-06": 1.0, "2026-07": 1.0, "2026-10": 1.0})
+    _h3 = html(_a3, {}, _c, 2026, _api3)
+    ok("mês guardado aparece marcado; o que saiu da janela e não foi guardado diz isso",
+       "4.500,00 (guardado)" in _h3 and "fora dos 90 dias do ML" in _h3
+       and "últimos 90 dias" in _h3)
     ok("o HTML não tem linha só de espaço",
        all(x.strip() for x in _h.split("\n")))
     ok("ano sem ADS diz isso, e não desenha tabela vazia",

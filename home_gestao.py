@@ -387,7 +387,13 @@ def _html_faturamento(d):
     eq_real = float(_ec_g.ponto_de_equilibrio(
         f.get("comprometido"), (f.get("eq_conta") or {}).get("margem_bruta"))
         or 0.0) if f.get("comprometido") is not None else 0.0
-    teto = max(proj, meta, eq, eq2, real, eq_real, 1.0) * 1.08
+    # SÓ OS GASTOS DE VERDADE (dono, 09/11): "a meta de faturamento que
+    # tenho que preencher está ficando fora do que está sendo realizado (...)
+    # deixar somente com base nos gastos atuais". Com o extrato do Inter em
+    # tempo real, o equilíbrio REAL (gastos do mês ÷ lucro bruto) é a régua;
+    # a meta digitada e o equilíbrio dela saem do gráfico e da tela.
+    meta = eq = eq2 = 0.0
+    teto = max(proj, real, eq_real, 1.0) * 1.08
     # A OPÇÃO C (dono, 15/10): as três linhas ficavam a poucos pixels uma da
     # outra, com os nomes por cima da projeção. Agora a faixa entre o
     # equilíbrio e a meta é sombreada, cada linha tem uma cor, e os nomes
@@ -453,9 +459,18 @@ def _html_faturamento(d):
                 if dif >= 0 else
                 f'<span style="font-size:12px;font-weight:700;color:#fff;background:{VERMELHO};'
                 f'padding:4px 10px;border-radius:999px;">▼ {_brl(-dif, 0)} abaixo do ritmo</span>')
+    elif eq_real:
+        dif = proj - eq_real
+        selo = (f'<span style="font-size:12px;font-weight:700;color:#0F2A1E;background:{VERDE};'
+                f'padding:4px 10px;border-radius:999px;">no ritmo fecha ▲ {_brl(dif, 0)} acima '
+                f'do equilíbrio real</span>'
+                if dif >= 0 else
+                f'<span style="font-size:12px;font-weight:700;color:#fff;background:{VERMELHO};'
+                f'padding:4px 10px;border-radius:999px;">no ritmo fecha ▼ {_brl(-dif, 0)} abaixo '
+                f'do equilíbrio real</span>')
     else:
-        selo = ('<span style="font-size:12px;color:{SEC};">sem meta cadastrada '
-                '— Financeiro › Meta de gastos</span>')
+        selo = (f'<span style="font-size:12px;color:{SEC};">sem gastos do mês lidos — '
+                f'sem equilíbrio real</span>')
     # OS TEXTOS DE CIMA SAÍRAM (dono, 19/10: "se já tiver em baixo tire de
     # cima"): o ritmo médio, o "fecha em" e os valores das linhas moram nos
     # cartões das duas caixas. Em cima ficam o número, o selo e o gráfico.
@@ -467,7 +482,7 @@ def _html_faturamento(d):
         '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">'
         f'<span style="font-size:40px;font-weight:800;letter-spacing:-.02em;line-height:1.1;">{_brl(real, 0)}</span>'
         f'{selo}</div></div>'
-        + svg + _caixa_projecao(d, real, proj, por_dia, dia, dias, eq, meta)
+        + svg
         + _linha_do_real(d, proj) +
         '</div>')
 
@@ -497,33 +512,6 @@ def _caixa(titulo, cor):
             'padding:12px;display:flex;flex-direction:column;gap:8px;">'
             '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
             f'text-transform:uppercase;color:{cor};">{titulo}</div>')
-
-
-def _caixa_projecao(d, real, proj, por_dia, dia, dias, eq, meta):
-    """PROJEÇÃO · pela meta de gastos (dono, 19/10): a meta de gastos, o dia
-    em que o ponto de equilíbrio chega no ritmo de hoje e quanto falta para a
-    meta do mês, com a chance de chegar."""
-    import equilibrio_caixa as _ec
-    f = d["faturamento"]
-    c = f.get("eq_conta") or {}
-    mg = float(c.get("meta_gastos") or f.get("meta_de_gastos") or 0.0)
-    mb = c.get("margem_bruta")
-    _mb = f"{float(mb):.1f}".replace(".", ",") if mb else ""
-    sub_meta = (f"Ponto de equilíbrio: {_brl(eq, 0)} (meta ÷ lucro bruto {_mb}%)"
-                if (eq and _mb) else _linha_do_equilibrio(d))
-    fracao = _ec.fracao_do_mes(d.get("agora"), dias) or (dia / dias)
-    ch = chance_de_chegar(real, meta, por_dia, f.get("serie"), dia, dias, fracao)
-    return (_caixa("Projeção · pela meta de gastos", AMBAR)
-            + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">'
-            + _tile_caixa("Meta de gastos", _brl(mg, 0) if mg else "Não cadastrada", sub_meta)
-            + _tile_caixa("Equilíbrio no ritmo atual", dia_do_alvo(eq, real, por_dia, dias),
-                          f"Ritmo médio {_brl(por_dia, 0)}/dia em {dia} dias")
-            + _tile_caixa("Falta para a meta",
-                          _brl(max(meta - real, 0.0), 0) if meta else "Sem meta",
-                          (f"Meta do mês {_brl(meta, 0)} · no ritmo fecha em {_brl(proj, 0)}"
-                           if meta else f"No ritmo fecha em {_brl(proj, 0)}"),
-                          AMBAR if meta else None, ch if meta else None)
-            + '</div></div>')
 
 
 # `_bloco_faturamento` (a régua antiga) saiu em 05/10: o balanço mensal é
@@ -1435,7 +1423,10 @@ def _html_indicadores(p, plats=None):
     faturamento por plataforma (19/10)."""
     def bloco(rot, valor, linha, sub, cor="{TEXTO}", borda=False):
         b = "border-top:1px solid {BORDA};padding-top:12px;" if borda else "padding-bottom:12px;"
-        return (f'<div style="display:flex;flex-direction:column;justify-content:center;gap:4px;{b}">'
+        # NO TOPO, E NÃO NO MEIO (dono, 09/11: "deixar os gráficos todos
+        # alinhados"): centrado, o bloco de texto mais curto descia, e o
+        # "Lucro líquido" ficava 9px acima do "Lucro bruto" ao lado.
+        return (f'<div style="display:flex;flex-direction:column;justify-content:flex-start;gap:4px;{b}">'
                 f'<div style="font-size:12px;color:{SEC};font-weight:600;">{rot}</div>'
                 f'<div style="font-size:26px;font-weight:800;color:{cor};">{valor}</div>'
                 f'{linha}<div style="font-size:11px;color:{SEC};">{sub}</div></div>')
@@ -2592,24 +2583,32 @@ if __name__ == "__main__":
        ("Faturamento × ponto" + " de equilíbrio × meta") not in _h_fat)
     # 20/10: cada linha com o VALOR do alvo e quanto falta (desfaz o "só o
     # nome" de 19/10, a pedido do dono).
-    ok("cada linha do gráfico traz o valor do alvo e quanto falta (dono, 20/10)",
-       ">Ponto de equilíbrio R$ " in _h_fat and ">Meta do mês R$ " in _h_fat
-       and _h_fat.count(" · falta R$ ") + _h_fat.count(" · atingido") >= 2)
+    # 09/11: SÓ OS GASTOS DE VERDADE. A meta digitada e o equilíbrio dela
+    # saíram do gráfico e da tela; a régua é o equilíbrio real.
+    # Os gastos do mês na forma de `dados_reais` (comprometido e a margem
+    # bruta dos meses fechados) — os números do print do dono de 09/11.
+    _h_fat = _html_faturamento({**_d_fat, "faturamento": {
+        **_d_fat["faturamento"], "realizado": 58747.0, "comprometido": 155442.0,
+        "eq_conta": {**(_d_fat["faturamento"].get("eq_conta") or {}), "margem_bruta": 74.27}}})
+    ok("o gráfico traz só o equilíbrio real, com o valor e quanto falta (dono, 09/11)",
+       ">Equilíbrio real R$ " in _h_fat and ">Meta do mês" not in _h_fat
+       and ">Ponto de equilíbrio" not in _h_fat
+       and (" · falta R$ " in _h_fat or " · atingido" in _h_fat))
     ok("rotulo_da_linha: falta quando abaixo, atingido quando passou",
        rotulo_da_linha("Meta do mês", 235331, 144082) == f"Meta do mês {_brl(235331, 0)} · falta {_brl(91249, 0)}"
        and rotulo_da_linha("Ponto de equilíbrio", 100000, 144082).endswith("· atingido"))
-    ok("o quadro de cima é Projeção · pela meta de gastos (dono, 19/10)",
-       "Projeção · pela meta de gastos" in _h_fat
-       and "Real · pelos gastos" not in _h_fat.split("Projeção · pela meta")[0])
-    ok("os três cartões da Projeção, do layout de 19/10",
-       all(t in _h_fat for t in ("Meta de gastos", "Equilíbrio no ritmo atual",
-                                 "Falta para a meta")))
-    ok("o que está embaixo saiu de cima: sem 'Se mantiver o ritmo' nem o ritmo médio no topo",
-       "Se mantiver o ritmo" not in _h_fat
-       and _h_fat.count("Ritmo médio") == 1 and _h_fat.count("fecha em") == 1)
-    ok("sem meta, a tela diz que não há meta em vez de inventar ritmo",
-       "sem meta cadastrada" in _html_faturamento(
-           {**_d_fat, "faturamento": {**_d_fat["faturamento"], "meta": 0.0}}))
+    ok("a caixa da meta de gastos saiu; fica a do real",
+       "Projeção · pela meta de gastos" not in _h_fat and "Real · pelos gastos" in _h_fat
+       and "Falta para a meta" not in _h_fat)
+    ok("o selo diz se o ritmo fecha acima ou abaixo do equilíbrio real",
+       "do equilíbrio real</span>" in _h_fat and "sem meta cadastrada" not in _h_fat)
+    ok("_caixa abre a caixa com o título na cor dela (a do real continua)",
+       _caixa("Real · pelos gastos do mês", VERDE).endswith(
+           f'color:{VERDE};">Real · pelos gastos do mês</div>')
+       and _h_fat.count("Real · pelos gastos do mês") == 1)
+    ok("sem gastos lidos, o selo diz isso em vez de inventar",
+       "sem gastos do mês lidos" in _html_faturamento(
+           {**_d_fat, "faturamento": {**_d_fat["faturamento"], "comprometido": None}}))
     ok("o balanço não tem quebra de linha (markdown fecharia o HTML)",
        "\n" not in _h_fat)
     ok("a legenda não explica a filosofia do painel",
@@ -2890,6 +2889,12 @@ if __name__ == "__main__":
     ok("motivo digitado com HTML aparece escapado, não interpretado",
        "&lt;b&gt;Quebrado&lt;/b&gt;" in _h_dv and "<b>Quebrado</b>" not in _h_dv)
     _h_ind = _html_indicadores(_p_t)
+    # 09/11, medido no Chromium com o Streamlit real: com o texto centrado o
+    # "Lucro líquido" subia 9px em relação ao "Lucro bruto"; no topo, os
+    # quatro títulos e os quatro valores caem na mesma linha.
+    ok("os quatro blocos dos indicadores começam no topo (alinhados lado a lado)",
+       _h_ind.count("justify-content:flex-start") == 4
+       and "justify-content:center" not in _h_ind)
     ok("o quadro de indicadores traz lucros em R$ e %, LPV e UC",
        all(x in _h_ind for x in ("Lucro bruto", "Lucro líquido", "LPV", "UC",
                                  _fmt(_p_t["lucro_liquido_pct"], "pct"))))

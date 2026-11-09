@@ -3991,9 +3991,10 @@ def _lembretes_na_home(conta):
               len(_botoes) == 2 and len(set(_botoes)) == 2
               and all(str(b).startswith("lem_") for b in _botoes)
               and "Boleto · VIDROS SA" in _junto and "PRONAMP 1" in _junto, str(_botoes))
-        conta("Lembretes: a TM de 20/10 ainda não aparece, e nada de valor",
+        # 09/11: o valor à frente da data (decisão nova do dono).
+        conta("Lembretes: a TM de 20/10 ainda não aparece, e o boleto mostra o valor",
               "TM Logística" not in _junto and "Depois" not in _junto
-              and "R$" not in _junto, "")
+              and "R$ 800,00" in _junto, "")
     except (_Rerun, _Parou):
         conta("Lembretes: a tela monta", True, "")
     except Exception as e:

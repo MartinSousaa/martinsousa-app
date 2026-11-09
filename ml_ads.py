@@ -40,6 +40,16 @@ CAMINHOS = (
 LIMITE = 50          # campanhas por página
 MAX_PAGINAS = 10
 
+# A JANELA DO ML (medida em produção, 09/11): "You cannot request metrics
+# with a date greater than 90 days" — o ML só devolve os últimos 90 dias.
+# Jan a ago voltavam 400 nas quatro contas. É limite da API, e não defeito:
+# por isso o Studio GUARDA cada mês fechado que leu (aba `ml_ads_mes`), e o
+# histórico se forma daqui para a frente. O que já saiu da janela vem só da
+# planilha ADS E CROSS.
+JANELA_DIAS = 89
+ABA = "ml_ads_mes"
+COLUNAS = ["conta", "mes", "custo", "lido_em"]
+
 
 def anunciante(resp):
     """(advertiser_id, site_id) da resposta de /advertising/advertisers. Pura.
@@ -102,6 +112,28 @@ def periodos(ano, ate_mes, ate_dia):
     return fora
 
 
+def na_janela(meses, hoje, dias=JANELA_DIAS):
+    """(perguntar, cortados, fora) dos `meses` de `periodos`. Pura.
+
+    `perguntar`: [(mês, date_from, date_to)] dentro da janela do ML, o
+    começo puxado para o limite quando o mês atravessa a borda.
+    `cortados`: os meses puxados (o número deles é PARCIAL).
+    `fora`: os meses inteiros antes da janela — nem se pergunta.
+    """
+    from datetime import date, timedelta
+    lim = (hoje - timedelta(days=dias)).isoformat()
+    perguntar, cortados, fora = [], set(), []
+    for m, d0, d1 in meses:
+        if d1 < lim:
+            fora.append(m)
+        elif d0 < lim:
+            perguntar.append((m, lim, d1))
+            cortados.add(m)
+        else:
+            perguntar.append((m, d0, d1))
+    return perguntar, cortados, fora
+
+
 def _mes(conta, tok, req, caminho, d0, d1):
     """(custo, erro) de um mês, paginando quando o ML não manda o total."""
     soma = 0.0
@@ -162,9 +194,14 @@ def ler_conta(conta, tok, meses, req=None):
 
 @st.cache_data(ttl=3600, show_spinner="Perguntando ao Mercado Livre…")
 def buscar(ano, ate_mes, ate_dia):
-    """{conta: ler_conta(...)} das quatro, em paralelo. Cache de 1 h."""
+    """{conta: ler_conta(...)} das quatro, em paralelo. Cache de 1 h.
+
+    Só pergunta o que cabe na janela de 90 dias do ML (`na_janela`); cada
+    conta leva junto `cortados` (mês parcial) e `fora_janela`."""
     from concurrent.futures import ThreadPoolExecutor
-    meses = periodos(ano, ate_mes, ate_dia)
+    from datetime import date
+    meses, cortados, fora_j = na_janela(periodos(ano, ate_mes, ate_dia),
+                                        date(int(ano), int(ate_mes), int(ate_dia)))
     prontas, lidas = {}, {}
     for c in _ml.CONTAS:
         tok, erro = _ml.token(c)
@@ -180,7 +217,87 @@ def buscar(ano, ate_mes, ate_dia):
             except Exception as e:
                 lidas[c] = {"anunciante": "", "caminho": "", "por_mes": {},
                             "avisos": [f"a leitura caiu: {type(e).__name__}"]}
+    for d in lidas.values():
+        d["cortados"], d["fora_janela"] = set(cortados), list(fora_j)
     return {c: lidas[c] for c in _ml.CONTAS if c in lidas}
+
+
+# ── O que já foi lido fica guardado (a janela do ML é de 90 dias) ──────────
+
+def _aba():
+    import sheets as _sh
+    pl = _sh.planilha()
+    try:
+        return pl.worksheet(ABA)
+    except Exception:
+        a = pl.add_worksheet(title=ABA, rows=200, cols=len(COLUNAS))
+        a.append_row(COLUNAS, value_input_option="RAW")
+        return a
+
+
+def guardados_de(linhas, ano):
+    """{conta: {mês: custo}} do ano, das linhas da aba. Pura."""
+    fora = {}
+    for l in linhas or []:
+        mes, c = str(l.get("mes") or ""), str(l.get("conta") or "").strip()
+        if not c or mes[:4] != str(int(ano)) or len(mes) < 7:
+            continue
+        try:
+            fora.setdefault(c, {})[int(mes[5:7])] = round(float(str(l.get("custo")).replace(",", ".")), 2)
+        except ValueError:
+            continue
+    return fora
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def guardados(ano):
+    """Os meses já guardados. Cache de 10 min: a tela redesenha a cada clique."""
+    return guardados_de(_aba().get_all_records(), ano)
+
+
+def a_guardar(lidas, ano, mes_atual, ja):
+    """[(conta, 'AAAA-MM', custo)] dos meses FECHADOS e inteiros que o ML
+    respondeu e ainda não estão guardados com o mesmo valor. Pura.
+
+    Mês corrente e mês cortado pela janela não se guardam: são parciais."""
+    fora = []
+    for c, d in (lidas or {}).items():
+        for m, v in (d.get("por_mes") or {}).items():
+            if m >= int(mes_atual) or m in (d.get("cortados") or ()):
+                continue
+            if (ja.get(c) or {}).get(m) != round(v, 2):
+                fora.append((c, f"{int(ano):04d}-{m:02d}", round(v, 2)))
+    return fora
+
+
+def guardar(novas, quando):
+    """Grava `novas` trocando a linha da mesma conta e mês. Levanta erro."""
+    if not novas:
+        return 0
+    a = _aba()
+    chave = {(c, m) for c, m, _v in novas}
+    linhas = [l for l in a.get_all_records()
+              if (str(l.get("conta")), str(l.get("mes"))) not in chave]
+    linhas += [{"conta": c, "mes": m, "custo": v, "lido_em": quando} for c, m, v in novas]
+    a.clear()
+    a.update([COLUNAS] + [[str(l.get(k, "")) for k in COLUNAS] for l in linhas],
+             value_input_option="RAW")
+    guardados.clear()
+    return len(novas)
+
+
+def com_guardados(lidas, ja):
+    """Uma CÓPIA de `lidas` com os meses guardados onde o ML não respondeu
+    (fora da janela), marcados em `guardado`. A original é do cache. Pura."""
+    import copy
+    fora = copy.deepcopy(lidas or {})
+    for c, d in fora.items():
+        d.setdefault("guardado", set())
+        for m, v in (ja.get(c) or {}).items():
+            if m not in d.setdefault("por_mes", {}):
+                d["por_mes"][m] = v
+                d["guardado"].add(m)
+    return fora
 
 
 def por_mes(lidas):
@@ -194,6 +311,8 @@ def por_mes(lidas):
     for d in (lidas or {}).values():
         if d.get("anunciante"):
             faltou |= {m for m in meses if m not in d.get("por_mes", {})}
+        # Mês puxado pela janela de 90 dias só tem o pedaço dentro dela.
+        faltou |= set(d.get("cortados") or ()) & meses
     return soma, faltou
 
 
@@ -283,6 +402,71 @@ if __name__ == "__main__":
                       "ml3": {"anunciante": "", "por_mes": {}}})
     ok("soma por mês, e marca o mês parcial (conta com anunciante e sem o mês)",
        _s == {1: 12.5, 2: 5.0} and _f == {2})
+
+    # A JANELA DE 90 DIAS (09/11), pela cadeia: um ML de mentira que recusa
+    # como o de verdade ("You cannot request metrics with a date greater than
+    # 90 days"), e os meses de `periodos` passados por `na_janela`.
+    from datetime import date as _d9, timedelta as _td9
+    _hoje9 = _d9(2026, 11, 9)
+
+    def _ml90(metodo, conta, tok, caminho, params=None, corpo=None, cabecalhos=None):
+        if caminho == "/advertising/advertisers":
+            return ({"advertisers": [{"advertiser_id": 777, "site_id": "MLB"}]}, "")
+        if params["date_from"] < (_hoje9 - _td9(days=90)).isoformat():
+            return (None, 'Mercado Livre respondeu 400: "You cannot request metrics with a date '
+                          'greater than 90 days"')
+        return ({"metrics_summary": {"cost": 10.0}}, "")
+    _per, _cor, _fora = na_janela(periodos(2026, 11, 9), _hoje9)
+    ok("janela: jan a jul nem são perguntados; ago é puxado para dentro, e é parcial",
+       _fora == [1, 2, 3, 4, 5, 6, 7] and _cor == {8} and _per[0][0] == 8
+       and _per[0][1] == (_hoje9 - _td9(days=JANELA_DIAS)).isoformat())
+    _r9 = ler_conta("ml1", "TOK-ml1", _per, _ml90)
+    ok("e o ML real não devolve mais 400: ago a nov respondem", not _r9["avisos"]
+       and sorted(_r9["por_mes"]) == [8, 9, 10, 11])
+    _r9.update(cortados=_cor, fora_janela=_fora)
+    ok("o mês puxado sai como parcial na soma", 8 in por_mes({"ml1": _r9})[1])
+    _novas = a_guardar({"ml1": _r9}, 2026, 11, {})
+    ok("guardar: só os meses FECHADOS e inteiros (set e out); ago parcial e nov aberto ficam fora",
+       _novas == [("ml1", "2026-09", 10.0), ("ml1", "2026-10", 10.0)])
+    ok("o que já está guardado com o mesmo valor não regrava",
+       a_guardar({"ml1": _r9}, 2026, 11, {"ml1": {9: 10.0, 10: 10.0}}) == [])
+
+    class _AbaF:
+        def __init__(self, linhas):
+            self.linhas, self.escrito = linhas, None
+
+        def get_all_records(self):
+            return self.linhas
+
+        def clear(self):
+            pass
+
+        def update(self, v, **k):
+            self.escrito = v
+    _af = _AbaF([{"conta": "ml1", "mes": "2026-09", "custo": "9", "lido_em": "x"},
+                 {"conta": "ml2", "mes": "2026-09", "custo": "5", "lido_em": "x"}])
+    _g9 = globals()["_aba"]
+    globals()["_aba"] = lambda: _af
+    try:
+        guardar(_novas, "09/11/2026 11:00")
+    finally:
+        globals()["_aba"] = _g9
+    _volta = guardados_de([dict(zip(_af.escrito[0], l)) for l in _af.escrito[1:]], 2026)
+    ok("guardar troca a linha da mesma conta e mês, e não mexe na outra conta",
+       _af.escrito[0] == COLUNAS and _volta == {"ml1": {9: 10.0, 10: 10.0}, "ml2": {9: 5.0}})
+    globals()["_aba"] = lambda: _AbaF([{"conta": "ml3", "mes": "2026-08", "custo": "7,5"}])
+    try:
+        guardados.clear()
+        _gd = guardados(2026)
+    finally:
+        globals()["_aba"] = _g9
+        guardados.clear()
+    ok("guardados lê a aba (vírgula vira número)", _gd == {"ml3": {8: 7.5}})
+    _api9 = {"ml1": {"anunciante": "777", "por_mes": {11: 1.0}, "fora_janela": [6]}}
+    _cg = com_guardados(_api9, {"ml1": {6: 50.0}})
+    ok("o guardado preenche o mês fora da janela, marcado, numa CÓPIA (o original é do cache)",
+       _cg["ml1"]["por_mes"] == {11: 1.0, 6: 50.0} and _cg["ml1"]["guardado"] == {6}
+       and _api9["ml1"]["por_mes"] == {11: 1.0})
 
     import inspect as _insp
     ok("o token é buscado FORA da thread", _insp.getsource(buscar).index("_ml.token(")
