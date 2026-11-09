@@ -5040,6 +5040,13 @@ MUTACOES = [
         ["python3", "lancamentos.py"],
     ),
     (
+        'o holerite volta a abrir na primeira pessoa depois de salvar o ajuste (09/11e)',
+        "folha_tela.py",
+        [('        st.session_state[f"folha_holerite_{ano}_{mes}"] = u\n', '')],
+        None,
+        ["python3", "folha_tela.py"],
+    ),
+    (
         'o desvio item a item some da Visao Geral (07/11)',
         "visao_geral.py",
         [('    _desv.mostrar(int(ano), m, mes_txt, valores, usuario_logado)\n', '')],
