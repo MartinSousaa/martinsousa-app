@@ -3608,13 +3608,8 @@ MUTACOES = [
         "    _ys = [m[0] for m in marcas]\n",
         ["python3", "home_gestao.py"],
     ),
-    (
-        "o quadro de cima perde o titulo Projecao (pela meta de gastos)",
-        "home_gestao.py",
-        '    return (_caixa("Projeção · pela meta de gastos", AMBAR)\n',
-        '    return (_caixa("", AMBAR)\n',
-        ["python3", "home_gestao.py"],
-    ),
+    # A caixa 'Projeção · pela meta de gastos' saiu a pedido do dono (09/11);
+    # a guarda do contrário é 'a meta de gastos digitada volta ao balanco'.
     (
         "o lembrete marcado como feito continua na tela",
         "lembretes.py",
