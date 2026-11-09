@@ -1423,7 +1423,10 @@ def _html_indicadores(p, plats=None):
     faturamento por plataforma (19/10)."""
     def bloco(rot, valor, linha, sub, cor="{TEXTO}", borda=False):
         b = "border-top:1px solid {BORDA};padding-top:12px;" if borda else "padding-bottom:12px;"
-        return (f'<div style="display:flex;flex-direction:column;justify-content:center;gap:4px;{b}">'
+        # NO TOPO, E NÃO NO MEIO (dono, 09/11: "deixar os gráficos todos
+        # alinhados"): centrado, o bloco de texto mais curto descia, e o
+        # "Lucro líquido" ficava 9px acima do "Lucro bruto" ao lado.
+        return (f'<div style="display:flex;flex-direction:column;justify-content:flex-start;gap:4px;{b}">'
                 f'<div style="font-size:12px;color:{SEC};font-weight:600;">{rot}</div>'
                 f'<div style="font-size:26px;font-weight:800;color:{cor};">{valor}</div>'
                 f'{linha}<div style="font-size:11px;color:{SEC};">{sub}</div></div>')
@@ -2886,6 +2889,12 @@ if __name__ == "__main__":
     ok("motivo digitado com HTML aparece escapado, não interpretado",
        "&lt;b&gt;Quebrado&lt;/b&gt;" in _h_dv and "<b>Quebrado</b>" not in _h_dv)
     _h_ind = _html_indicadores(_p_t)
+    # 09/11, medido no Chromium com o Streamlit real: com o texto centrado o
+    # "Lucro líquido" subia 9px em relação ao "Lucro bruto"; no topo, os
+    # quatro títulos e os quatro valores caem na mesma linha.
+    ok("os quatro blocos dos indicadores começam no topo (alinhados lado a lado)",
+       _h_ind.count("justify-content:flex-start") == 4
+       and "justify-content:center" not in _h_ind)
     ok("o quadro de indicadores traz lucros em R$ e %, LPV e UC",
        all(x in _h_ind for x in ("Lucro bruto", "Lucro líquido", "LPV", "UC",
                                  _fmt(_p_t["lucro_liquido_pct"], "pct"))))

@@ -5015,6 +5015,14 @@ MUTACOES = [
         ["python3", "home_gestao.py"],
     ),
     (
+        'os blocos dos indicadores voltam a centrar e desalinham (09/11c)',
+        "home_gestao.py",
+        [("flex-direction:column;justify-content:flex-start;gap:4px;{b}",
+          "flex-direction:column;justify-content:center;gap:4px;{b}")],
+        None,
+        ["python3", "home_gestao.py"],
+    ),
+    (
         'o desvio item a item some da Visao Geral (07/11)',
         "visao_geral.py",
         [('    _desv.mostrar(int(ano), m, mes_txt, valores, usuario_logado)\n', '')],
