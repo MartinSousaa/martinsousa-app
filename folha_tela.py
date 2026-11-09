@@ -23,7 +23,7 @@ def linhas_salario(por_pessoa, nomes, assinadas=None):
             continue
         f = d["folha"]
         tot["base"] += f["salario"]
-        tot["desc"] += f["desconto"]
+        tot["desc"] += f["desconto_no_salario"]
         tot["pagar"] += f["salario_se_fechasse_hoje"]
         linhas.append({
             "Colaborador": nomes.get(u, u),
@@ -33,9 +33,11 @@ def linhas_salario(por_pessoa, nomes, assinadas=None):
             # reclama de tipo misturado ao montar a tabela.
             "Faltas de dia inteiro": str(len(d["faltas"])) if d["faltas"] else "—",
             "Coberto pelo banco": _fm.h(f["usado_do_banco_min"]).lstrip("+") if f["usado_do_banco_min"] else "—",
-            "Desconto": ("− " + _brl(f["desconto"])
-                         + (f" ({f['semanas_falta']} domingo)" if f["semanas_falta"] else ""))
-                        if f["desconto"] else "—",
+            "Desconto": ("nas metas" if f.get("desconto_no_bonus") and f.get("desconto_total")
+                         else ("− " + _brl(f["desconto_no_salario"])
+                               + (f" ({f['semanas_falta']} domingo)" if f["semanas_falta"] else "")
+                               + (" (manual)" if f.get("desconto_manual") else ""))
+                         if f["desconto_no_salario"] else "—"),
             "Salário a pagar": _brl(f["salario_se_fechasse_hoje"]),
             "Banco de horas": _fm.h(f["banco_final_min"])})
         if assinadas is not None:
@@ -56,8 +58,12 @@ def linhas_metas(por_pessoa, nomes):
             r[f"{rot} {pct:.0f}%"] = (("✓ " + _brl(v)) if pago else "✓ (a MAXX paga)") if bateu \
                 else ("✗ " + mot if mot else "✗")
         r["% total"] = f"{d['pct_metas']:.0f}%"
-        r["Metas a pagar"] = _brl(d["metas_valor"])
-        total += d["metas_valor"]
+        # OS DESCONTOS QUE O DONO MANDOU PARA AS METAS (09/11).
+        r["Descontos"] = (("− " + _brl(d["desconto_das_metas"]) if d.get("desconto_das_metas") else "—")
+                          + (f" · {_brl(d['nao_coberto'])} sem metas para cobrir"
+                             if d.get("nao_coberto") else ""))
+        r["Metas a pagar"] = _brl(d.get("metas_pagar", d["metas_valor"]))
+        total += d.get("metas_pagar", d["metas_valor"])
         linhas.append(r)
     return linhas, total
 
@@ -124,6 +130,75 @@ def _marcar_domingos(por, nomes, ano, mes, usuario_logado):
             st.rerun()
 
 
+def ajuste_da_pessoa(d):
+    """O ajuste gravado de uma pessoa, na forma que `folha_mes.gravar_ajuste`
+    recebe. Pura."""
+    f = d["folha"]
+    return {"descontos": list(f.get("descontos_manuais") or []),
+            "no_bonus": bool(f.get("desconto_no_bonus")), "obs": d.get("observacao", "")}
+
+
+def ajuste_do_formulario(linhas, no_bonus, obs):
+    """O que a tela devolve vira o ajuste. Linha sem valor fica de fora;
+    célula vazia do editor vem NaN (str(NaN) seria "nan"). Pura."""
+    desc = []
+    for l in linhas or []:
+        d, v = l.get("Descrição"), l.get("Valor (R$)")
+        d = d.strip() if isinstance(d, str) else ""
+        try:
+            v = float(str(v).replace(",", ".")) if v is not None and v == v else 0.0
+        except ValueError:
+            v = 0.0
+        if v:
+            desc.append((d or "Desconto", round(abs(v), 2)))
+    return {"descontos": desc, "no_bonus": bool(no_bonus), "obs": str(obs or "").strip()}
+
+
+def _ajustes_manuais(por, nomes, ano, mes, usuario_logado):
+    """Desconto manual, a marca "descontar nas metas" e a observação (dono, 09/11)."""
+    import pandas as pd
+    import folha_mes as _fm
+    import meu_desempenho as _md
+    quem = [u for u, d in sorted(por.items(), key=lambda kv: nomes.get(kv[0], kv[0])) if d]
+    with st.container(border=True):
+        st.markdown("**DESCONTOS MANUAIS E OBSERVAÇÕES**")
+        st.caption("Sem a marca, todo desconto (o do ponto e o manual) sai do salário. Marcada, "
+                   "o salário fica integral e o desconto sai das metas do 5º dia útil. A "
+                   "observação aparece no holerite, para o colaborador.")
+        u = st.selectbox("Colaborador", quem, format_func=lambda x: nomes.get(x, x),
+                         key=f"folha_aj_quem_{ano}_{mes}")
+        if not u:
+            return
+        d = por[u]
+        f, aj = d["folha"], ajuste_da_pessoa(d)
+        # O $ escapado: dois "R$" na mesma linha viram fórmula no markdown.
+        st.caption((f"Desconto do ponto neste mês: {_brl(f['desconto'])} · "
+                    f"metas do mês: {_brl(d['metas_valor'])}").replace("$", "\\$"))
+        with st.form(f"folha_aj_form_{ano}_{mes}_{u}"):
+            df = pd.DataFrame([{"Descrição": x, "Valor (R$)": v} for x, v in aj["descontos"]]
+                              or [{"Descrição": "", "Valor (R$)": None}])
+            ed = st.data_editor(df, num_rows="dynamic", hide_index=True, use_container_width=True,
+                                key=f"folha_aj_ed_{ano}_{mes}_{u}",
+                                column_config={"Valor (R$)": st.column_config.NumberColumn(
+                                    "Valor (R$)", min_value=0.0, format="R$ %.2f")})
+            nb = st.checkbox("Descontar nas metas (5º dia útil) — o salário fica integral",
+                             value=aj["no_bonus"], key=f"folha_aj_nb_{ano}_{mes}_{u}")
+            obs = st.text_area("Observações (aparecem no holerite)", value=aj["obs"],
+                               key=f"folha_aj_obs_{ano}_{mes}_{u}")
+            enviou = st.form_submit_button("💾 Salvar ajustes", type="primary")
+        if not enviou:
+            return
+        novo = ajuste_do_formulario(ed.to_dict("records"), nb, obs)
+        try:
+            _fm.gravar_ajuste(ano, mes, u, novo, usuario_logado)
+        except Exception as e:
+            st.error(f"Não consegui gravar os ajustes: {e}")
+            return
+        # A apuração fica 5 min em cache — a do colaborador também.
+        _md.resumo_do_mes.clear()
+        st.rerun()
+
+
 def pagina(usuario_logado=None):
     import auth
     import pandas as pd
@@ -177,11 +252,14 @@ def pagina(usuario_logado=None):
     k[0].metric("Salários · dia 30", _brl(tot["pagar"]))
     k[1].metric("Metas · 5º dia útil", _brl(tot_m))
     k[2].metric("Total do mês", _brl(tot["pagar"] + tot_m))
-    k[3].metric("Descontos por falta", ("− " + _brl(tot["desc"])) if tot["desc"] else _brl(0))
+    _desc_tot = round(sum(d["folha"].get("desconto_total", d["folha"]["desconto"])
+                          for d in por.values() if d), 2)
+    k[3].metric("Descontos (ponto + manuais)", ("− " + _brl(_desc_tot)) if _desc_tot else _brl(0))
     with st.container(border=True):
         st.markdown("**SALÁRIO — PELO PONTO**")
         st.dataframe(pd.DataFrame(sal), use_container_width=True, hide_index=True)
     _marcar_domingos(por, nomes, ano, mes, usuario_logado)
+    _ajustes_manuais(por, nomes, ano, mes, usuario_logado)
     with st.container(border=True):
         st.markdown("**METAS — % DO SALÁRIO BASE**")
         st.dataframe(pd.DataFrame(met), use_container_width=True, hide_index=True)
@@ -215,6 +293,7 @@ if __name__ == "__main__":
     _f = _fm_t.apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, horas_do_mes_min=_d)
     _l, _p, _v = _fm_t.metas(2200, {"col": True})
     _por = {"luiz": {"folha": _f, "metas": _l, "pct_metas": _p, "metas_valor": _v,
+                     **_fm_t.aplicar_ajustes(_f, _v),
                      "faltas": ["2026-10-14"], "domingo_nas": [], "devidas_min": _d,
                      "total": 0},
             "fulano": None}
@@ -244,5 +323,27 @@ if __name__ == "__main__":
         [{"mes": "2026-10", "username": "bia", "data": "2026-10-21"}], 2026, 10, _e, "dono", "x")
     ok("e gravada, a desmarcada sai e a marcada entra",
        _fm_t.domingos_de(_rows, 2026, 10) == {"bia": ["2026-10-07"]})
+    # 09/11: OS AJUSTES DO DONO pela cadeia — `aplicar_ajustes` de verdade.
+    _f2 = _fm_t.apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, horas_do_mes_min=_d)
+    _aj = ajuste_do_formulario([{"Descrição": "Faltas não remuneradas", "Valor (R$)": 50.0},
+                                {"Descrição": float("nan"), "Valor (R$)": float("nan")},
+                                {"Descrição": "Porta 2 Relógio + Jóias", "Valor (R$)": "12,5"}],
+                               True, "  Descontos aplicados no repasse do lucro.  ")
+    ok("o formulário vira o ajuste: linha vazia fora, vírgula vira número, obs aparada",
+       _aj == {"descontos": [("Faltas não remuneradas", 50.0), ("Porta 2 Relógio + Jóias", 12.5)],
+               "no_bonus": True, "obs": "Descontos aplicados no repasse do lucro."})
+    _pb = {"luiz": {"folha": _f2, "metas": _l, "pct_metas": _p, "metas_valor": _v,
+                    **_fm_t.aplicar_ajustes(_f2, _v, _aj),
+                    "faltas": ["2026-10-14"], "domingo_nas": [], "devidas_min": _d}}
+    _sb, _tb = linhas_salario(_pb, {"luiz": "Luiz"})
+    _mb, _tmb = linhas_metas(_pb, {"luiz": "Luiz"})
+    ok("marcado: o salário sai integral e a coluna diz que o desconto vai nas metas",
+       _sb[0]["Salário a pagar"] == "R$ 2.200,00" and _sb[0]["Desconto"] == "nas metas"
+       and _tb["desc"] == 0)
+    ok("e as metas pagam o que sobra: 264 − (100 do ponto + 62,50 manuais) = 101,50",
+       _tmb == 101.5 and _mb[0]["Descontos"] == "− R$ 162,50"
+       and _mb[0]["Metas a pagar"] == "R$ 101,50")
+    ok("o ajuste gravado volta ao formulário igual",
+       ajuste_da_pessoa(_pb["luiz"]) == _aj)
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

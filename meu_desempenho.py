@@ -441,7 +441,12 @@ def _meu_mes_em_dinheiro(res):
         st.caption("SALÁRIO DO MÊS · PAGO DIA 30")
         st.markdown(f"### {_brl_md(f['salario_se_fechasse_hoje'])}")
         st.markdown(f"Base **{_brl_md(f['salario'])}**")
-        if f["desconto"]:
+        if f.get("desconto_no_bonus") and f.get("desconto_total"):
+            st.markdown(f":orange[Descontos de {_brl_md(f['desconto_total'])} serão abatidos "
+                        "das metas do 5º dia útil — o salário fica integral.]")
+        elif f.get("desconto_manual"):
+            st.markdown(f":red[Descontos lançados pelo gestor: − {_brl_md(f['desconto_manual'])}]")
+        if f["desconto"] and not f.get("desconto_no_bonus"):
             # Com a marca do domingo, o desconto pode existir sem banco
             # negativo: "0h00 no banco" seria mentira na tela dele.
             _partes = ([f"{_fm.h(-f['negativo_min'])} no banco"] if f["negativo_min"] else []) \
@@ -460,15 +465,22 @@ def _meu_mes_em_dinheiro(res):
                      "descontadas do salário.")
     with c.container(border=True):
         st.caption(f"METAS · PAGAS NO 5º DIA ÚTIL ({q:%d/%m})" if q else "METAS · 5º DIA ÚTIL")
-        st.markdown(f"### {_brl_md(d['metas_valor'])} · {d['pct_metas']:.0f}%")
+        _mp = d.get("metas_pagar", d["metas_valor"])
+        st.markdown(f"### {_brl_md(_mp)} · {d['pct_metas']:.0f}%")
+        if d.get("desconto_das_metas"):
+            st.markdown(f"Metas {_brl_md(d['metas_valor'])} − descontos "
+                        f"{_brl_md(d['desconto_das_metas'])}")
         st.markdown("  \n".join(
             ("✅ " if bateu else "❌ ") + f"**{rot}** {pct:.0f}%"
             + (f" · {_brl_md(v)}" if pago else "")
             + (f" — {mot}" if mot else "")
             for rot, pct, v, bateu, mot, pago in d["metas"]))
-    st.info(f"**Total previsto do mês: {_brl_md(f['salario_se_fechasse_hoje'] + d['metas_valor'])}** · "
-            f"{_brl_md(f['salario_se_fechasse_hoje'])} no dia 30 + {_brl_md(d['metas_valor'])} "
+    _mp = d.get("metas_pagar", d["metas_valor"])
+    st.info(f"**Total previsto do mês: {_brl_md(f['salario_se_fechasse_hoje'] + _mp)}** · "
+            f"{_brl_md(f['salario_se_fechasse_hoje'])} no dia 30 + {_brl_md(_mp)} "
             "no 5º dia útil")
+    if d.get("observacao"):
+        st.caption("📝 Observação do gestor: " + d["observacao"])
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -609,5 +621,40 @@ if __name__ == "__main__":
     ok("05/11 sem ter assinado: ainda cobra outubro; assinado, nada",
        holerite_a_assinar(_date_t(2026, 11, 5), {}, "bia") == (2026, 10)
        and holerite_a_assinar(_date_t(2026, 11, 5), {"bia": {}}, "bia") is None)
+    # 09/11: o colaborador vê o salário integral, as metas JÁ com o desconto
+    # e a observação do gestor — pela conta de verdade (`folha_mes`).
+    import folha_mes as _fm_t9
+    _f9 = _fm_t9.apurar(2100, 0, 0, 480, 0, ["2026-10-07"], True, horas_do_mes_min=168 * 60)
+    _l9, _p9, _v9 = _fm_t9.metas(2100, {"col": True})
+    _d9 = {"folha": _f9, "metas": _l9, "pct_metas": _p9, "metas_valor": _v9,
+           "devidas_min": 480, **_fm_t9.aplicar_ajustes(
+               _f9, _v9, {"descontos": [("faltas", 50.0)], "no_bonus": True,
+                          "obs": "Descontos no repasse do lucro."})}
+    _txt9 = []
+
+    class _St9:
+        def __getattr__(self, nome):
+            if nome in ("columns",):
+                return lambda n: [self] * (n if isinstance(n, int) else len(n))
+            if nome == "container":
+                return lambda *a, **k: self
+            return lambda *a, **k: _txt9.append(" ".join(map(str, a)))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    _g_st9 = st
+    globals()["st"] = _St9()
+    try:
+        _meu_mes_em_dinheiro({"dinheiro": _d9})
+    finally:
+        globals()["st"] = _g_st9
+    _j9 = " ".join(_txt9)
+    ok("colaborador: salário integral, metas com o desconto, total e observação",
+       _brl_md(2100.0) in _j9 and f"### {_brl_md(_d9['metas_pagar'])} ·" in _j9
+       and f"Total previsto do mês: {_brl_md(2100.0 + _d9['metas_pagar'])}" in _j9
+       and "abatidos das metas" in _j9 and "repasse do lucro" in _j9)
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

@@ -4159,6 +4159,60 @@ def _visao_faturamento(conta):
         _vf.ler_planilha, _vf.bling_do_mes_corrente, _vf.pedidos_do_bling, _au_f.eh_dono = _g
 
 
+def _visao_dre(conta):
+    """09/11: Visão Geral › DRE desenha o funil inteiro. Só a planilha e as
+    grades são trocadas: a BASE DE VENDAS com os títulos do dono passa pelo
+    `dre.vendas` de verdade, e os fixos pelas funções do previsto."""
+    import datetime as _dt_d
+    import pandas as _pd_d
+    import auth as _au_d
+    import controle_ms as _cms_d
+    import previsto as _pv_d
+    import dre as _dre
+    import visao_geral as _vg_d
+    _cols = ["Data", "MÊS/ANO", "Plataforma", "SKU", "Produto", "Quantidade", "FAT TOTAL",
+             "CUSTO TOTAL", "COMISSÃO", "FRETE", "CUSTO FLEX", "NF", "CUSTO OP.", "DEVOLUÇÃO",
+             "MARGEM C."]
+    _hoje = _dt_d.date.today()
+    _m = _hoje.month - 1 or 1
+    _df = _pd_d.DataFrame([[_dt_d.datetime(_hoje.year, _m, 3), "x", "MercadoLivre1", "MS-1",
+                            "Porta 2 Relógio + Jóias", 1, 200.0, 80.0, 30.0, 10.0, 5.0, 12.0, 8.0,
+                            0, 55.0]], columns=_cols)
+    _g = (_cms_d.ler, _pv_d._folha, _pv_d._custo_fixo, _pv_d._nao_operacional, _dre._assinaturas,
+          _au_d.eh_dono)
+    _textos = []
+    _falso = instalar()
+    _falso.markdown = lambda t, *a, **k: _textos.append(str(t))
+    _falso.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[k.get("index", 0) or 0]
+    _falso.radio = (lambda rot, opcoes, *a, **k:
+                    "DRE" if k.get("key") == "vg_aba" else list(opcoes)[k.get("index", 0) or 0])
+    _vg_d.st = _falso
+    _dre.st = _falso
+    try:
+        _cms_d.ler = lambda aba: (_df, "")
+        _pv_d._folha = lambda a, m: 40.0
+        _pv_d._custo_fixo = lambda a, m: 20.0
+        _pv_d._nao_operacional = lambda a, m: 5.0
+        _dre._assinaturas = lambda a, m: 3.0
+        _au_d.eh_dono = lambda u: True
+        _dre.dados.clear()
+        _vg_d.pagina("leo")
+        _j = " ".join(_textos)
+        conta("DRE: o funil desenha as seis etapas, do bruto ao líquido",
+              all(t in _j for t in ("(1) Receita bruta", "(4) Margem de contribuição",
+                                    "(6) Lucro líquido", "O FUNIL")), _j[:300])
+        conta("DRE: a margem de contribuição da conta bate com a MARGEM C. da planilha",
+              "diferença de" not in _j, "")
+    except (_Rerun, _Parou):
+        conta("DRE: a tela monta", True, "")
+    except Exception as e:
+        conta("DRE: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_cms_d.ler, _pv_d._folha, _pv_d._custo_fixo, _pv_d._nao_operacional, _dre._assinaturas,
+         _au_d.eh_dono) = _g
+        _dre.dados.clear()
+
+
 def _historico_na_home(conta):
     """13/10: a sub-aba Histórico abre pela Home e mostra os meses fechados.
 
@@ -4996,7 +5050,7 @@ def _meu_desempenho(conta):
                              salarios={"beatriz51": 2400.0},
                              domingos=_fm_md.domingos_de(
                                  [{"mes": "2026-10", "username": "beatriz51",
-                                   "data": "2026-10-09"}], 2026, 10))
+                                   "data": "2026-10-09"}], 2026, 10), ajustes={})
         _res["beatriz51"]["dinheiro"] = _din["beatriz51"]
         _md.resumo_do_mes = lambda a, m: _res
         _li = {"L1": "PRODUÇÃO", "L2": "DESATIVAR ANÚNCIOS"}
@@ -5054,6 +5108,9 @@ def _meu_desempenho(conta):
               any("Descontar domingo" in getattr(_t, "columns", [])
                   and list(_t["Descontar domingo"]) == [True] for _t in _eds_ft)
               and "1 domingo" in str(_tabs_ft[0]["Desconto"].iloc[0]), str(_eds_ft)[:200])
+        # 09/11: os ajustes do dono desenham na aba, com o editor de descontos.
+        conta("Apuração do mês: descontos manuais e observação desenham, com o editor",
+              any("Valor (R$)" in getattr(_t, "columns", []) for _t in _eds_ft), str(_eds_ft)[:200])
         conta("Meu desempenho: o colaborador vê o domingo descontado",
               "1 domingo(s) de falta de dia inteiro" in _j, _j[-400:])
         # Sem cartão rodando e dentro do expediente batido: ociosidade agora.
@@ -5271,6 +5328,7 @@ def main():
     _historico_na_home(conta)
     _lembretes_na_home(conta)
     _visao_geral(conta)
+    _visao_dre(conta)
     _visao_faturamento(conta)
     _visao_geral_na_home(conta)
     _tiktok_na_viabilidade(conta)

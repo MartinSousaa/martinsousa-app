@@ -157,6 +157,9 @@ def consolidado(pessoa, lins):
     if f.get("desconto_domingo"):
         fora.append((f"Repouso semanal ({f['semanas_falta']} domingo)", None,
                      -f["desconto_domingo"]))
+    # Os descontos que o dono lançou à mão (09/11), um por linha.
+    for desc, v in f.get("descontos_manuais") or []:
+        fora.append((f"Desconto manual — {desc}" if desc else "Desconto manual", None, -v))
     return fora
 
 
@@ -193,8 +196,12 @@ def html(pessoa, nome, assinatura=None):
              (_fm.h(m) if m is not None else "—", ""),
              (_sinal_brl(v), neg if v < 0 else pos if v > 0 else "")]
             for r, m, v in consolidado(pessoa, lins)]
+    _tot_desc = f.get("desconto_total", f["desconto"])
     cons.append([("<b>Total de descontos</b>", ""), ("", ""),
-                 (f"<b>{_sinal_brl(-f['desconto'])}</b>", neg)])
+                 (f"<b>{_sinal_brl(-_tot_desc)}</b>", neg)])
+    if f.get("desconto_no_bonus") and _tot_desc:
+        cons.append([("<b>Descontados das metas do 5º dia útil, e não do salário</b>", ""),
+                     ("", ""), ("salário integral", "")])
     met = [[(e(rot), ""), ("✓ batida" if bateu else ("✗ " + e(mot) if mot else "✗ não batida"),
                             pos if bateu else neg),
             (f"{pct:.0f}%", ""), (_brl(v) if pago else ("a MAXX paga" if bateu else "—"), "")]
@@ -236,9 +243,35 @@ def html(pessoa, nome, assinatura=None):
             + tit("CONSOLIDADO") + _tab(["", "Horas", "Valor"], cons, ["left", "right", "right"])
             + liq + tit(f"METAS — PAGAS NO 5º DIA ÚTIL{f' ({q:%d/%m})' if q else ''}") + metas
             + f'<div style="text-align:right;font-weight:800;margin-top:6px;">Total de metas: '
-            f'{_brl(pessoa["metas_valor"])}</div>' + ass
+            f'{_brl(pessoa["metas_valor"])}</div>' + _metas_liquidas(pessoa) + _obs(pessoa) + ass
             + '<div style="font-size:11px;color:var(--ms-texto-sec);margin-top:10px;">Ponto: '
             'relógio RHiD · ajuste de batida e abono são feitos no app da RHiD</div></div>')
+
+
+def _metas_liquidas(pessoa):
+    """O desconto que o dono mandou para as metas e o que sobra (09/11)."""
+    das = float(pessoa.get("desconto_das_metas") or 0)
+    nc = float(pessoa.get("nao_coberto") or 0)
+    if not das and not nc:
+        return ""
+    fora = (f'<div style="text-align:right;margin-top:4px;color:#E34948;">Descontos do salário '
+            f'aplicados nas metas: {_sinal_brl(-das)}</div>'
+            f'<div style="text-align:right;font-weight:800;margin-top:4px;">Metas a receber: '
+            f'{_brl(pessoa.get("metas_pagar", 0))}</div>')
+    if nc:
+        fora += (f'<div style="text-align:right;margin-top:4px;font-size:12px;color:#E34948;">'
+                 f'{_brl(nc)} de desconto maior que as metas do mês</div>')
+    return fora
+
+
+def _obs(pessoa):
+    """A observação do dono, escapada — texto livre não é HTML."""
+    o = str(pessoa.get("observacao") or "").strip()
+    if not o:
+        return ""
+    return ('<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--ms-borda);'
+            'border-radius:8px;font-size:13px;"><b>Observações</b><br>'
+            + _html.escape(o).replace("\n", "<br>") + '</div>')
 
 
 def _quinto(pag):
@@ -371,6 +404,27 @@ if __name__ == "__main__":
        and '<span style="color:#E34948;">' in _ht)
     ok("metas de outubro: 5º dia útil é 07/11 (e não 05/12)",
        "(07/11)" in _ht)
+    # 09/11: OS AJUSTES DO DONO pela cadeia (`folha_mes.aplicar_ajustes`):
+    # salário integral, o desconto do ponto + o manual saem das metas, e a
+    # observação aparece escapada.
+    import copy as _cp
+    _fb = _cp.deepcopy(_f)
+    _pb = dict(_pes, folha=_fb, **_fm.aplicar_ajustes(_fb, _v, {
+        "descontos": [("Faltas não remuneradas de outubro", 40.0)], "no_bonus": True,
+        "obs": "Descontos aplicados no repasse do lucro:\nnão foram feitos no salário. <b>"}))
+    _hb = html(_pb, "Beatriz")
+    ok("holerite marcado: líquido = salário integral",
+       f"<span>{_brl(2100.0)}</span></div>" in _hb)
+    ok("o desconto manual aparece como linha do consolidado, e o total soma os dois",
+       "Desconto manual — Faltas não remuneradas de outubro" in _hb
+       and _sinal_brl(-round(_f["desconto"] + 40.0, 2)) in _hb)
+    ok("as metas mostram o desconto e o que sobra a receber",
+       "aplicados nas metas" in _hb and f"Metas a receber: {_brl(_pb['metas_pagar'])}" in _hb)
+    ok("a observação aparece, com a quebra de linha e o texto escapado",
+       "Observações" in _hb and "repasse do lucro:<br>não foram" in _hb
+       and "&lt;b&gt;" in _hb and "\n" not in _hb)
+    ok("sem ajuste, o holerite não ganha nada novo",
+       "Observações" not in _ht and "Metas a receber" not in _ht)
     ok("pode assinar a partir do dia do pagamento, não antes",
        pode_assinar(2026, 10, date(2026, 10, 30)) and not pode_assinar(2026, 10, date(2026, 10, 29))
        and pode_assinar(2026, 8, date(2026, 8, 28)))
