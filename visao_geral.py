@@ -573,7 +573,7 @@ def html_mes(restantes):
             + "</div>")
 
 
-ABAS = ("Financeira", "Faturamento")
+ABAS = ("Financeira", "Faturamento", "DRE")
 
 
 def pagina(usuario_logado=None):
@@ -595,6 +595,11 @@ def pagina(usuario_logado=None):
     if aba == ABAS[1]:
         import visao_faturamento as _vf
         _vf.pagina(usuario_logado, int(ano), hoje)
+        return
+    # A DRE EM FUNIL (dono, 09/11): competência, pela BASE DE VENDAS.
+    if aba == ABAS[2]:
+        import dre as _dre
+        _dre.pagina(int(ano), hoje)
         return
     with st.spinner("Lendo extratos, cadastro e planilha…"):
         itens, ml, lpv, co, avisos = dados_do_ano(int(ano), hoje)
