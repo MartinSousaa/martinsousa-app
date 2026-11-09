@@ -146,7 +146,8 @@ def dos_boletos(linhas, inicio, fim):
             ident = str(c.get("id") or c.get("numero") or quem).strip()
             fora.append({"chave": f"boleto:{ident}|{d.isoformat()}", "data": d,
                          "nome": f"Boleto · {quem}",
-                         "detalhe": "importado no sistema"})
+                         "detalhe": "importado no sistema",
+                         "valor": round(_ch._num(c.get("valor")), 2) or None})
     return fora
 
 
@@ -378,11 +379,120 @@ def _cor(dias):
     return VERMELHO if dias <= 0 else AMBAR
 
 
+def _rs(v):
+    return "R$ " + f"{float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+# O VALOR NO CARTÃO (dono, 09/11): "acrescente o valor do custo à frente da
+# data de vencimento, pequeno ali em cima" — muda a decisão de 15/10 ("só
+# lembrete sem informar valor"). Cada valor vem de quem já sabe o número;
+# o que ninguém sabe fica sem valor, e não com zero.
+def valor_txt(x):
+    """' · R$ 1.234,56' (com '/mês' quando o cadastro é mensal e o lembrete
+    é uma de duas datas), ou '' sem valor. Pura."""
+    v = x.get("valor")
+    if not v:
+        return ""
+    return f" · {_rs(v)}" + ("/mês" if x.get("valor_mensal") else "")
+
+
+def _do_cadastro(nome, a, m, linhas_cf, linhas_as, por_item_aj):
+    """O valor do mês do item do Custo fixo ou das Assinaturas cujo nome
+    contém `nome` (sem acento, palavra inteira). None quando não acha. Pura."""
+    import ajustes as _aj
+    import assinaturas as _as
+    import re as _re
+    alvo = _as._chave(nome)
+    padrao = r"(?<![A-Z0-9])" + _re.escape(alvo) + r"(?![A-Z0-9])"
+    for l in linhas_cf or []:
+        if _re.search(padrao, _as._chave(l.get("item"))):
+            return float(_aj.valor_no_mes(l.get("valor_mensal"), l.get("vigente_desde"),
+                                          por_item_aj.get(("custo_fixo", str(l.get("item")).strip())),
+                                          a, m) or 0) or None
+    for l in linhas_as or []:
+        if _re.search(padrao, _as._chave(l.get("item"))):
+            return _as.custo_mensal(l) or None
+    return None
+
+
+def com_valores(itens, fontes=None):
+    """Os cartões com `valor` onde o Studio sabe o número. Não muda a lista
+    de entrada. `fontes` troca as leituras (auto-teste).
+
+        boleto e não operacional   já vêm com valor (`dos_boletos`, `do_nao_operacional`)
+        salários                   a folha do mês (`previsto._folha`)
+        bônus headcount            as metas a pagar do mês anterior, já com os
+                                   descontos do dono (`meu_desempenho.resumo_do_mes`)
+        DAS                        a NF das vendas do mês anterior (`dre.dados`)
+        Bling, TM e outros         o item do Custo fixo/Assinaturas com o nome
+        demais impostos            sem valor: ninguém no Studio sabe
+    """
+    f = fontes or {}
+    fora, cache = [], {}
+
+    def _vez(k, fn):
+        if k not in cache:
+            try:
+                cache[k] = fn()
+            except Exception:
+                cache[k] = None
+        return cache[k]
+    for x in itens or []:
+        x = dict(x)
+        tipo = str(x.get("chave", "")).split("|")[0]
+        a, m = x["data"].year, x["data"].month
+        pa, pm = (a - 1, 12) if m == 1 else (a, m - 1)
+        if x.get("valor"):
+            pass
+        elif tipo == "salarios":
+            x["valor"] = _vez(("folha", a, m), lambda: (f.get("folha") or _folha)(a, m))
+        elif tipo == "bonus_headcount":
+            x["valor"] = _vez(("bonus", pa, pm), lambda: (f.get("bonus") or _bonus)(pa, pm))
+        elif tipo == "das_20":
+            x["valor"] = _vez(("das", pa, pm), lambda: (f.get("das") or _das)(pa, pm))
+        elif tipo != "impostos_20":
+            cad = _vez("cadastro", f.get("cadastro") or _cadastro)
+            if cad:
+                x["valor"] = _do_cadastro(x["nome"], a, m, *cad)
+                x["valor_mensal"] = bool(x["valor"]) and tipo.startswith("tm_")
+        fora.append(x)
+    return fora
+
+
+def _folha(a, m):
+    import previsto as _pv
+    return round(float(_pv._folha(a, m) or 0), 2) or None
+
+
+def _bonus(a, m):
+    import meu_desempenho as _md
+    res = _md.resumo_do_mes(a, m) or {}
+    tot = sum(float((r.get("dinheiro") or {}).get("metas_pagar", (r.get("dinheiro") or {})
+                                                     .get("metas_valor", 0)) or 0)
+              for r in res.values() if r.get("dinheiro"))
+    return round(tot, 2) or None
+
+
+def _das(a, m):
+    import dre as _dre
+    return round(float(_dre.dados(a, m, m)["vendas"]["nf"] or 0), 2) or None
+
+
+def _cadastro():
+    import ajustes as _aj
+    import assinaturas as _as
+    import custo_fixo as _cf
+    g = _cf.carregar("custo_fixo")
+    return ((g.fillna("").to_dict("records") if not g.empty else []),
+            _as.carregar() or [], _aj.por_item(_aj.carregar()))
+
+
 def _cartao(x):
     return (f'<div style="background:{TILE};border-left:4px solid {_cor(x["dias"])};'
             f'border-radius:10px;padding:10px 12px;">'
             f'<div style="font-size:11px;font-weight:800;color:{_cor(x["dias"])};">'
-            f'{quando(x["dias"]).upper()} · {x["data"]:%d/%m}</div>'
+            f'{quando(x["dias"]).upper()} · {x["data"]:%d/%m}'
+            f'<span style="color:#E8EAED;font-weight:700;">{valor_txt(x)}</span></div>'
             f'<div style="font-size:15px;font-weight:700;">{x["nome"]}</div>'
             f'<div style="font-size:11px;color:{SEC};">{x["detalhe"]}</div></div>')
 
@@ -428,6 +538,7 @@ def mostrar(st_, usuario, hoje):
             pass        # o extrato fora do ar não esconde lembrete: mostra todos
     if not perto:
         return          # nada vence amanhã: a Home não mostra o quadro
+    perto = com_valores(perto)
     with st_.container(border=True):
         st_.markdown(f'<div style="font-size:12px;font-weight:800;letter-spacing:.08em;'
                      f'color:{AMBAR};">🔔 PAGAMENTOS A FAZER · ATÉ O PRÓXIMO DIA ÚTIL</div>',
@@ -533,8 +644,38 @@ if __name__ == "__main__":
     finally:
         globals()["_aba"] = _g
         carregar_feitos.clear()
-    ok("o lembrete não mostra valor nenhum",
-       "R$" not in _cartao(dict(_p2[0], dias=0)))
+    # 09/11: O VALOR À FRENTE DA DATA (decisão nova do dono; a de 15/10 era
+    # "sem valor"). Pela cadeia: os boletos de `dos_boletos` e as regras de
+    # `das_regras`, com as leituras trocadas por números conhecidos.
+    _vb = dos_boletos([{"id": 7, "tipo": "BOLETO", "favorecido": "APEXIMP", "vencimento": "2026-11-07",
+                        "situacao": "EM ABERTO", "valor": "1234,5"}],
+                      date(2026, 11, 1), date(2026, 11, 30))
+    ok("boleto leva o valor dele, e o cartão o mostra à frente da data",
+       _vb and _vb[0]["valor"] == 1234.5
+       and "07/11<span" in _cartao(dict(_vb[0], dias=0)) and "R$ 1.234,50" in _cartao(dict(_vb[0], dias=0)))
+    _rg = das_regras(date(2026, 11, 1), date(2026, 11, 30))
+    _cf9 = [{"item": "Bling ERP", "valor_mensal": 450, "vigente_desde": "2026-01"},
+            {"item": "TM Logística", "valor_mensal": 900, "vigente_desde": "2026-01"}]
+    _cv = {x["nome"] + ("" if x["nome"] in ("DAS", "Demais impostos") else x["data"].isoformat()): x
+           for x in com_valores(_rg, {
+        "folha": lambda a, m: 32000.0, "bonus": lambda a, m: 2550.0 if (a, m) == (2026, 10) else None,
+        "das": lambda a, m: 1800.0 if (a, m) == (2026, 10) else None,
+        "cadastro": lambda: (_cf9, [], {})})}
+    ok("salários = a folha do mês; bônus = as metas do mês ANTERIOR; DAS = NF do mês anterior",
+       _cv["Salários2026-11-30"]["valor"] == 32000.0
+       and _cv["Bônus headcount2026-11-09"]["valor"] == 2550.0
+       and _cv["DAS"]["valor"] == 1800.0)
+    ok("Bling e TM pelo cadastro; TM marcada como valor do mês (são duas datas)",
+       _cv["Bling2026-11-10"]["valor"] == 450.0
+       and valor_txt(_cv["TM Logística2026-11-05"]) == " · R$ 900,00/mês")
+    ok("demais impostos: sem valor, e o cartão não inventa zero",
+       not _cv["Demais impostos"].get("valor")
+       and "R$" not in _cartao(dict(_cv["Demais impostos"], dias=0)))
+    _q = com_valores(_rg[:1], {"cadastro": lambda: 1 / 0})
+    ok("leitura que quebra deixa o cartão sem valor, e não derruba o quadro",
+       len(_q) == 1 and not _q[0].get("valor"))
+    ok("o nome do item casa por palavra inteira (TM não pega 'TMX')",
+       _do_cadastro("TM Logística", 2026, 11, [{"item": "TMX Logística", "valor_mensal": 1}], [], {}) is None)
     # 16/10, o dono: só o que vence no próximo dia útil; o de hoje e o
     # atrasado sem Feito continuam.
     _qui, _sex = date(2026, 10, 15), date(2026, 10, 16)
