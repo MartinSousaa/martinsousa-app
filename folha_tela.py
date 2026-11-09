@@ -169,8 +169,19 @@ def _ajustes_manuais(por, nomes, ano, mes, usuario_logado):
                          key=f"folha_aj_quem_{ano}_{mes}")
         if not u:
             return
+        # O SALVAR DIZ QUE SALVOU (dono, 09/11: "clico em salvar e parece que
+        # não está salvando"). O redesenho apagava qualquer aviso; ele
+        # atravessa o rerun pela sessão, como os avisos da fila do Extratos.
+        _ok = st.session_state.pop(AVISO_AJUSTE, None)
+        if _ok:
+            st.success(_ok)
         d = por[u]
         f, aj = d["folha"], ajuste_da_pessoa(d)
+        st.caption("Gravado agora para " + nomes.get(u, u) + ": "
+                   + (f"{len(aj['descontos'])} desconto(s) manual(is)" if aj["descontos"]
+                      else "nenhum desconto manual")
+                   + (" · descontar nas metas" if aj["no_bonus"] else "")
+                   + (" · observação ✓" if aj["obs"] else " · sem observação"))
         # O $ escapado: dois "R$" na mesma linha viram fórmula no markdown.
         st.caption((f"Desconto do ponto neste mês: {_brl(f['desconto'])} · "
                     f"metas do mês: {_brl(d['metas_valor'])}").replace("$", "\\$"))
@@ -196,7 +207,15 @@ def _ajustes_manuais(por, nomes, ano, mes, usuario_logado):
             return
         # A apuração fica 5 min em cache — a do colaborador também.
         _md.resumo_do_mes.clear()
+        st.session_state[AVISO_AJUSTE] = (f"✅ Ajustes de {nomes.get(u, u)} gravados — o holerite "
+                                          "abaixo já mostra.")
+        # O HOLERITE DE BAIXO ABRE NA PESSOA QUE ACABOU DE SER AJUSTADA: ele
+        # abria na primeira da lista, e o ajuste "não aparecia".
+        st.session_state[f"folha_holerite_{ano}_{mes}"] = u
         st.rerun()
+
+
+AVISO_AJUSTE = "folha_aj_aviso"
 
 
 def pagina(usuario_logado=None):
@@ -345,5 +364,15 @@ if __name__ == "__main__":
        and _mb[0]["Metas a pagar"] == "R$ 101,50")
     ok("o ajuste gravado volta ao formulário igual",
        ajuste_da_pessoa(_pb["luiz"]) == _aj)
+    # 09/11, medido no Chromium com o Streamlit real (aba de mentira): salvar
+    # mostra o aviso, a legenda diz o que está gravado, e o holerite de baixo
+    # abre na pessoa ajustada — ele abria na primeira da lista.
+    import inspect as _insp_t
+    _src_aj = _insp_t.getsource(_ajustes_manuais)
+    ok("salvar deixa o aviso para depois do redesenho e abre o holerite na pessoa ajustada",
+       "st.session_state[AVISO_AJUSTE] =" in _src_aj
+       and 'st.session_state[f"folha_holerite_{ano}_{mes}"] = u' in _src_aj
+       and _src_aj.index("st.session_state[AVISO_AJUSTE] =") < _src_aj.index("st.rerun()")
+       and "st.session_state.pop(AVISO_AJUSTE" in _src_aj)
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
