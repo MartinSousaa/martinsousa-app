@@ -57,6 +57,10 @@ DE ONDE VEM CADA NÚMERO (nada é contado de novo aqui)
 from datetime import date
 
 ABA_DOMINGO = "folha_domingo"
+# OS AJUSTES DO DONO (09/11): desconto manual, a marca "descontar nas metas"
+# e a observação, por pessoa e por mês. Na planilha, e não na memória.
+ABA_MANUAL = "folha_manual"
+COLUNAS_MANUAL = ["mes", "username", "tipo", "descricao", "valor", "por", "em"]
 COLUNAS_DOMINGO = ["mes", "username", "data", "marcado_por", "marcado_em"]
 NIVEIS = (("col", "Coletiva"), ("maxx", "Coletiva MAXX"),
           ("ind", "Individual"), ("ind_maxx", "Individual MAXX"))
@@ -236,7 +240,51 @@ def banco_antes(dias, ini):
     return 0.0
 
 
-def do_mes(ano, mes, dados, ponto, bonus, hoje, salarios=None, domingos=None):
+def aplicar_ajustes(f, metas_valor, ajuste=None):
+    """O salário e as metas com os ajustes do dono. Pura.
+
+    Dono, 09/11: "eu preciso poder colocar descontos manuais (...) e um botão
+    de flag que se eu clicar o sistema entenderá que esses descontos serão
+    realizados no pagamento da bonificação e aí ele muda os descontos e passa
+    a ter o salário integral". Caso real: o holerite de outubro não abriu, o
+    salário saiu integral, e o desconto das horas vai nas metas do 5º dia útil.
+
+    `ajuste`: {"descontos": [(descrição, valor)], "no_bonus": bool, "obs": str}.
+    Sem a marca, TODO desconto (o do ponto e o manual) sai do salário. Com
+    ela, o salário fica integral e o desconto sai das metas — que nunca ficam
+    negativas: o que passar delas fica em "nao_coberto", à vista na tela.
+
+    Escreve em `f` (a folha de `apurar`) e devolve as chaves da pessoa:
+    {"metas_pagar", "desconto_das_metas", "nao_coberto", "observacao"}.
+    """
+    a = ajuste or {}
+    manuais = [(str(d or "").strip(), round(abs(float(v or 0)), 2))
+               for d, v in (a.get("descontos") or []) if float(v or 0)]
+    manual = round(sum(v for _d, v in manuais), 2)
+    no_bonus = bool(a.get("no_bonus"))
+    # O do ponto que VALE agora: fechado, o aplicado; aberto, o "se fechasse".
+    ponto = f["desconto"]
+    f["descontos_manuais"] = manuais
+    f["desconto_manual"] = manual
+    f["desconto_no_bonus"] = no_bonus
+    f["desconto_total"] = round(ponto + manual, 2)
+    if no_bonus:
+        f["desconto_no_salario"] = 0.0
+        f["salario_pagar"] = round(f["salario"], 2)
+        f["salario_se_fechasse_hoje"] = round(f["salario"], 2)
+        das_metas = round(min(f["desconto_total"], float(metas_valor or 0)), 2)
+    else:
+        f["desconto_no_salario"] = f["desconto_total"]
+        f["salario_pagar"] = round(f["salario_pagar"] - manual, 2)
+        f["salario_se_fechasse_hoje"] = round(f["salario_se_fechasse_hoje"] - manual, 2)
+        das_metas = 0.0
+    return {"metas_pagar": round(float(metas_valor or 0) - das_metas, 2),
+            "desconto_das_metas": das_metas,
+            "nao_coberto": round(f["desconto_total"] - das_metas, 2) if no_bonus else 0.0,
+            "observacao": str(a.get("obs") or "").strip()}
+
+
+def do_mes(ano, mes, dados, ponto, bonus, hoje, salarios=None, domingos=None, ajustes=None):
     """{username: {"folha", "metas", "pct_metas", "metas_valor", "total", ...}}.
 
     O SALÁRIO é do PERÍODO (`periodo`: do dia 30 ao 29); as METAS são do mês
@@ -249,6 +297,8 @@ def do_mes(ano, mes, dados, ponto, bonus, hoje, salarios=None, domingos=None):
         salarios = salarios_do_mes(ano, mes)
     if domingos is None:
         domingos = domingos_marcados(ano, mes)
+    if ajustes is None:
+        ajustes = ajustes_do_mes(ano, mes)
     ini, fim = periodo(ano, mes)
     d_hoje = hoje.date() if hasattr(hoje, "date") else hoje
     fechado = d_hoje > fim
@@ -269,13 +319,15 @@ def do_mes(ano, mes, dados, ponto, bonus, hoje, salarios=None, domingos=None):
                    faltas, fechado, marcados, horas_do_mes_min=pp["horas_do_mes_min"])
         f["banco_anterior_min"] = anterior
         linhas, pct, valor = metas(sal, (bonus or {}).get(u))
+        extra = aplicar_ajustes(f, valor, (ajustes or {}).get(u))
         fora[u] = {"folha": f, "metas": linhas, "pct_metas": pct, "metas_valor": valor,
+                   **extra,
                    "faltas": faltas, "domingo_nas": marcados,
                    "devidas_min": pp["devidas_min"], "horas_do_mes_min": pp["horas_do_mes_min"],
                    "pendencias": pp["pendencias"], "dias": pp["dias"],
                    "periodo": (ini.isoformat(), fim.isoformat()),
                    "pagamento": dia_do_pagamento(ano, mes).isoformat(),
-                   "total": round(f["salario_pagar"] + valor, 2)}
+                   "total": round(f["salario_pagar"] + extra["metas_pagar"], 2)}
     return fora
 
 
@@ -331,6 +383,77 @@ def gravar_domingos(ano, mes, marcas, por):
                               _pc.agora_br().strftime("%d/%m/%Y %H:%M"))
     a.clear()
     a.update([COLUNAS_DOMINGO] + [[str(l.get(c, "")) for c in COLUNAS_DOMINGO] for l in novas],
+             value_input_option="RAW")
+
+
+def _aba_manual():
+    import sheets as _sh
+    pl = _sh.planilha()
+    try:
+        return pl.worksheet(ABA_MANUAL)
+    except Exception:
+        a = pl.add_worksheet(title=ABA_MANUAL, rows=300, cols=len(COLUNAS_MANUAL))
+        a.append_row(COLUNAS_MANUAL, value_input_option="RAW")
+        return a
+
+
+def ajustes_de(linhas, ano, mes):
+    """{username: {"descontos", "no_bonus", "obs"}} do mês, das linhas da aba. Pura."""
+    chave = f"{ano:04d}-{mes:02d}"
+    fora = {}
+    for l in linhas or []:
+        u = str(l.get("username") or "").strip()
+        if str(l.get("mes", "")).strip() != chave or not u:
+            continue
+        a = fora.setdefault(u, {"descontos": [], "no_bonus": False, "obs": ""})
+        tipo = str(l.get("tipo") or "").strip()
+        if tipo == "desconto":
+            try:
+                v = float(str(l.get("valor") or 0).replace(",", "."))
+            except ValueError:
+                continue
+            a["descontos"].append((str(l.get("descricao") or ""), v))
+        elif tipo == "no_bonus":
+            a["no_bonus"] = str(l.get("valor")).strip().lower() in ("1", "true", "sim")
+        elif tipo == "obs":
+            a["obs"] = str(l.get("descricao") or "")
+    return fora
+
+
+def ajustes_do_mes(ano, mes):
+    """Os ajustes do dono no mês. NÃO engole erro, como `domingos_marcados`:
+    planilha fora do ar vira `dinheiro_erro`, e não desconto esquecido."""
+    return ajustes_de(_aba_manual().get_all_records(), ano, mes)
+
+
+def linhas_com_ajuste(linhas, ano, mes, username, ajuste, por, quando):
+    """As linhas da aba com o ajuste de UMA pessoa no mês trocado. Pura.
+
+    As outras pessoas e os outros meses ficam como estão."""
+    chave = f"{ano:04d}-{mes:02d}"
+    fora = [l for l in linhas or []
+            if not (str(l.get("mes", "")).strip() == chave
+                    and str(l.get("username") or "").strip() == username)]
+    base = {"mes": chave, "username": username, "por": por, "em": quando}
+    for d, v in (ajuste or {}).get("descontos") or []:
+        if str(d or "").strip() or float(v or 0):
+            fora.append({**base, "tipo": "desconto", "descricao": str(d or "").strip(),
+                         "valor": round(abs(float(v or 0)), 2)})
+    if (ajuste or {}).get("no_bonus"):
+        fora.append({**base, "tipo": "no_bonus", "descricao": "", "valor": "sim"})
+    if str((ajuste or {}).get("obs") or "").strip():
+        fora.append({**base, "tipo": "obs", "descricao": str(ajuste["obs"]).strip(), "valor": ""})
+    return fora
+
+
+def gravar_ajuste(ano, mes, username, ajuste, por):
+    """Grava o ajuste de uma pessoa (`linhas_com_ajuste`). Levanta erro: a tela diz."""
+    import placar_core as _pc
+    a = _aba_manual()
+    novas = linhas_com_ajuste(a.get_all_records(), ano, mes, username, ajuste, por,
+                              _pc.agora_br().strftime("%d/%m/%Y %H:%M"))
+    a.clear()
+    a.update([COLUNAS_MANUAL] + [[str(l.get(c, "")) for c in COLUNAS_MANUAL] for l in novas],
              value_input_option="RAW")
 
 
@@ -503,7 +626,7 @@ if __name__ == "__main__":
         _rh_t.get_persons, _rh_t.get_registros_diarios, _rp_t._rhid_nome_para_trello = _g
     _dados = [{"filtro_mes": (2026, 9), "cfg": {}}]
     _r = do_mes(2026, 9, _dados, _ponto, {_u: {"col": True}}, _hoje,
-                salarios={_u: 3000.0}, domingos={})
+                salarios={_u: 3000.0}, domingos={}, ajustes={})
     _f = _r[_u]["folha"]
     ok("cadeia: 22 dias úteis no período = 176h, e o banco anterior (2h) vem do dia 21/08",
        _r[_u]["horas_do_mes_min"] == 22 * 480 and _r[_u]["devidas_min"] == 22 * 480
@@ -522,7 +645,7 @@ if __name__ == "__main__":
                  salarios={_u: 3000.0},
                  domingos=domingos_de([{"mes": "2026-09", "username": _u, "data": "2026-09-15"},
                                        {"mes": "2026-09", "username": _u, "data": "2026-09-16"}],
-                                      2026, 9))
+                                      2026, 9), ajustes={})
     ok("cadeia: com a falta de 15/09 marcada, soma o domingo (R$ 100) e só ele",
        _r2[_u]["domingo_nas"] == ["2026-09-15"] and _r2[_u]["folha"]["desconto_domingo"] == 100.0
        and _r2[_u]["folha"]["salario_pagar"] == 2780.68)
@@ -539,7 +662,7 @@ if __name__ == "__main__":
     ok("sem as horas do mês, recusa em vez de inventar um divisor", _sem_div)
     # O período ABERTO divide pelo período inteiro, e não pelas horas até ontem.
     _ro = do_mes(2026, 10, [{"filtro_mes": (2026, 10), "cfg": {}}], {}, {},
-                 _dt_t(2026, 10, 6, 10, tzinfo=_pc_t.FUSO), salarios={_u: 2100.0}, domingos={})
+                 _dt_t(2026, 10, 6, 10, tzinfo=_pc_t.FUSO), salarios={_u: 2100.0}, domingos={}, ajustes={})
     ok("período aberto: valor da hora por 30/09–29/10 inteiro (21 dias = 168h → R$ 12,50)",
        _ro[_u]["horas_do_mes_min"] == 21 * 480 and _ro[_u]["folha"]["valor_hora"] == 12.5
        and not _ro[_u]["folha"]["fechado"] and _ro[_u]["devidas_min"] == 4 * 480)
@@ -573,6 +696,64 @@ if __name__ == "__main__":
     ok("reais: meio centavo para cima, em conta exata (5h27 × R$ 12,50 = R$ 68,13)",
        reais(327, 2100, 168 * 60) == 68.13 and reais(-327, 2100, 168 * 60) == -68.13
        and _ap(2100, 9600 - 327, 0, 9600)["desconto_horas"] == round(327 * 2100 / (176 * 60) + 1e-9, 2))
+    # OS AJUSTES DO DONO (09/11), pela cadeia: as linhas na forma da aba
+    # `folha_manual` passam por `linhas_com_ajuste` → `ajustes_de` → `do_mes`.
+    # O caso real: salário de outubro pago integral, o desconto do ponto e um
+    # manual vão para as metas do 5º dia útil.
+    _aj_l = linhas_com_ajuste([{"mes": "2026-08", "username": _u, "tipo": "obs",
+                                "descricao": "agosto fica", "valor": ""}], 2026, 9, _u,
+                              {"descontos": [("Faltas não remuneradas — Porta 2 Relógio + Jóias", 150.0)],
+                               "no_bonus": True,
+                               "obs": "Descontos aplicados no repasse do lucro: não foram feitos no salário."},
+                              "MartinSousa", "09/11/2026 10:00")
+    _aj = ajustes_de([{k: str(v) for k, v in l.items()} for l in _aj_l], 2026, 9)
+    ok("aba: agosto intacto, setembro com desconto, marca e observação",
+       ajustes_de(_aj_l, 2026, 8)[_u]["obs"] == "agosto fica"
+       and _aj[_u]["descontos"] == [("Faltas não remuneradas — Porta 2 Relógio + Jóias", 150.0)]
+       and _aj[_u]["no_bonus"] is True and "repasse do lucro" in _aj[_u]["obs"])
+    _rb = do_mes(2026, 9, _dados, _ponto, {_u: {"col": True}}, _hoje,
+                 salarios={_u: 3000.0}, domingos={}, ajustes=_aj)[_u]
+    _ponto_desc = _r[_u]["folha"]["desconto"]
+    ok("marcado: o salário fica INTEGRAL", _rb["folha"]["salario_pagar"] == 3000.0
+       and _rb["folha"]["salario_se_fechasse_hoje"] == 3000.0
+       and _rb["folha"]["desconto_no_salario"] == 0.0)
+    ok("e o desconto do ponto + o manual saem das metas",
+       _rb["desconto_das_metas"] == round(_ponto_desc + 150.0, 2)
+       and _rb["metas_pagar"] == round(_rb["metas_valor"] - _ponto_desc - 150.0, 2)
+       and _rb["total"] == round(3000.0 + _rb["metas_pagar"], 2))
+    ok("a observação chega à pessoa", "repasse do lucro" in _rb["observacao"])
+    _rs = do_mes(2026, 9, _dados, _ponto, {_u: {"col": True}}, _hoje, salarios={_u: 3000.0},
+                 domingos={}, ajustes={_u: dict(_aj[_u], no_bonus=False)})[_u]
+    ok("sem a marca, o manual sai do salário junto com o do ponto, e as metas ficam inteiras",
+       _rs["folha"]["salario_pagar"] == round(3000.0 - _ponto_desc - 150.0, 2)
+       and _rs["metas_pagar"] == _rs["metas_valor"] and _rs["desconto_das_metas"] == 0.0)
+    _f_nc = apurar(2200, 0, 0, 0, horas_do_mes_min=_d, fechado=True)
+    _nc = aplicar_ajustes(_f_nc, 100.0, {"descontos": [("x", 250.0)], "no_bonus": True})
+    ok("metas menores que o desconto: não ficam negativas, e a sobra aparece",
+       _nc["metas_pagar"] == 0.0 and _nc["desconto_das_metas"] == 100.0 and _nc["nao_coberto"] == 150.0)
+    ok("sem ajuste nenhum, nada muda",
+       aplicar_ajustes(apurar(2200, 0, 0, 0, horas_do_mes_min=_d), 264.0)
+       == {"metas_pagar": 264.0, "desconto_das_metas": 0.0, "nao_coberto": 0.0, "observacao": ""})
+    # GRAVAR DE VERDADE contra uma aba de mentira: cabeçalho na ordem de
+    # COLUNAS_MANUAL, a outra pessoa intacta, e lê de volta o que a tela mandou.
+    _afm = _AbaFalsa([{"mes": "2026-10", "username": "bia", "tipo": "obs",
+                       "descricao": "da Bia", "valor": "", "por": "x", "em": "y"}])
+    _g_am = globals()["_aba_manual"]
+    globals()["_aba_manual"] = lambda: _afm
+    try:
+        gravar_ajuste(2026, 10, "luiz", {"descontos": [("faltas", 80.0)], "no_bonus": True,
+                                         "obs": "no repasse"}, "MartinSousa")
+    finally:
+        globals()["_aba_manual"] = _g_am
+    _vm = ajustes_de([dict(zip(_afm.escrito[0], l)) for l in _afm.escrito[1:]], 2026, 10)
+    ok("gravar_ajuste: cabeçalho certo, a Bia intacta, o Luiz com o que a tela mandou",
+       _afm.escrito[0] == COLUNAS_MANUAL and _vm["bia"]["obs"] == "da Bia"
+       and _vm["luiz"] == {"descontos": [("faltas", 80.0)], "no_bonus": True, "obs": "no repasse"})
+    ok("valor digitado com vírgula vira número; texto que não é número fica de fora",
+       ajustes_de([{"mes": "2026-09", "username": "a", "tipo": "desconto", "descricao": "x",
+                    "valor": "12,50"},
+                   {"mes": "2026-09", "username": "a", "tipo": "desconto", "descricao": "y",
+                    "valor": "abc"}], 2026, 9)["a"]["descontos"] == [("x", 12.5)])
     ok("h: formata saldo com sinal", h(380) == "+6h20" and h(-75) == "−1h15" and h(0) == "0h00")
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

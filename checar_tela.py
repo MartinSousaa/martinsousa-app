@@ -4996,7 +4996,7 @@ def _meu_desempenho(conta):
                              salarios={"beatriz51": 2400.0},
                              domingos=_fm_md.domingos_de(
                                  [{"mes": "2026-10", "username": "beatriz51",
-                                   "data": "2026-10-09"}], 2026, 10))
+                                   "data": "2026-10-09"}], 2026, 10), ajustes={})
         _res["beatriz51"]["dinheiro"] = _din["beatriz51"]
         _md.resumo_do_mes = lambda a, m: _res
         _li = {"L1": "PRODUÇÃO", "L2": "DESATIVAR ANÚNCIOS"}
@@ -5054,6 +5054,9 @@ def _meu_desempenho(conta):
               any("Descontar domingo" in getattr(_t, "columns", [])
                   and list(_t["Descontar domingo"]) == [True] for _t in _eds_ft)
               and "1 domingo" in str(_tabs_ft[0]["Desconto"].iloc[0]), str(_eds_ft)[:200])
+        # 09/11: os ajustes do dono desenham na aba, com o editor de descontos.
+        conta("Apuração do mês: descontos manuais e observação desenham, com o editor",
+              any("Valor (R$)" in getattr(_t, "columns", []) for _t in _eds_ft), str(_eds_ft)[:200])
         conta("Meu desempenho: o colaborador vê o domingo descontado",
               "1 domingo(s) de falta de dia inteiro" in _j, _j[-400:])
         # Sem cartão rodando e dentro do expediente batido: ociosidade agora.

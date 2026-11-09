@@ -512,7 +512,9 @@ def a_pagar_por_funcionario(sal, ano, mes, resumo=None):
         d = (resumo.get(_pc.username_do_login(x["funcionario"])) or {}).get("dinheiro")
         if d:
             f = d["folha"]
-            fora[x["funcionario"]] = {"desconto": f["desconto"],
+            # O que saiu DO SALÁRIO: com a marca do dono (09/11) o desconto
+            # vai para as metas, e o Balanço não pode tirá-lo de novo.
+            fora[x["funcionario"]] = {"desconto": f.get("desconto_no_salario", f["desconto"]),
                                       "pagar": f["salario_se_fechasse_hoje"]}
     return fora, erro
 
@@ -1262,6 +1264,16 @@ if __name__ == "__main__":
     falhas += not _ok
     print(("ok    " if _ok else "FALHA ")
           + "balanço: desconto do ponto por funcionário, da apuração (R$ 100 de 8h)")
+    # 09/11: com a marca "descontar nas metas", o salário sai integral e o
+    # Balanço não tira o desconto de novo — pela conta de verdade.
+    _f_nb = _fm_hc.apurar(2100, 0, 0, 480, 0, ["2026-10-07"], False, horas_do_mes_min=168 * 60)
+    _fm_hc.aplicar_ajustes(_f_nb, 264.0, {"descontos": [("faltas", 50.0)], "no_bonus": True})
+    _pg_nb, _ = a_pagar_por_funcionario([{"funcionario": _nome_hc}], 2026, 10,
+                                        resumo={_u_hc: {"dinheiro": {"folha": _f_nb}}})
+    _ok = _pg_nb == {_nome_hc: {"desconto": 0.0, "pagar": 2100.0}}
+    falhas += not _ok
+    print(("ok    " if _ok else "FALHA ")
+          + "balanço: desconto mandado para as metas não sai do salário de novo")
     _pg_e, _e_e = a_pagar_por_funcionario([], 2026, 10, resumo={"x": {"dinheiro_erro": "RHiD fora"}})
     _ok = _e_e == "RHiD fora"
     falhas += not _ok
