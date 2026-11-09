@@ -133,14 +133,17 @@ def montar(v, fx):
         {"n": 3, "nome": "Lucro bruto", "valor": lb, "deducoes": [
             ("CMV — custo das mercadorias vendidas", v["ct"], "BASE DE VENDAS · CUSTO TOTAL")]},
         {"n": 4, "nome": "Margem de contribuição", "valor": mc, "dif_mc": dif_mc, "deducoes": [
-            ("Comissões e tarifas dos marketplaces", v["com"], "BASE DE VENDAS · COMISSÃO"),
-            ("Frete pago pela empresa (inclui Flex)", v["fr"], "BASE DE VENDAS · FRETE + CUSTO FLEX"),
-            ("Custo operacional por venda (embalagem, logística, ADS, cross docking)",
+            ("Despesa operacional variável — comissões e tarifas dos marketplaces", v["com"],
+             "BASE DE VENDAS · COMISSÃO"),
+            ("Despesa operacional variável — frete pago pela empresa (inclui Flex)", v["fr"],
+             "BASE DE VENDAS · FRETE + CUSTO FLEX"),
+            ("Despesa operacional variável — embalagem, ADS, logística, cross docking, consumo",
              v["co"], "BASE DE VENDAS · CUSTO OP. (rateio do C.O. do mês)")]},
         {"n": 5, "nome": "Lucro operacional (EBIT)", "valor": lo, "deducoes": [
-            ("Folha (gestores e CLT)", fx["folha"], "Studio · Folha"),
-            ("Custo fixo", fx["custo_fixo"], "Studio · Custo fixo (cadastro + real do extrato)"),
-            ("Assinaturas", fx["assinaturas"], "Studio · Assinaturas")]},
+            ("Despesa operacional fixa — folha (gestores e CLT)", fx["folha"], "Studio · Folha"),
+            ("Despesa operacional fixa — custo fixo (aluguel, contas, tarifas)", fx["custo_fixo"],
+             "Studio · Custo fixo (cadastro + real do extrato)"),
+            ("Despesa operacional fixa — assinaturas", fx["assinaturas"], "Studio · Assinaturas")]},
         {"n": 6, "nome": "Lucro líquido", "valor": ll, "deducoes": [
             ("Resultado financeiro — parcelas do PRONAMP (juros e principal)",
              fx["nao_operacional"], "Studio · Não operacional"),
@@ -243,9 +246,10 @@ def html(etapas, titulo, plataformas=None, info=None, erros=()):
             f'font-weight:800;letter-spacing:.14em;color:{SEC};margin-bottom:4px">O QUE SAIU ENTRE UMA ETAPA E '
             f'OUTRA · CLIQUE PARA ABRIR</div>{det}</div>{avisos}'
             f'<div style="font-size:12px;color:{SEC};margin-top:10px">Margens à direita sobre a RECEITA LÍQUIDA. '
-            f'ADS, embalagem, logística e cross docking estão no custo operacional por venda (CUSTO OP.) — não '
-            f'têm linha própria para não contar duas vezes. O imposto pago no extrato é a NF da venda e também '
-            f'não entra de novo.</div></div>')
+            f'As DESPESAS OPERACIONAIS são tudo o que a empresa gasta para funcionar, entre o lucro bruto e o '
+            f'lucro operacional: as VARIÁVEIS (crescem com a venda) saem antes da margem de contribuição, e as '
+            f'FIXAS depois dela. O financeiro e o imposto sobre o lucro ficam fora do operacional. O imposto '
+            f'pago no extrato é a NF da venda e não entra de novo.</div></div>')
 
 
 def pagina(ano, hoje):
