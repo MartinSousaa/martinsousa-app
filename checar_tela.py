@@ -4184,10 +4184,11 @@ def _visao_dre(conta):
                             "Porta 2 Relógio + Jóias", 1, 200.0, 80.0, 30.0, 10.0, 5.0, 12.0, 8.0,
                             0, 55.0]], columns=_cols)
     _g = (_cms_d.ler, _pv_d._folha, _pv_d._custo_fixo, _pv_d._nao_operacional, _dre._assinaturas,
-          _au_d.eh_dono)
+          _au_d.eh_dono, _dre._bling)
     _textos = []
     _falso = instalar()
     _falso.markdown = lambda t, *a, **k: _textos.append(str(t))
+    _falso.warning = lambda t, *a, **k: _textos.append(str(t))
     _falso.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[k.get("index", 0) or 0]
     _falso.radio = (lambda rot, opcoes, *a, **k:
                     "DRE" if k.get("key") == "vg_aba" else list(opcoes)[k.get("index", 0) or 0])
@@ -4199,6 +4200,8 @@ def _visao_dre(conta):
         _pv_d._custo_fixo = lambda a, m: 20.0
         _pv_d._nao_operacional = lambda a, m: 5.0
         _dre._assinaturas = lambda a, m: 3.0
+        # O Bling faturou muito mais que a BASE: a DRE avisa (09/11).
+        _dre._bling = lambda a, ms: {m: 100000.0 for m in ms}
         _au_d.eh_dono = lambda u: True
         _dre.dados.clear()
         _vg_d.pagina("leo")
@@ -4208,13 +4211,15 @@ def _visao_dre(conta):
                                     "(6) Lucro líquido", "O FUNIL")), _j[:300])
         conta("DRE: a margem de contribuição da conta bate com a MARGEM C. da planilha",
               "diferença de" not in _j, "")
+        conta("DRE: BASE com menos vendas que o Bling vira aviso de mês incompleto",
+              "o Bling faturou" in _j and "está incompleta" in _j, _j[:200])
     except (_Rerun, _Parou):
         conta("DRE: a tela monta", True, "")
     except Exception as e:
         conta("DRE: a tela monta", False, f"{type(e).__name__}: {e}")
     finally:
         (_cms_d.ler, _pv_d._folha, _pv_d._custo_fixo, _pv_d._nao_operacional, _dre._assinaturas,
-         _au_d.eh_dono) = _g
+         _au_d.eh_dono, _dre._bling) = _g
         _dre.dados.clear()
 
 

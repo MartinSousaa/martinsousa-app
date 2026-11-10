@@ -157,6 +157,12 @@ def consolidado(pessoa, lins):
     if f.get("desconto_domingo"):
         fora.append((f"Repouso semanal ({f['semanas_falta']} domingo)", None,
                      -f["desconto_domingo"]))
+    # O DESCONTO DO PONTO QUE O DONO INFORMOU (10/11) troca o calculado: a
+    # diferença vira uma linha, e o total de descontos fecha com o valor dele.
+    if f.get("desconto_ponto_gestor") is not None:
+        calc, ges = float(f.get("desconto_ponto_calculado") or 0), float(f["desconto_ponto_gestor"])
+        fora.append((f"Desconto do ponto ajustado pelo gestor: {_brl(calc)} calculado → "
+                     f"{_brl(ges)} informado", None, round(calc - ges, 2)))
     # Os descontos que o dono lançou à mão (09/11), um por linha.
     for desc, v in f.get("descontos_manuais") or []:
         fora.append((f"Desconto manual — {desc}" if desc else "Desconto manual", None, -v))
@@ -228,8 +234,11 @@ def html(pessoa, nome, assinatura=None):
                  ["left", "left", "left", "right", "right"]) if rows
             else '<div style="font-size:13px;">Nenhum dia fora da jornada no período.</div>')
     liq_v = f["salario_pagar"] if f["fechado"] else f["salario_se_fechasse_hoje"]
-    liq = ('<div style="display:flex;justify-content:space-between;background:var(--ms-texto);'
-           'color:var(--ms-bg, #222);border-radius:8px;padding:12px 16px;margin-top:12px;'
+    # FUNDO ESCURO, TEXTO CLARO (dono, 09/11, print: a faixa saía vazia). O
+    # fundo era a cor do texto e o texto, `var(--ms-bg)` — que o app.py não
+    # define; a regra de cor do app venceu e o texto ficou da cor do fundo.
+    liq = ('<div style="display:flex;justify-content:space-between;background:#1f4a36;'
+           'color:#E8EAED;border:1px solid #3FAE6A;border-radius:8px;padding:12px 16px;margin-top:12px;'
            f'font-size:17px;font-weight:800;"><span>{"Líquido a receber" if f["fechado"] else "Se o período fechasse hoje"}'
            f' em {pag:%d/%m}</span><span>{_brl(liq_v)}</span></div>')
     metas = _tab(["Meta", "Situação", "%", "Valor"], met, ["left", "left", "right", "right"])
@@ -423,6 +432,15 @@ if __name__ == "__main__":
     ok("a observação aparece, com a quebra de linha e o texto escapado",
        "Observações" in _hb and "repasse do lucro:<br>não foram" in _hb
        and "&lt;b&gt;" in _hb and "\n" not in _hb)
+    ok("a faixa do líquido é fundo escuro com texto claro (não depende de variável do tema)",
+       "background:#1f4a36;color:#E8EAED" in _ht and "var(--ms-bg" not in _ht)
+    _fg = _cp.deepcopy(_f)
+    _pg = dict(_pes, folha=_fg, **_fm.aplicar_ajustes(_fg, _v, {"ponto": 50.0}))
+    _cg = consolidado(_pg, linhas(_pg))
+    ok("ponto informado pelo gestor: a linha da diferença faz o consolidado fechar no valor dele",
+       any("ajustado pelo gestor" in r for r, m, v in _cg)
+       and round(sum(v for r, m, v in _cg if r.startswith(("Horas descontadas", "Repouso", "Desconto"))), 2)
+       == -50.0 and _fg["desconto_total"] == 50.0)
     ok("sem ajuste, o holerite não ganha nada novo",
        "Observações" not in _ht and "Metas a receber" not in _ht)
     ok("pode assinar a partir do dia do pagamento, não antes",

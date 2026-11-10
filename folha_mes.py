@@ -258,12 +258,21 @@ def aplicar_ajustes(f, metas_valor, ajuste=None):
     {"metas_pagar", "desconto_das_metas", "nao_coberto", "observacao"}.
     """
     a = ajuste or {}
+    # O SALDO DO MÊS ANTERIOR (dono, 10/11) entra como mais um desconto, com
+    # a origem na descrição — ele é gravado pelo mês de lá (`gravar_saldo`).
     manuais = [(str(d or "").strip(), round(abs(float(v or 0)), 2))
-               for d, v in (a.get("descontos") or []) if float(v or 0)]
+               for d, v in list(a.get("descontos") or []) + list(a.get("saldos") or [])
+               if float(v or 0)]
     manual = round(sum(v for _d, v in manuais), 2)
     no_bonus = bool(a.get("no_bonus"))
     # O do ponto que VALE agora: fechado, o aplicado; aberto, o "se fechasse".
-    ponto = f["desconto"]
+    # O DONO PODE INFORMAR O DELE (10/11: "fiz as contas das horas que o
+    # colaborador faltou e se atrasou (...) pode considerar R$ 376,13"): o
+    # valor dele substitui o calculado, e o calculado fica à vista.
+    calculado = f["desconto"]
+    ponto = (round(abs(float(a["ponto"])), 2) if a.get("ponto") is not None else calculado)
+    f["desconto_ponto_calculado"] = calculado
+    f["desconto_ponto_gestor"] = ponto if a.get("ponto") is not None else None
     f["descontos_manuais"] = manuais
     f["desconto_manual"] = manual
     f["desconto_no_bonus"] = no_bonus
@@ -275,13 +284,17 @@ def aplicar_ajustes(f, metas_valor, ajuste=None):
         das_metas = round(min(f["desconto_total"], float(metas_valor or 0)), 2)
     else:
         f["desconto_no_salario"] = f["desconto_total"]
-        f["salario_pagar"] = round(f["salario_pagar"] - manual, 2)
-        f["salario_se_fechasse_hoje"] = round(f["salario_se_fechasse_hoje"] - manual, 2)
+        f["salario_pagar"] = round(f["salario"] - (ponto if f["fechado"] else 0.0) - manual, 2)
+        f["salario_se_fechasse_hoje"] = round(f["salario"] - ponto - manual, 2)
         das_metas = 0.0
     return {"metas_pagar": round(float(metas_valor or 0) - das_metas, 2),
             "desconto_das_metas": das_metas,
             "nao_coberto": round(f["desconto_total"] - das_metas, 2) if no_bonus else 0.0,
-            "observacao": str(a.get("obs") or "").strip()}
+            "observacao": str(a.get("obs") or "").strip(),
+            # Os saldos que vieram do mês anterior, na MESMA forma das linhas
+            # de `descontos_manuais` — a tela os separa dos digitados aqui.
+            "saldos_recebidos": [(str(d or "").strip(), round(abs(float(v or 0)), 2))
+                                 for d, v in (a.get("saldos") or []) if float(v or 0)]}
 
 
 def do_mes(ano, mes, dados, ponto, bonus, hoje, salarios=None, domingos=None, ajustes=None):
@@ -405,9 +418,19 @@ def ajustes_de(linhas, ano, mes):
         u = str(l.get("username") or "").strip()
         if str(l.get("mes", "")).strip() != chave or not u:
             continue
-        a = fora.setdefault(u, {"descontos": [], "no_bonus": False, "obs": ""})
+        a = fora.setdefault(u, {"descontos": [], "no_bonus": False, "obs": "",
+                                "ponto": None, "saldos": []})
         tipo = str(l.get("tipo") or "").strip()
-        if tipo == "desconto":
+        if tipo in ("ponto", "saldo"):
+            try:
+                v = float(str(l.get("valor") or 0).replace(",", "."))
+            except ValueError:
+                continue
+            if tipo == "ponto":
+                a["ponto"] = v
+            elif v:
+                a["saldos"].append((str(l.get("descricao") or ""), v))
+        elif tipo == "desconto":
             try:
                 v = float(str(l.get("valor") or 0).replace(",", "."))
             except ValueError:
@@ -431,10 +454,15 @@ def linhas_com_ajuste(linhas, ano, mes, username, ajuste, por, quando):
 
     As outras pessoas e os outros meses ficam como estão."""
     chave = f"{ano:04d}-{mes:02d}"
+    # O SALDO que veio do mês anterior é do mês de lá: regravar este mês não o apaga.
     fora = [l for l in linhas or []
             if not (str(l.get("mes", "")).strip() == chave
-                    and str(l.get("username") or "").strip() == username)]
+                    and str(l.get("username") or "").strip() == username
+                    and str(l.get("tipo") or "").strip() != "saldo")]
     base = {"mes": chave, "username": username, "por": por, "em": quando}
+    if (ajuste or {}).get("ponto") is not None:
+        fora.append({**base, "tipo": "ponto", "descricao": "desconto do ponto informado pelo gestor",
+                     "valor": round(abs(float(ajuste["ponto"])), 2)})
     for d, v in (ajuste or {}).get("descontos") or []:
         if str(d or "").strip() or float(v or 0):
             fora.append({**base, "tipo": "desconto", "descricao": str(d or "").strip(),
@@ -444,6 +472,51 @@ def linhas_com_ajuste(linhas, ano, mes, username, ajuste, por, quando):
     if str((ajuste or {}).get("obs") or "").strip():
         fora.append({**base, "tipo": "obs", "descricao": str(ajuste["obs"]).strip(), "valor": ""})
     return fora
+
+
+def saldo_a_levar(desconto_ponto, ajuste, metas_valor):
+    """O que passa das metas e vai para o mês seguinte. Pura.
+
+    Só com "descontar nas metas" ligado: sem ele, o desconto sai do salário e
+    não sobra nada. O que já veio de saldo entra na conta — e, se de novo não
+    couber, segue adiante.
+    """
+    a = ajuste or {}
+    if not a.get("no_bonus"):
+        return 0.0
+    ponto = float(a["ponto"]) if a.get("ponto") is not None else float(desconto_ponto or 0)
+    manual = sum(abs(float(v or 0)) for _d, v in list(a.get("descontos") or [])
+                 + list(a.get("saldos") or []))
+    return round(max(ponto + manual - float(metas_valor or 0), 0.0), 2)
+
+
+def linhas_com_saldo(linhas, ano, mes, username, valor, por, quando):
+    """As linhas da aba com o saldo de (ano, mes) levado ao mês seguinte. Pura.
+
+    Troca o saldo que ESTE mês já tinha levado (a descrição diz a origem);
+    valor zero só apaga."""
+    a, m = (ano + 1, 1) if mes == 12 else (ano, mes + 1)
+    destino, origem = f"{a:04d}-{m:02d}", f"Saldo de {mes:02d}/{ano} não coberto pelas metas"
+    fora = [l for l in linhas or []
+            if not (str(l.get("mes", "")).strip() == destino
+                    and str(l.get("username") or "").strip() == username
+                    and str(l.get("tipo") or "").strip() == "saldo"
+                    and str(l.get("descricao") or "").strip() == origem)]
+    if valor:
+        fora.append({"mes": destino, "username": username, "tipo": "saldo", "descricao": origem,
+                     "valor": round(valor, 2), "por": por, "em": quando})
+    return fora
+
+
+def gravar_saldo(ano, mes, username, valor, por):
+    """Grava o saldo levado ao mês seguinte (`linhas_com_saldo`). Levanta erro."""
+    import placar_core as _pc
+    a = _aba_manual()
+    novas = linhas_com_saldo(a.get_all_records(), ano, mes, username, valor, por,
+                             _pc.agora_br().strftime("%d/%m/%Y %H:%M"))
+    a.clear()
+    a.update([COLUNAS_MANUAL] + [[str(l.get(c, "")) for c in COLUNAS_MANUAL] for l in novas],
+             value_input_option="RAW")
 
 
 def gravar_ajuste(ano, mes, username, ajuste, por):
@@ -733,7 +806,8 @@ if __name__ == "__main__":
        _nc["metas_pagar"] == 0.0 and _nc["desconto_das_metas"] == 100.0 and _nc["nao_coberto"] == 150.0)
     ok("sem ajuste nenhum, nada muda",
        aplicar_ajustes(apurar(2200, 0, 0, 0, horas_do_mes_min=_d), 264.0)
-       == {"metas_pagar": 264.0, "desconto_das_metas": 0.0, "nao_coberto": 0.0, "observacao": ""})
+       == {"metas_pagar": 264.0, "desconto_das_metas": 0.0, "nao_coberto": 0.0, "observacao": "",
+           "saldos_recebidos": []})
     # GRAVAR DE VERDADE contra uma aba de mentira: cabeçalho na ordem de
     # COLUNAS_MANUAL, a outra pessoa intacta, e lê de volta o que a tela mandou.
     _afm = _AbaFalsa([{"mes": "2026-10", "username": "bia", "tipo": "obs",
@@ -748,7 +822,47 @@ if __name__ == "__main__":
     _vm = ajustes_de([dict(zip(_afm.escrito[0], l)) for l in _afm.escrito[1:]], 2026, 10)
     ok("gravar_ajuste: cabeçalho certo, a Bia intacta, o Luiz com o que a tela mandou",
        _afm.escrito[0] == COLUNAS_MANUAL and _vm["bia"]["obs"] == "da Bia"
-       and _vm["luiz"] == {"descontos": [("faltas", 80.0)], "no_bonus": True, "obs": "no repasse"})
+       and _vm["luiz"] == {"descontos": [("faltas", 80.0)], "no_bonus": True, "obs": "no repasse",
+                           "ponto": None, "saldos": []})
+    # 10/11: O SALDO QUE NÃO COUBE NAS METAS VAI PARA O MÊS SEGUINTE, e o
+    # desconto do ponto que o dono calculou substitui o do sistema. O caso
+    # real: R$ 376,13 do dono contra R$ 240,79 de metas → R$ 135,34 adiante.
+    _aj10 = {"descontos": [], "no_bonus": True, "obs": "", "ponto": 376.13, "saldos": []}
+    _f10 = apurar(2006.58, _d - 1800, 0, _d, 0, [], True, horas_do_mes_min=_d)
+    _x10 = aplicar_ajustes(_f10, 240.79, _aj10)
+    ok("o desconto do ponto do dono substitui o calculado, e o calculado fica à vista",
+       _f10["desconto_total"] == 376.13 and _f10["desconto_ponto_gestor"] == 376.13
+       and _f10["desconto_ponto_calculado"] == _f10["desconto"] != 376.13)
+    _s10 = saldo_a_levar(_f10["desconto"], _aj10, 240.79)
+    ok("a sobra que não coube nas metas é R$ 135,34, e é a mesma de nao_coberto",
+       _s10 == 135.34 == _x10["nao_coberto"])
+    _l11 = linhas_com_saldo([], 2026, 10, "nic", _s10, "MartinSousa", "x")
+    _aj11 = ajustes_de([{k: str(v) for k, v in r.items()} for r in _l11], 2026, 11)
+    ok("o saldo cai em novembro com a origem na descrição",
+       _aj11["nic"]["saldos"] == [("Saldo de 10/2026 não coberto pelas metas", 135.34)])
+    _f11 = apurar(2006.58, _d, 0, _d, 0, [], True, horas_do_mes_min=_d)
+    aplicar_ajustes(_f11, 0.0, _aj11["nic"])
+    ok("e em novembro, sem a marca, sai do salário",
+       _f11["salario_pagar"] == round(2006.58 - 135.34, 2))
+    _l11b = linhas_com_ajuste(_l11, 2026, 11, "nic", {"descontos": [], "obs": "nov"}, "M", "y")
+    ok("regravar o ajuste de novembro não apaga o saldo que veio de outubro",
+       ajustes_de(_l11b, 2026, 11)["nic"]["saldos"] == [("Saldo de 10/2026 não coberto pelas metas",
+                                                          135.34)])
+    ok("salvar outubro de novo troca o saldo (não soma dois), e zero apaga",
+       len([r for r in linhas_com_saldo(_l11, 2026, 10, "nic", 100.0, "M", "z") if r["tipo"] == "saldo"]) == 1
+       and not [r for r in linhas_com_saldo(_l11, 2026, 10, "nic", 0.0, "M", "z") if r["tipo"] == "saldo"])
+    _afs = _AbaFalsa(list(_l11))
+    _g_as = globals()["_aba_manual"]
+    globals()["_aba_manual"] = lambda: _afs
+    try:
+        gravar_saldo(2026, 10, "nic", 90.0, "MartinSousa")
+    finally:
+        globals()["_aba_manual"] = _g_as
+    ok("gravar_saldo grava na aba, no mês seguinte, trocando o anterior",
+       ajustes_de([dict(zip(_afs.escrito[0], r)) for r in _afs.escrito[1:]], 2026, 11)["nic"]["saldos"]
+       == [("Saldo de 10/2026 não coberto pelas metas", 90.0)])
+    ok("sem 'descontar nas metas' não sobra nada para levar",
+       saldo_a_levar(500.0, {"no_bonus": False}, 100.0) == 0.0)
     ok("valor digitado com vírgula vira número; texto que não é número fica de fora",
        ajustes_de([{"mes": "2026-09", "username": "a", "tipo": "desconto", "descricao": "x",
                     "valor": "12,50"},

@@ -134,11 +134,13 @@ def ajuste_da_pessoa(d):
     """O ajuste gravado de uma pessoa, na forma que `folha_mes.gravar_ajuste`
     recebe. Pura."""
     f = d["folha"]
-    return {"descontos": list(f.get("descontos_manuais") or []),
-            "no_bonus": bool(f.get("desconto_no_bonus")), "obs": d.get("observacao", "")}
+    saldos = {x for x in (d.get("saldos_recebidos") or [])}
+    return {"descontos": [x for x in (f.get("descontos_manuais") or []) if x not in saldos],
+            "no_bonus": bool(f.get("desconto_no_bonus")), "obs": d.get("observacao", ""),
+            "ponto": f.get("desconto_ponto_gestor")}
 
 
-def ajuste_do_formulario(linhas, no_bonus, obs):
+def ajuste_do_formulario(linhas, no_bonus, obs, ponto=None):
     """O que a tela devolve vira o ajuste. Linha sem valor fica de fora;
     célula vazia do editor vem NaN (str(NaN) seria "nan"). Pura."""
     desc = []
@@ -151,7 +153,8 @@ def ajuste_do_formulario(linhas, no_bonus, obs):
             v = 0.0
         if v:
             desc.append((d or "Desconto", round(abs(v), 2)))
-    return {"descontos": desc, "no_bonus": bool(no_bonus), "obs": str(obs or "").strip()}
+    return {"descontos": desc, "no_bonus": bool(no_bonus), "obs": str(obs or "").strip(),
+            "ponto": (round(abs(float(ponto)), 2) if ponto is not None else None)}
 
 
 def _ajustes_manuais(por, nomes, ano, mes, usuario_logado):
@@ -177,6 +180,9 @@ def _ajustes_manuais(por, nomes, ano, mes, usuario_logado):
             st.success(_ok)
         d = por[u]
         f, aj = d["folha"], ajuste_da_pessoa(d)
+        if d.get("saldos_recebidos"):
+            st.caption(("Vindo do mês anterior: " + " · ".join(
+                f"{x} ({_brl(v)})" for x, v in d["saldos_recebidos"])).replace("$", "\\$"))
         st.caption("Gravado agora para " + nomes.get(u, u) + ": "
                    + (f"{len(aj['descontos'])} desconto(s) manual(is)" if aj["descontos"]
                       else "nenhum desconto manual")
@@ -192,6 +198,13 @@ def _ajustes_manuais(por, nomes, ano, mes, usuario_logado):
                                 key=f"folha_aj_ed_{ano}_{mes}_{u}",
                                 column_config={"Valor (R$)": st.column_config.NumberColumn(
                                     "Valor (R$)", min_value=0.0, format="R$ %.2f")})
+            # O DESCONTO DO PONTO QUE O DONO CALCULOU (10/11): marcado, o valor
+            # dele substitui o do sistema; o do sistema continua na legenda.
+            usa_p = st.checkbox("Usar o desconto do ponto que eu calculei",
+                                value=aj["ponto"] is not None, key=f"folha_aj_up_{ano}_{mes}_{u}")
+            val_p = st.number_input("Desconto do ponto (R$)", min_value=0.0, step=1.0, format="%.2f",
+                                    value=float(aj["ponto"] if aj["ponto"] is not None else f["desconto"]),
+                                    key=f"folha_aj_vp_{ano}_{mes}_{u}")
             nb = st.checkbox("Descontar nas metas (5º dia útil) — o salário fica integral",
                              value=aj["no_bonus"], key=f"folha_aj_nb_{ano}_{mes}_{u}")
             obs = st.text_area("Observações (aparecem no holerite)", value=aj["obs"],
@@ -199,16 +212,25 @@ def _ajustes_manuais(por, nomes, ano, mes, usuario_logado):
             enviou = st.form_submit_button("💾 Salvar ajustes", type="primary")
         if not enviou:
             return
-        novo = ajuste_do_formulario(ed.to_dict("records"), nb, obs)
+        novo = ajuste_do_formulario(ed.to_dict("records"), nb, obs, val_p if usa_p else None)
+        # O QUE NÃO COUBE NAS METAS VAI PARA O MÊS SEGUINTE (dono, 10/11) —
+        # com os saldos que já vieram de antes, que também podem não caber.
+        saldo = _fm.saldo_a_levar(f["desconto"], dict(novo, saldos=d.get("saldos_recebidos") or []),
+                                  d["metas_valor"])
         try:
             _fm.gravar_ajuste(ano, mes, u, novo, usuario_logado)
+            _fm.gravar_saldo(ano, mes, u, saldo, usuario_logado)
         except Exception as e:
             st.error(f"Não consegui gravar os ajustes: {e}")
             return
         # A apuração fica 5 min em cache — a do colaborador também.
         _md.resumo_do_mes.clear()
+        _prox = f"{(mes % 12) + 1:02d}/{ano + (mes == 12)}"
         st.session_state[AVISO_AJUSTE] = (f"✅ Ajustes de {nomes.get(u, u)} gravados — o holerite "
-                                          "abaixo já mostra.")
+                                          "abaixo já mostra."
+                                          + (f" R$ {saldo:,.2f}".replace(",", "X").replace(".", ",")
+                                             .replace("X", ".") + f" não couberam nas metas e foram "
+                                             f"levados para {_prox}." if saldo else ""))
         # O HOLERITE DE BAIXO ABRE NA PESSOA QUE ACABOU DE SER AJUSTADA: ele
         # abria na primeira da lista, e o ajuste "não aparecia".
         st.session_state[f"folha_holerite_{ano}_{mes}"] = u
@@ -350,7 +372,10 @@ if __name__ == "__main__":
                                True, "  Descontos aplicados no repasse do lucro.  ")
     ok("o formulário vira o ajuste: linha vazia fora, vírgula vira número, obs aparada",
        _aj == {"descontos": [("Faltas não remuneradas", 50.0), ("Porta 2 Relógio + Jóias", 12.5)],
-               "no_bonus": True, "obs": "Descontos aplicados no repasse do lucro."})
+               "no_bonus": True, "obs": "Descontos aplicados no repasse do lucro.", "ponto": None})
+    ok("o desconto do ponto informado vai no ajuste, em valor positivo",
+       ajuste_do_formulario([], False, "", -376.13)["ponto"] == 376.13
+       and ajuste_do_formulario([], False, "")["ponto"] is None)
     _pb = {"luiz": {"folha": _f2, "metas": _l, "pct_metas": _p, "metas_valor": _v,
                     **_fm_t.aplicar_ajustes(_f2, _v, _aj),
                     "faltas": ["2026-10-14"], "domingo_nas": [], "devidas_min": _d}}
@@ -362,6 +387,13 @@ if __name__ == "__main__":
     ok("e as metas pagam o que sobra: 264 − (100 do ponto + 62,50 manuais) = 101,50",
        _tmb == 101.5 and _mb[0]["Descontos"] == "− R$ 162,50"
        and _mb[0]["Metas a pagar"] == "R$ 101,50")
+    _f3 = _fm_t.apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, horas_do_mes_min=_d)
+    _p3 = {"folha": _f3, "metas": _l, "pct_metas": _p, "metas_valor": _v,
+           **_fm_t.aplicar_ajustes(_f3, _v, {"descontos": [("faltas", 10.0)], "no_bonus": True,
+                                             "saldos": [("Saldo de 09/2026 não coberto pelas metas", 50.0)]})}
+    ok("o saldo que veio do mês anterior não volta ao formulário como desconto digitado",
+       ajuste_da_pessoa(_p3)["descontos"] == [("faltas", 10.0)]
+       and _p3["saldos_recebidos"] == [("Saldo de 09/2026 não coberto pelas metas", 50.0)])
     ok("o ajuste gravado volta ao formulário igual",
        ajuste_da_pessoa(_pb["luiz"]) == _aj)
     # 09/11, medido no Chromium com o Streamlit real (aba de mentira): salvar
@@ -374,5 +406,8 @@ if __name__ == "__main__":
        and 'st.session_state[f"folha_holerite_{ano}_{mes}"] = u' in _src_aj
        and _src_aj.index("st.session_state[AVISO_AJUSTE] =") < _src_aj.index("st.rerun()")
        and "st.session_state.pop(AVISO_AJUSTE" in _src_aj)
+    ok("salvar leva ao mês seguinte o que não coube nas metas (dono, 10/11)",
+       "_fm.saldo_a_levar(" in _src_aj and "_fm.gravar_saldo(ano, mes, u, saldo" in _src_aj
+       and _src_aj.index("_fm.gravar_ajuste(") < _src_aj.index("_fm.gravar_saldo("))
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
