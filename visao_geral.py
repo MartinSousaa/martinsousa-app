@@ -178,6 +178,18 @@ def grupo_ml(descricao):
 
 # ── O ANO, ITEM A ITEM ───────────────────────────────────────────────────────
 
+def _data_iso(v):
+    """A data da planilha como 'AAAA-MM-DD', ou "". Pura."""
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+    t = str(v or "").strip()
+    if len(t) >= 10 and t[4] == "-":
+        return t[:10]
+    if len(t) >= 10 and t[2] == "/":
+        return f"{t[6:10]}-{t[3:5]}-{t[:2]}"
+    return ""
+
+
 def itens_do_studio(itens_por_mes):
     """[{mes, modalidade, finalidade, valor, fonte, banco, cartao}] do Studio.
 
@@ -192,7 +204,13 @@ def itens_do_studio(itens_por_mes):
             fora.append({"mes": mes, "fonte": "S", "valor": float(i["valor"]),
                          "finalidade": fin, "cartao": cart,
                          "modalidade": modalidade(i.get("descricao"), cart),
-                         "banco": "" if cart else banco_da_conta(i.get("conta"))})
+                         "banco": "" if cart else banco_da_conta(i.get("conta")),
+                         # O LANÇAMENTO EM SI (dono, 10/11: "quando eu clicar,
+                         # preciso ver todos os comprovantes que o sistema
+                         # computou") — `saidas_mes` lista daqui.
+                         "data": str(i.get("data") or "")[:10],
+                         "quem": str(i.get("favorecido") or i.get("descricao") or "")[:60],
+                         "conta": str(i.get("conta") or "")})
     return fora
 
 
@@ -221,7 +239,10 @@ def juntar(ano, studio, saidas, cartoes, impostos, cheques=None):
             fora.append({"mes": mes, "fonte": "P", "valor": v,
                          "finalidade": finalidade(r.get("FINALIDADE")),
                          "modalidade": modalidade(r.get("Operação")),
-                         "banco": banco, "cartao": False})
+                         "banco": banco, "cartao": False,
+                         "data": _data_iso(r.get("Data")),
+                         "quem": str(r.get("DESTINATÁRIO") or r.get("Operação") or "")[:60],
+                         "conta": banco})
     cart_planilha = set()
     for r in (cartoes or []):
         mes = mes_da_planilha(r.get("MÊS/ANO"))
@@ -232,7 +253,11 @@ def juntar(ano, studio, saidas, cartoes, impostos, cheques=None):
             cart_planilha.add(mes)
             fora.append({"mes": mes, "fonte": "P", "valor": v,
                          "finalidade": finalidade(r.get("FINALIDADE")),
-                         "modalidade": "CARTÃO", "banco": "", "cartao": True})
+                         "modalidade": "CARTÃO", "banco": "", "cartao": True,
+                         "data": _data_iso(r.get("Data") or r.get("DATA")),
+                         "quem": str(r.get("DESCRIÇÃO") or r.get("Descrição") or r.get("LOJA")
+                                     or "aba CARTÕES")[:60],
+                         "conta": "cartão (planilha)"})
     # A fatura paga sem compras anexadas é o MESMO dinheiro que a aba CARTÕES
     # detalha: com a planilha no mês, a linha sem detalhe sai.
     fora = [i for i in fora if not (i["fonte"] == "S" and i["mes"] in cart_planilha
@@ -248,7 +273,10 @@ def juntar(ano, studio, saidas, cartoes, impostos, cheques=None):
         if v:
             fora.append({"mes": mes, "fonte": "S", "valor": v,
                          "finalidade": "CHEQUES", "modalidade": "CHEQUE",
-                         "banco": BANCO_DOS_CHEQUES, "cartao": False})
+                         "banco": BANCO_DOS_CHEQUES, "cartao": False,
+                         "data": _ch.texto_data(c.get("vencimento"))[:10],
+                         "quem": str(c.get("favorecido") or "cheque")[:60],
+                         "conta": BANCO_DOS_CHEQUES})
     for r in (impostos or []):
         if finalidade(r.get("FINALIDADE")) != "IMPOSTOS":
             continue
@@ -260,7 +288,8 @@ def juntar(ano, studio, saidas, cartoes, impostos, cheques=None):
             # DASS e DARF são pagos como guia, isto é, boleto (dono, 15/10).
             fora.append({"mes": mes, "fonte": "P", "valor": v,
                          "finalidade": "IMPOSTOS", "modalidade": "BOLETO",
-                         "banco": "", "cartao": False})
+                         "banco": "", "cartao": False, "data": "",
+                         "quem": "aba SIMPLES - FLEX", "conta": ""})
     return fora
 
 
@@ -280,7 +309,8 @@ def com_cadastro(itens, ano, hoje, cadastro_de):
             if fin not in pagos and v:
                 fora.append({"mes": mes, "fonte": "C", "valor": float(v),
                              "finalidade": fin, "modalidade": "", "banco": "",
-                             "cartao": False})
+                             "cartao": False, "data": "",
+                             "quem": "cadastro do Studio (sem débito lido)", "conta": ""})
     return fora
 
 
@@ -618,6 +648,10 @@ def pagina(usuario_logado=None):
     # Code de R$ 500 com o uso por cima. Régua = cadastro, e não o real.
     import desvio_item as _desv
     _desv.mostrar(int(ano), m, mes_txt, valores, usuario_logado)
+    # TUDO O QUE SAIU NO MÊS (dono, 10/11): os mesmos itens, por grupo e
+    # finalidade, e cada lançamento — com o consolidado por dia.
+    import saidas_mes as _sm
+    _sm.mostrar(itens, int(ano), m, mes_txt)
     st.markdown("&nbsp;", unsafe_allow_html=True)
     if int(ano) == hoje.year:
         try:

@@ -431,6 +431,8 @@ if __name__ == "__main__":
        all(grupo(f) == "compromissos" for f in
            ("CUSTO FIXO", "ASSINATURAS", "FOLHA", "NÃO OPERACIONAL",
             "NAO OPERACIONAL", "CHEQUES")))
+    ok("COMPROMISSOS tem as cinco finalidades do dono (o 'tudo o que saiu' lê daqui)",
+       COMPROMISSOS == ("CUSTO FIXO", "ASSINATURAS", "FOLHA", "NÃO OPERACIONAL", "CHEQUES"))
     ok("impostos NÃO são compromisso (dono, 05/11): vão para outros",
        grupo("IMPOSTOS") == "outros" and grupo("IMPOSTO") == "outros"
        and grupo("DAS") == "outros")
