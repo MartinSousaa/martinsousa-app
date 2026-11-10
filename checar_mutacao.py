@@ -4860,8 +4860,8 @@ MUTACOES = [
     (
         'o desconto manual nao sai do salario (09/11)',
         "folha_mes.py",
-        [('        f["salario_pagar"] = round(f["salario_pagar"] - manual, 2)\n',
-          '        f["salario_pagar"] = round(f["salario_pagar"], 2)\n')],
+        [('        f["salario_pagar"] = round(f["salario"] - (ponto if f["fechado"] else 0.0) - manual, 2)\n',
+          '        f["salario_pagar"] = round(f["salario"] - (ponto if f["fechado"] else 0.0), 2)\n')],
         None,
         ["python3", "folha_mes.py"],
     ),
