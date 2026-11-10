@@ -4078,6 +4078,10 @@ def _visao_geral(conta):
               and "sem extrato de entrada" in _j, "")
         # 07/11: o desvio item a item desenha abaixo do painel, pelo
         # cadastro e pelos lançamentos trocados acima.
+        conta("Visão Geral: 'tudo o que saiu' desenha abaixo do desvio (10/11)",
+              ("TUDO O QUE SAIU" in _j or "Nenhuma saída lida" in _j)
+              and _j.index("O QUE COBROU ACIMA DO ESTIMADO") < max(_j.find("TUDO O QUE SAIU"),
+                                                                    _j.find("Nenhuma saída lida")), "")
         conta("Visão Geral: o desvio item a item desenha abaixo do painel",
               "O QUE COBROU ACIMA DO ESTIMADO" in _j
               and _j.index("PARA ONDE FOI O DINHEIRO") < _j.index("O QUE COBROU ACIMA DO ESTIMADO")

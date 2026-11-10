@@ -5047,6 +5047,28 @@ MUTACOES = [
         ["python3", "folha_tela.py"],
     ),
     (
+        'tudo o que saiu some da Visao Geral (10/11)',
+        "visao_geral.py",
+        [('    _sm.mostrar(itens, int(ano), m, mes_txt)\n', '')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'a lista da finalidade volta a mostrar so alguns lancamentos (10/11)',
+        "saidas_mes.py",
+        [("f'</span><span style=\"text-align:right\">{_r(l[\"valor\"])}</span></div>' for l in ls)",
+          "f'</span><span style=\"text-align:right\">{_r(l[\"valor\"])}</span></div>' for l in ls[:2])")],
+        None,
+        ["python3", "saidas_mes.py"],
+    ),
+    (
+        'a data do lancamento some da Visao Geral (10/11)',
+        "visao_geral.py",
+        [('                         "data": str(i.get("data") or "")[:10],\n', '')],
+        None,
+        ["python3", "saidas_mes.py"],
+    ),
+    (
         'o desvio item a item some da Visao Geral (07/11)',
         "visao_geral.py",
         [('    _desv.mostrar(int(ano), m, mes_txt, valores, usuario_logado)\n', '')],
