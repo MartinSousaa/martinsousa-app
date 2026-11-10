@@ -452,7 +452,9 @@ def _meu_mes_em_dinheiro(res):
             _partes = ([f"{_fm.h(-f['negativo_min'])} no banco"] if f["negativo_min"] else []) \
                 + ([f"{f['semanas_falta']} domingo(s) de falta de dia inteiro"]
                    if f["semanas_falta"] else [])
-            st.markdown(f":red[Se o mês fechasse hoje: − {_brl_md(f['desconto'])} "
+            # O valor que o gestor informou, quando informou (10/11).
+            _dp = f["desconto"] if f.get("desconto_ponto_gestor") is None else f["desconto_ponto_gestor"]
+            st.markdown(f":red[Se o mês fechasse hoje: − {_brl_md(_dp)} "
                         f"({' e '.join(_partes)})]")
     with b.container(border=True):
         st.caption("BANCO DE HORAS")

@@ -168,9 +168,42 @@ def dados(ano, m_ini, m_fim):
     df, erro = _cms.ler(_vf.ABA_BASE)
     if erro:
         raise RuntimeError(f"BASE DE VENDAS: {erro}")
-    v, plat, info = vendas(df.to_dict("records"), list(df.columns), ano, meses)
+    regs, cols = df.to_dict("records"), list(df.columns)
+    v, plat, info = vendas(regs, cols, ano, meses)
     fx, erros = fixos(ano, meses)
-    return {"vendas": v, "plataformas": plat, "info": info, "fixos": fx, "erros": erros}
+    fat_mes = {m: vendas(regs, cols, ano, [m])[0]["fat"] for m in meses}
+    return {"vendas": v, "plataformas": plat, "info": info, "fixos": fx, "erros": erros,
+            "fat_por_mes": fat_mes}
+
+
+# A BASE ATRASADA (dono, 09/11: "ainda não tinha colocado o restante das
+# vendas de outubro" — e a DRE de outubro saiu com R$ 81.838). A planilha é
+# preenchida de tempos em tempos; o Bling é agora. A DRE avisa quando a BASE
+# tem menos do que o Bling — e quanto falta —, em vez de parecer completa.
+MAX_MESES_BLING = 3
+TOLERANCIA_BLING = 0.03
+
+
+def faltas_na_base(fat_base, fat_bling):
+    """[(mês, base, bling)] dos meses em que a BASE tem menos de 97% do que o
+    Bling faturou. Mês sem leitura do Bling fica de fora. Pura."""
+    fora = []
+    for m, b in sorted((fat_base or {}).items()):
+        bl = (fat_bling or {}).get(m)
+        if bl and float(b or 0) < float(bl) * (1 - TOLERANCIA_BLING):
+            fora.append((m, round(float(b or 0), 2), round(float(bl), 2)))
+    return fora
+
+
+def _bling(ano, meses):
+    """{mês: faturamento líquido no Bling}. Leitura com cache do próprio Bling."""
+    import bling_api as _bl
+    fora = {}
+    for m in meses:
+        tot, _av = _bl.faturamento_do_mes_total(int(ano), int(m))
+        if (tot or {}).get("pedidos"):
+            fora[m] = float(tot.get("liquido") or 0)
+    return fora
 
 
 # ── Tela ─────────────────────────────────────────────────────────────────────
@@ -274,6 +307,16 @@ def pagina(ano, hoje):
     if int(ano) == hoje.year and m_fim >= hoje.month:
         st.caption("O mês corrente ainda está aberto: vendas até hoje, custo operacional previsto "
                    "e custos fixos do mês inteiro.")
+    if m_fim - m_ini + 1 <= MAX_MESES_BLING:
+        try:
+            for m, b, bl in faltas_na_base(d.get("fat_por_mes"), _bling(ano, range(m_ini, m_fim + 1))):
+                st.warning(f"⚠️ {MESES[m - 1]}: a BASE DE VENDAS tem {_r(b)} e o Bling faturou {_r(bl)} — "
+                           f"faltam {_r(bl - b)} em vendas na planilha. A DRE deste mês está incompleta."
+                           .replace("$", "\\$"))
+        except Exception as e:
+            st.caption(f"Não conferi a BASE com o Bling: {type(e).__name__}")
+    else:
+        st.caption(f"A conferência com o Bling roda para até {MAX_MESES_BLING} meses de uma vez.")
     st.markdown(html(montar(d["vendas"], d["fixos"]), titulo, d["plataformas"], d["info"],
                      d["erros"]), unsafe_allow_html=True)
 
@@ -365,6 +408,11 @@ if __name__ == "__main__":
        "— −" not in _hp and "(6) LUCRO LÍQUIDO: − R$" in _hp)
     ok("o % da barra é branco sobre barra escura", "color:#ffffff;font-weight:800" in _h
        and "#7fd8e0" not in _h)
+    ok("BASE atrasada em relação ao Bling vira aviso; dentro de 3% não; sem Bling, fora",
+       faltas_na_base({10: 81838.0, 9: 199000.0, 8: 150000.0}, {10: 214000.0, 9: 200000.0})
+       == [(10, 81838.0, 214000.0)])
+    ok("o faturamento por mês sai da MESMA leitura das vendas",
+       "vendas(regs, cols, ano, [m])" in _insp.getsource(dados))
     ok("nome de plataforma vai escapado", "&lt;b&gt;" in html(_e, "X", {"<b>": 1.0}))
     print(f"\nfalhas: {falhas}")
     raise SystemExit(1 if falhas else 0)
