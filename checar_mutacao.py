@@ -5364,6 +5364,20 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'a camera volta a existir so na Contagem (11/11)',
+        "estoque_tela.py",
+        [('    if st.toggle("📷 Usar a câmera do celular", key="est_cam"):\n        import streamlit.components.v1 as _comp\n        _comp.html(_CAMERA, height=330)\n', '')],
+        None,
+        ["python3", "estoque_tela.py"],
+    ),
+    (
+        'o codigo desconhecido fora da Entrada volta a nao oferecer cadastro (11/11)',
+        "estoque_tela.py",
+        [('    st.button("➕ Cadastrar este código", key="est_cad_desc", type="primary",\n              on_click=_ir_cadastrar, args=(cod,))', '    pass')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 

@@ -220,6 +220,44 @@ def _limpar_ficha():
 
 def _voltar():
     _limpar_ficha()
+    _voltar_ao_modo()
+
+
+# CÓDIGO DESCONHECIDO EM QUALQUER TELA (dono, 11/11, pelo iPhone): a Contagem
+# dizia "não está cadastrado" e parava — o cadastro só existia na Entrada. Agora
+# toda tela que bipa oferece cadastrar ali mesmo, e volta para onde estava.
+def _ir_cadastrar(cod):
+    ss = st.session_state
+    volta = ss.get("est_modo")
+    _limpar_ficha()
+    if volta and volta != MODOS[0]:
+        ss["est_volta_modo"] = volta
+    ss["est_modo"] = MODOS[0]
+    ss["est_lido"] = cod
+    ss["est_cadastrar"] = True
+
+
+def _voltar_ao_modo():
+    """Depois do cadastro (ou do cancelar), volta para a tela de onde veio.
+
+    O seletor de modo já foi desenhado quando o cadastro grava: trocar o valor
+    dele agora o Streamlit recusa. Fica pendente e é aplicado no começo da
+    próxima passada, antes de o seletor existir.
+    """
+    ss = st.session_state
+    volta = ss.pop("est_volta_modo", None)
+    if volta:
+        ss["est_modo_pendente"] = volta
+
+
+def _mostrar_desconhecido():
+    ss = st.session_state
+    cod = ss.pop("est_desconhecido", None)
+    if not cod:
+        return
+    st.error(f"Código {cod} não está cadastrado.")
+    st.button("➕ Cadastrar este código", key="est_cad_desc", type="primary",
+              on_click=_ir_cadastrar, args=(cod,))
 
 
 def _avisar(msg, erro=False):
@@ -278,6 +316,13 @@ def _desfazer(lote, quem):
 # ── blocos da tela ───────────────────────────────────────────────────────────
 
 def _barra(saida=False):
+    # A CÂMERA EM TODA TELA QUE BIPA (dono, 11/11: "está acrescentando o
+    # scanner pelo celular na aba de entrada?"). Ela morava só na Contagem —
+    # a Forma 1 desta base. Mora aqui, junto da barra, e a chave é uma só:
+    # ligada numa tela, continua ligada ao trocar de tela.
+    if st.toggle("📷 Usar a câmera do celular", key="est_cam"):
+        import streamlit.components.v1 as _comp
+        _comp.html(_CAMERA, height=330)
     c1, c2 = st.columns([4, 1.3])
     with c1:
         st.text_input("Bipe ou digite o código de barras", key="est_bipe",
@@ -528,6 +573,7 @@ def _cadastro(quem):
         _avisar(f"✓ «{nome.strip()}» cadastrado" + (f" com {int(qtd)} peça(s)." if qtd else "."))
         if sem_codigo:
             ss["est_etiqueta_nova"] = (cod, nome.strip())
+        _voltar_ao_modo()
         st.rerun()
     except Exception as e:
         st.error(f"Não gravei o cadastro — a planilha respondeu: {e}")
@@ -594,7 +640,7 @@ def _bipe_na_saida(cod):
             ss["est_janela"] = cod           # vários modelos: a tela pergunta qual
             return
         if not itens:
-            _avisar(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.", True)
+            ss["est_desconhecido"] = cod
             return
         k = E.codigo_gerado(codigos, cod)
         rotulo = (k.get("nome") if k else E.nome_completo(itens[0][0]))
@@ -749,6 +795,7 @@ def _saida(quem):
     aviso = ss.pop("est_aviso", None)
     if aviso:
         (st.error if aviso[1] else st.success)(aviso[0])
+    _mostrar_desconhecido()
     if ss.get("est_corrigir"):
         st.warning("🔁 Corrigindo um bipe: **bipe o código certo** (ou clique no modelo). ")
     try:
@@ -830,6 +877,7 @@ def _baixas(quem):
     aviso = ss.pop("est_aviso", None)
     if aviso:
         (st.error if aviso[1] else st.success)(aviso[0])
+    _mostrar_desconhecido()
     try:
         prods, movs, codigos = E.carregar()
     except Exception as e:
@@ -843,7 +891,9 @@ def _baixas(quem):
         cod = ss.get("est_bx_cod")
         var = E.do_codigo(prods, cod) if cod else []
         if cod and not var:
-            st.error(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.")
+            ss.pop("est_bx_cod", None)
+            ss["est_desconhecido"] = cod
+            _mostrar_desconhecido()
         elif not var:
             st.caption("Bipe o produto. Abre a ficha com quantidade, foto do estado e observação.")
         else:
@@ -938,7 +988,7 @@ def _bipe_no_kit(cod):
         return
     var = E.do_codigo(prods, cod)
     if not var:
-        _avisar(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.", True)
+        ss["est_desconhecido"] = cod
     elif len(var) == 1:
         _somar_no_kit(var[0]["id"])
     else:
@@ -988,6 +1038,7 @@ def _kits(quem):
     aviso = ss.pop("est_aviso", None)
     if aviso:
         (st.error if aviso[1] else st.success)(aviso[0])
+    _mostrar_desconhecido()
     nova = ss.pop("est_etiqueta_nova", None)
     try:
         prods, movs, codigos = E.carregar()
@@ -1177,6 +1228,7 @@ def _painel(quem):
     aviso = ss.pop("est_aviso", None)
     if aviso:
         (st.error if aviso[1] else st.success)(aviso[0])
+    _mostrar_desconhecido()
     try:
         prods, movs, codigos = E.carregar()
         marcados = E.marcados_de(E.compras())
@@ -1304,8 +1356,10 @@ def _bipe_na_contagem(cod):
         return
     var = E.do_codigo(prods, cod)
     if not var:
-        _avisar(("Esse é um código de kit/quantidade: na contagem, bipe cada PRODUTO."
-                 if E.codigo_gerado(codigos, cod) else f"Código {cod} não está cadastrado."), True)
+        if E.codigo_gerado(codigos, cod):
+            _avisar("Esse é um código de kit/quantidade: na contagem, bipe cada PRODUTO.", True)
+        else:
+            ss["est_desconhecido"] = cod
         return
     if len(var) > 1:
         ss["est_ct_escolha"] = cod
@@ -1371,6 +1425,7 @@ def _contagem(quem):
     aviso = ss.pop("est_aviso", None)
     if aviso:
         (st.error if aviso[1] else st.success)(aviso[0])
+    _mostrar_desconhecido()
     try:
         prods, movs, _c = E.carregar()
         contagens, contados = E.contagem()
@@ -1403,9 +1458,6 @@ def _contagem(quem):
 def _tela_contar(por_id, contados, cid, prods):
     ss = st.session_state
     st.text_input("Onde você vai contar", key="est_ct_onde", placeholder="Prateleira B")
-    if st.toggle("📷 Usar a câmera do celular", key="est_ct_cam"):
-        import streamlit.components.v1 as _comp
-        _comp.html(_CAMERA, height=330)
     _barra(saida=True)
     esc = ss.get("est_ct_escolha")
     var = E.do_codigo(prods, esc) if esc else []
@@ -1471,6 +1523,8 @@ def pagina(usuario_logado=None):
     quem = str(usuario_logado or "").strip()
     st.session_state["est_quem"] = quem      # os callbacks do bipe gravam o nome
     st.markdown("### 📦 Estoque")
+    if st.session_state.get("est_modo_pendente"):
+        st.session_state["est_modo"] = st.session_state.pop("est_modo_pendente")
     modo = st.segmented_control("Modo", MODOS, default=MODOS[0], key="est_modo",
                                 label_visibility="collapsed") or MODOS[0]
     if modo in EM_CONSTRUCAO:
@@ -1500,6 +1554,7 @@ def _entrada(quem):
     aviso = ss.pop("est_aviso", None)
     if aviso:
         (st.error if aviso[1] else st.success)(aviso[0])
+    _mostrar_desconhecido()
     nova = ss.pop("est_etiqueta_nova", None)
     if nova:
         st.markdown("**Código gerado — imprima a etiqueta e cole no produto:**")
@@ -1601,6 +1656,10 @@ if __name__ == "__main__":
        "sem foto" in foto_html("") and "thumbnail?id=abc" in foto_html("abc"))
     ok("o foco não rouba o campo de quem está digitando",
        "digitando" in _FOCO and "est_bipe" in _FOCO and "location" not in _FOCO)
+    import inspect as _insp
+    ok("câmera em TODA tela que bipa: a barra tem a câmera, e as cinco telas usam a barra",
+       "_CAMERA" in _insp.getsource(_barra)
+       and all("_barra(" in _insp.getsource(f) for f in (_entrada, _saida, _baixas, _kits, _tela_contar)))
     ok("modos: as seis partes aprovadas e prontas", len(MODOS) == 6 and EM_CONSTRUCAO == {})
     ok("câmera: entrega o código à MESMA barra do leitor, e não repete a etiqueta parada",
        ".st-key-est_bipe input" in _CAMERA and "agora - visto < 1200" in _CAMERA and "location" not in _CAMERA

@@ -175,7 +175,11 @@ def main():
             navegou = []
             pg.on("framenavigated", lambda f: navegou.append(f.url) if f == pg.main_frame else None)
             pg.goto(f"http://127.0.0.1:{porta}")
-            pg.wait_for_timeout(3500)
+            # ESPERA A TABELA, e não um tempo fixo (11/11): com a máquina
+            # ocupada, o primeiro desenho passava dos 3,5 s e os dois testes
+            # de tabela reprovavam sem defeito nenhum na tela.
+            pg.wait_for_selector("th", timeout=30000)
+            pg.wait_for_timeout(500)
             # O TÍTULO SOBRE O VALOR (30/10): o 3º título do Balanço no centro
             # como o valor, o da coluna de valor do holerite à direita, e a
             # cor do desconto vermelha — calculados pelo navegador.
@@ -463,6 +467,28 @@ def main():
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: contagem soma o bipe repetido e o ajuste não zera o "
                   f"não contado (bipes={_qct}, {_ct})")
+            # CÓDIGO DESCONHECIDO FORA DA ENTRADA (dono, 11/11, pelo iPhone):
+            # a Contagem dizia "não está cadastrado" e não oferecia cadastrar.
+            # Agora o botão abre o cadastro e, salvo, volta para a Contagem.
+            pg.get_by_role("button", name="ABRIR CONTAGEM").click()
+            pg.wait_for_timeout(2500)
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("7908045147038", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.get_by_role("button", name="➕ Cadastrar este código").click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_label("Produto", exact=True).fill("Porta 2 Relógio + Jóias (P/M)")
+            pg.get_by_label("Preço de custo (R$)").fill("31,50")
+            pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
+            pg.wait_for_timeout(3500)
+            _txt_d = pg.inner_text("body")
+            ok = ("Porta 2 Relógio + Jóias (P/M):0" in _txt_d and "Onde você vai contar" in _txt_d
+                  and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + "estoque: código desconhecido na Contagem oferece cadastrar "
+                  f"e volta para a Contagem (cadastrado={'Porta 2 Relógio + Jóias (P/M):0' in _txt_d}, "
+                  f"voltou={'Onde você vai contar' in _txt_d})")
             nav.close()
     except Exception as e:
         falhas += 1
