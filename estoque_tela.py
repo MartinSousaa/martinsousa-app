@@ -25,13 +25,7 @@ import estoque as E
 
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
          "🧩 Kits", "📊 Painel", "📱 Contagem")
-EM_CONSTRUCAO = {
-    "⬆ Saída": "Parte 2",
-    "✖ Quebra · Descarte · Devolução": "Parte 3",
-    "🧩 Kits": "Parte 4",
-    "📊 Painel": "Parte 5",
-    "📱 Contagem": "Parte 6",
-}
+EM_CONSTRUCAO = {}
 
 # O BIPE VAI PARA A BARRA, ESTEJA O CURSOR ONDE ESTIVER (dono, 11/11).
 #
@@ -89,6 +83,15 @@ if (!window.__msBipe) { window.__msBipe = true;
   }, true);
 }
 """
+
+# Parte 3: o motivo da baixa.
+MOTIVOS = {"💔 Quebra": E.QUEBRA, "🗑 Descarte": E.DESCARTE, "🎁 Doação": E.DOACAO,
+           "↩ Devolução": E.DEVOLUCAO}
+NOME_MOTIVO = {E.QUEBRA: "Quebra", E.DESCARTE: "Descarte", E.DOACAO: "Doação",
+               E.DEVOLUCAO: "Devolução"}
+
+# Saída (Parte 2): para onde vai o que foi bipado.
+DESTINOS = {"🛒 Venda": E.VENDA, "🚚 Envio para o Full": E.ENVIO_FULL}
 
 _FOCO = """<script>
 // O cursor volta para a barra de bipe depois de cada passada — a não ser que
@@ -150,6 +153,13 @@ def cabecalho_html(variacoes, saldo, codigo):
             f'<span style="color:#f0c060">a idade conta daqui</span></div></div></div>')
 
 
+def estoque_txt(saldo, pid):
+    """'em estoque: físico 4 · Full ML1 2 · Full Shopee 1 1'. Pura."""
+    partes = [f"físico {saldo.get((pid, E.FISICO), 0)}"]
+    partes += [f"{nome} {saldo[(pid, loc)]}" for loc, nome in E.FULLS.items() if saldo.get((pid, loc))]
+    return "em estoque: " + " · ".join(partes)
+
+
 def lote_txt(lote, por_id):
     """'14:02 · Bailarina: Braço para cima +6 · Sentada +6 · leo'. Pura."""
     partes = []
@@ -178,6 +188,19 @@ def _ao_bipar():
     cod = E.limpar_codigo(ss.get("est_bipe", ""))
     ss["est_bipe"] = ""
     if not cod:
+        return
+    if ss.get("est_modo") == "⬆ Saída":
+        _bipe_na_saida(cod)
+        return
+    if ss.get("est_modo") == MODOS[2]:
+        ss["est_bx_cod"] = cod
+        ss.pop("est_bx_var", None)
+        return
+    if ss.get("est_modo") == "🧩 Kits":
+        _bipe_no_kit(cod)
+        return
+    if ss.get("est_modo") == "📱 Contagem":
+        _bipe_na_contagem(cod)
         return
     if cod == ss.get("est_lido") and not ss.get("est_cadastrar"):
         ss["est_nova_var"] = True        # bipou de novo o mesmo: nova variação
@@ -210,6 +233,11 @@ def _quando():
 
 # ── ações (callbacks) ────────────────────────────────────────────────────────
 
+def _local_da_entrada():
+    nome = st.session_state.get("est_onde_entra") or "Físico"
+    return next((k for k, v in E.FULLS.items() if v == nome), E.FISICO)
+
+
 def _confirmar_entrada(variacoes, quem):
     ss = st.session_state
     try:
@@ -219,14 +247,15 @@ def _confirmar_entrada(variacoes, quem):
             novo = str(ss.get(f"est_n_{v['id']}", v.get("variacao") or "")).strip()
             if novo and novo != str(v.get("variacao") or "").strip():
                 renomes[v["id"]] = {"variacao": novo}
-        linhas = E.linhas_de_entrada(itens, quem, _quando())
+        local = _local_da_entrada()
+        linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local)
         if not linhas and not renomes:
             _avisar("Nada para gravar: todas as quantidades estão em zero.", True)
             return
         E.atualizar_produtos(renomes)
         E.gravar_movimentos(linhas)
         total = sum(q for _v, q in itens)
-        _avisar(f"✓ Entrada gravada: {total} peça(s) de {variacoes[0].get('nome')}."
+        _avisar(f"✓ Entrada gravada no {E.NOME_LOCAL[local]}: {total} peça(s) de {variacoes[0].get('nome')}."
                 if linhas else "✓ Nomes das variações atualizados.")
         _limpar_ficha()
     except Exception as e:
@@ -238,24 +267,26 @@ def _desfazer(lote, quem):
         _p, movs, _c = E.carregar()
         linhas = E.linhas_que_desfazem(lote, movs, quem, _quando())
         if not linhas:
-            _avisar("Essa entrada já tinha sido desfeita.", True)
+            _avisar("Isso já tinha sido desfeito.", True)
             return
         E.gravar_movimentos(linhas)
-        _avisar("↶ Entrada desfeita: as peças saíram do estoque de novo.")
+        _avisar("↶ Desfeito: o estoque voltou ao que era antes.")
     except Exception as e:
         _avisar(f"Não desfiz — a planilha respondeu: {e}", True)
 
 
 # ── blocos da tela ───────────────────────────────────────────────────────────
 
-def _barra():
+def _barra(saida=False):
     c1, c2 = st.columns([4, 1.3])
     with c1:
         st.text_input("Bipe ou digite o código de barras", key="est_bipe",
-                      on_change=_ao_bipar, placeholder="▌ bipe o código…",
+                      on_change=_ao_bipar,
+                      placeholder=("🟢 pronto para bipar — não precisa clicar aqui" if saida
+                                   else "▌ bipe o código…"),
                       label_visibility="collapsed")
     with c2:
-        if st.button("➕ Produto sem código", key="est_btn_semcod", use_container_width=True,
+        if not saida and st.button("➕ Produto sem código", key="est_btn_semcod", use_container_width=True,
                      help="Óculos e o que mais vier sem código: o Studio gera e imprime."):
             _limpar_ficha()
             st.session_state["est_sem_codigo"] = True
@@ -282,15 +313,17 @@ def _ficha(variacoes, saldo, codigos, por_id, quem):
             st.markdown(foto_html(v.get("foto_id"), 54), unsafe_allow_html=True)
         with c1:
             if sem_nome:
-                st.markdown(f'**{_esc(v.get("nome"))}**  \nem estoque: '
-                            f'{saldo.get((v["id"], E.FISICO), 0)}')
+                st.markdown(f'**{_esc(v.get("nome"))}**  \n{estoque_txt(saldo, v["id"])}')
             else:
                 st.text_input("Nome da variação", value=str(v.get("variacao") or ""),
                               key=f"est_n_{v['id']}", label_visibility="collapsed")
-                st.caption(f"em estoque: {saldo.get((v['id'], E.FISICO), 0)}")
+                st.caption(estoque_txt(saldo, v["id"]))
         with c2:
             st.number_input("entrando", min_value=0, step=1, value=0,
                             key=f"est_q_{v['id']}")
+    st.segmented_control("Onde está entrando", ["Físico"] + list(E.FULLS.values()), default="Físico",
+                         key="est_onde_entra",
+                         help="Produto que JÁ está no Full e não dá para bipar: escolha o Full e digite a quantidade.")
     total = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) for v in variacoes)
     valor = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) * E.numero(v.get("custo"))
                 for v in variacoes)
@@ -514,16 +547,950 @@ def _ultimas(movs, por_id, quem):
                       args=(lt["lote"], quem))
 
 
+# ── SAÍDA (Parte 2) ──────────────────────────────────────────────────────────
+
+def _baixar(itens, destino, quem, rotulo, full=None):
+    """Grava a saída de um bipe e deixa o aviso com o que saiu. Levanta erro."""
+    prods, movs, _c = E.carregar()
+    if destino == E.ENVIO_FULL and full is None:
+        full = _full_escolhido()
+        if not full:
+            _avisar("Escolha PARA QUAL Full está indo, antes de bipar.", True)
+            return None
+    linhas = E.linhas_de_saida(itens, destino, quem, _quando(), obs=rotulo, full=full or "")
+    if not linhas:
+        return None
+    E.gravar_movimentos(linhas)
+    lote = linhas[0]["lote"]
+    st.session_state.setdefault("est_sessao", []).append(lote)
+    saldo = E.saldos(movs + linhas)
+    zerados = [E.nome_completo(p) for p, _q in itens if saldo.get((p["id"], E.FISICO), 0) <= 0]
+    para = f" → {E.NOME_LOCAL.get(full, 'Full')}" if destino == E.ENVIO_FULL else ""
+    msg = f"✓ Saiu{para}: {rotulo}"
+    if zerados:
+        msg += " · ⚠️ estoque físico ZEROU: " + ", ".join(zerados)
+    _avisar(msg, False)
+    return lote
+
+
+def _destino():
+    return DESTINOS.get(st.session_state.get("est_dest") or "🛒 Venda", E.VENDA)
+
+
+def _full_escolhido():
+    """O Full escolhido na Saída, pelo nome na tela → a chave. Ou ''."""
+    nome = st.session_state.get("est_full_dest") or ""
+    return next((k for k, v in E.FULLS.items() if v == nome), "")
+
+
+def _bipe_na_saida(cod):
+    """Um bipe na Saída. Callback: roda antes de a tela ser desenhada."""
+    ss = st.session_state
+    quem = ss.get("est_quem", "")
+    try:
+        prods, movs, codigos = E.carregar()
+        itens, variacoes = E.itens_do_bipe(prods, codigos, cod)
+        if variacoes:
+            ss["est_janela"] = cod           # vários modelos: a tela pergunta qual
+            return
+        if not itens:
+            _avisar(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.", True)
+            return
+        k = E.codigo_gerado(codigos, cod)
+        rotulo = (k.get("nome") if k else E.nome_completo(itens[0][0]))
+        corr = ss.pop("est_corrigir", None)
+        if corr:
+            desf = E.linhas_que_desfazem(corr, movs, quem, _quando())
+            E.gravar_movimentos(desf)
+        _baixar(itens, _destino(), quem, rotulo + (" (no lugar do bipe errado)" if corr else ""))
+        ss.pop("est_janela", None)
+    except Exception as e:
+        _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
+
+
+def _saiu_modelo(pid, quem):
+    """Clique num modelo da janela: sai 1 dele."""
+    ss = st.session_state
+    try:
+        prods, movs, _c = E.carregar()
+        p = next(x for x in prods if x["id"] == pid)
+        corr = ss.pop("est_corrigir", None)
+        if corr:
+            E.gravar_movimentos(E.linhas_que_desfazem(corr, movs, quem, _quando()))
+        _baixar([(p, 1)], _destino(), quem, E.nome_completo(p))
+        ss.pop("est_janela", None)
+    except Exception as e:
+        _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
+
+
+def _fechar_janela():
+    st.session_state.pop("est_janela", None)
+
+
+def _corrigir(lote):
+    st.session_state["est_corrigir"] = lote
+    _avisar("Bipe agora o código CERTO: o errado volta ao estoque e o certo sai no lugar.")
+
+
+def _mudar_qtd(lote, quem):
+    """Troca quantas vezes aquele bipe saiu: desfaz e grava de novo, vezes N."""
+    ss = st.session_state
+    try:
+        n = int(ss.get(f"est_mq_{lote}", 1) or 0)
+        prods, movs, _c = E.carregar()
+        por_id = {p["id"]: p for p in prods}
+        linhas = [m for m in movs if str(m.get("lote")) == lote and m.get("local") == E.FISICO]
+        if not linhas:
+            return
+        destino = linhas[0].get("tipo")
+        full = next((m.get("local") for m in movs if str(m.get("lote")) == lote
+                     and E.eh_full(m.get("local"))), None)
+        E.gravar_movimentos(E.linhas_que_desfazem(lote, movs, quem, _quando()))
+        if n > 0:
+            itens = [(por_id[m["produto_id"]], -E.inteiro(m["qtd"]) * n) for m in linhas
+                     if m["produto_id"] in por_id]
+            _baixar(itens, destino, quem, f"{n}× " + ", ".join(E.nome_completo(p) for p, _q in itens),
+                    full=full)
+        else:
+            _avisar("↶ Desfeito: o estoque voltou ao que era antes.")
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", True)
+
+
+def rotulo_do_lote(linhas_fisico, por_id):
+    """O nome do que saiu: o do kit quando foi kit, senão o do produto. Pura.
+
+    O kit grava o nome dele em `obs` (`_baixar`); sem isso a lista mostrava
+    «Bailarina · Braço para cima, Bailarina · Sentada» para um bipe só.
+    """
+    if not linhas_fisico:
+        return "?"
+    obs = str(linhas_fisico[0].get("obs") or "").replace(" (no lugar do bipe errado)", "").strip()
+    if len(linhas_fisico) > 1 and obs:
+        return obs
+    return ", ".join(E.nome_completo(por_id.get(m.get("produto_id"), {})) or "?" for m in linhas_fisico)
+
+
+def janela_html(variacoes, saldo):
+    """O título da janela de modelos. Pura."""
+    return (f'<div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:#f0c060">'
+            f'ESTE CÓDIGO TEM MAIS DE UM MODELO · BIPE NA TELA OU CLIQUE NO QUE ESTÁ SAINDO</div>'
+            f'<div style="font-size:18px;font-weight:800;margin:4px 0 8px">'
+            f'{_esc(variacoes[0].get("nome"))} <span style="color:#9AA3AE;font-size:13px">'
+            f'{_esc(variacoes[0].get("codigo_fornecedor"))}</span></div>')
+
+
+def _janela(variacoes, saldo, codigos, por_id, quem):
+    with st.container(border=True):
+        st.markdown(janela_html(variacoes, saldo), unsafe_allow_html=True)
+        for v in variacoes:
+            c0, c1, c2 = st.columns([0.7, 3.4, 1.6])
+            c0.markdown(foto_html(v.get("foto_id"), 54), unsafe_allow_html=True)
+            c1.markdown(f'**{_esc(v.get("variacao") or v.get("nome"))}**  \nsai 1 peça · em estoque: '
+                        f'{saldo.get((v["id"], E.FISICO), 0)}')
+            c2.button("SAIU ESTE", key=f"est_sv_{v['id']}", use_container_width=True,
+                      on_click=_saiu_modelo, args=(v["id"], quem))
+        for k in E.codigos_da_janela(variacoes, codigos):
+            c1, c2 = st.columns([3, 2.4])
+            c1.markdown(f'**{_esc(k.get("nome"))}**  \n{_esc(receita_txt(k, por_id))}')
+            c2.markdown(E.svg_ean13(k["codigo"], modulo=2, altura=44), unsafe_allow_html=True)
+        st.caption("Saindo 2 iguais: clique (ou bipe) 2 vezes.")
+        st.button("Fechar", key="est_fecha_jan", on_click=_fechar_janela)
+
+
+def _lateral_saida(movs, por_id, quem):
+    st.markdown("**Últimos 5 bipados · clique para corrigir**")
+    # SÓ OS BIPES DE QUEM ESTÁ NA TELA: com duas pessoas empacotando, uma
+    # não deve corrigir o bipe da outra sem perceber.
+    lotes = E.ultimos_lotes([m for m in movs if m.get("quem") == quem or m.get("tipo") == E.DESFEITO],
+                            (E.VENDA, E.ENVIO_FULL), 5)
+    if not lotes:
+        st.caption("Nada saiu ainda.")
+    for lt in lotes:
+        fis = [m for m in lt["linhas"] if m.get("local") == E.FISICO]
+        nomes = rotulo_do_lote(fis, por_id)
+        q = sum(-E.inteiro(m["qtd"]) for m in fis)
+        _f = next((m.get("local") for m in lt["linhas"] if E.eh_full(m.get("local"))), "")
+        para = f" → {E.NOME_LOCAL.get(_f, 'Full')}" if _f else ""
+        hora = str(lt.get("quando") or "")[-5:]
+        rot = f"{hora} · {nomes} −{q}{para}" + (" · desfeito" if lt["desfeito"] else "")
+        if lt["desfeito"]:
+            st.caption("~~" + rot + "~~")
+            continue
+        with st.expander(rot, expanded=st.session_state.get("est_corrigir") == lt["lote"]):
+            p = por_id.get(fis[0]["produto_id"], {}) if fis else {}
+            st.markdown(foto_html(p.get("foto_id"), 48), unsafe_allow_html=True)
+            st.button("🔁 Trocar pelo código certo", key=f"est_tr_{lt['lote']}",
+                      on_click=_corrigir, args=(lt["lote"],), use_container_width=True)
+            c1, c2 = st.columns([1, 1.3])
+            c1.number_input("vezes", min_value=0, step=1, value=1, key=f"est_mq_{lt['lote']}",
+                            help="Quantas vezes este bipe saiu. 0 = desfaz.")
+            c2.button("Salvar", key=f"est_sq_{lt['lote']}", on_click=_mudar_qtd,
+                      args=(lt["lote"], quem), use_container_width=True)
+            st.button("↶ desfazer", key=f"est_desf_s_{lt['lote']}", on_click=_desfazer,
+                      args=(lt["lote"], quem), use_container_width=True)
+    sess = set(st.session_state.get("est_sessao", []))
+    desf = E.lotes_desfeitos(movs)
+    das = [m for m in movs if str(m.get("lote")) in sess and str(m.get("lote")) not in desf
+           and m.get("local") == E.FISICO]
+    pecas = sum(-E.inteiro(m["qtd"]) for m in das)
+    custo = sum(-E.inteiro(m["qtd"]) * E.numero(m.get("custo_unit")) for m in das)
+    st.markdown(f"**{pecas}** peça(s) nesta sessão · **R\\$ {custo:,.0f}** a custo"
+                .replace(",", "."))
+
+
+def _saida(quem):
+    ss = st.session_state
+    st.segmented_control("Saída para", list(DESTINOS), default="🛒 Venda", key="est_dest")
+    if _destino() == E.ENVIO_FULL:
+        st.segmented_control("Para qual Full?", list(E.FULLS.values()), key="est_full_dest")
+        if not _full_escolhido():
+            st.warning("Escolha para qual Full está indo — cada conta tem o seu estoque.")
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    if ss.get("est_corrigir"):
+        st.warning("🔁 Corrigindo um bipe: **bipe o código certo** (ou clique no modelo). ")
+    try:
+        prods, movs, codigos = E.carregar()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    _barra(saida=True)
+    por_id = {p["id"]: p for p in prods}
+    saldo = E.saldos(movs)
+    principal, lateral = st.columns([2.2, 1])
+    with principal:
+        jan = ss.get("est_janela")
+        variacoes = E.do_codigo(prods, jan) if jan else []
+        if variacoes:
+            _janela(variacoes, saldo, codigos, por_id, quem)
+        else:
+            st.caption("Cada bipe é 1 unidade e sai na hora. Código com mais de um modelo abre a "
+                       "janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")
+    with lateral:
+        _lateral_saida(movs, por_id, quem)
+
+
+# ── QUEBRA · DESCARTE · DOAÇÃO · DEVOLUÇÃO (Parte 3) ────────────────────────
+
+def _rs(v):
+    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def linha_baixa_txt(linhas, por_id):
+    """'11/11 · Bailarina · Sentada · Devolução → voltou ao estoque · +1 · — · my'. Pura."""
+    m0 = linhas[0]
+    p = por_id.get(m0.get("produto_id"), {})
+    perda = [m for m in linhas if m.get("tipo") in E.PERDAS]
+    if m0.get("tipo") == E.DEVOLUCAO:
+        mot = "Devolução → descarte" if perda else "Devolução → voltou ao estoque"
+    else:
+        mot = NOME_MOTIVO.get(m0.get("tipo"), m0.get("tipo"))
+        if E.eh_full(m0.get("local")):
+            mot += f' ({E.NOME_LOCAL.get(m0.get("local"), "Full")})'
+    q = (-sum(E.inteiro(m["qtd"]) for m in perda) if perda
+         else sum(E.inteiro(m["qtd"]) for m in linhas))
+    sinal = "−" if perda else "+"
+    valor = sum(-E.inteiro(m["qtd"]) * E.numero(m.get("custo_unit")) for m in perda)
+    obs = str(m0.get("obs") or "").replace("devolução que voltou ruim.", "").strip()
+    return (f'{str(m0.get("quando") or "")[:5]} · {E.nome_completo(p) or "?"} · {mot}'
+            + (f" · {obs}" if obs else "") + f" · {sinal}{q} · "
+            + (_rs(valor) if perda else "—") + f' · {m0.get("quem", "")}')
+
+
+def quadros_perda_html(bm):
+    """Os quatro quadros do mês, em grade 2×2 — `st.metric` cortava o valor
+    em «R…» na coluna estreita (visto no navegador, 11/11). Pura."""
+    q = [(rot, _rs(bm["por_motivo"][m]), "#E5534B") for rot, m in MOTIVOS.items() if m in E.PERDAS]
+    q.append(("↩ Voltou ao estoque", f"{bm['voltaram']} peça(s)", "#4CC38A"))
+    return ('<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 10px">'
+            + "".join(f'<div style="padding:10px;border-radius:10px;background:#2c2c2c">'
+                      f'<div style="font-size:11px;color:#9AA3AE">{r}</div>'
+                      f'<div style="font-size:18px;font-weight:800;color:{c}">{v}</div></div>'
+                      for r, v, c in q) + "</div>")
+
+
+def _gravar_baixa(p, motivo, quem, q, volta, local, obs, pedido, foto):
+    foto_id = ""
+    if foto is not None:
+        foto_id, erro = E.salvar_foto(foto.getvalue(), f"baixa_{E.limpar_codigo(p.get('ean'))}")
+        if erro:
+            st.warning(f"Gravei sem a foto: {erro}")
+    linhas = E.linhas_de_baixa(p, q, motivo, quem, _quando(), local=local, volta=volta,
+                               obs=obs, pedido=pedido, foto_id=foto_id)
+    E.gravar_movimentos(linhas)
+    return linhas
+
+
+def _baixas(quem):
+    ss = st.session_state
+    rot = st.segmented_control("Motivo", list(MOTIVOS), default="💔 Quebra", key="est_motivo")
+    motivo = MOTIVOS.get(rot or "💔 Quebra", E.QUEBRA)
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    try:
+        prods, movs, codigos = E.carregar()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    _barra(saida=True)
+    por_id = {p["id"]: p for p in prods}
+    saldo = E.saldos(movs)
+    esq, dir_ = st.columns([1.2, 1])
+    with esq:
+        cod = ss.get("est_bx_cod")
+        var = E.do_codigo(prods, cod) if cod else []
+        if cod and not var:
+            st.error(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.")
+        elif not var:
+            st.caption("Bipe o produto. Abre a ficha com quantidade, foto do estado e observação.")
+        else:
+            _ficha_baixa(var, motivo, saldo, quem)
+    with dir_:
+        _perdas_do_mes(movs, por_id, quem)
+
+
+def _ficha_baixa(var, motivo, saldo, quem):
+    ss = st.session_state
+    if len(var) > 1:
+        nomes = [str(v.get("variacao") or "").strip() or E.nome_completo(v) for v in var]
+        esc = st.radio("Qual modelo?", nomes, key="est_bx_var", horizontal=True)
+        p = var[nomes.index(esc)] if esc in nomes else var[0]
+    else:
+        p = var[0]
+    fis, full = saldo.get((p["id"], E.FISICO), 0), E.no_full(saldo, p["id"])
+    st.markdown(
+        f'<div style="display:flex;gap:12px;align-items:center;margin:6px 0">'
+        f'{foto_html(p.get("foto_id"), 72)}<div><div style="font-size:11px;font-weight:800;'
+        f'letter-spacing:.12em;color:#f0c060">BIPADO · {NOME_MOTIVO[motivo].upper()}</div>'
+        f'<div style="font-size:18px;font-weight:800">{_esc(E.nome_completo(p))}</div>'
+        f'<div style="font-size:13px;color:#9AA3AE">{_esc(p.get("codigo_fornecedor") or "—")} · custo '
+        f'{_rs(E.numero(p.get("custo")))} · físico {fis} · Full {full}</div></div></div>',
+        unsafe_allow_html=True)
+    with st.form("est_form_bx", clear_on_submit=True):
+        volta, local = False, E.FISICO
+        if motivo == E.DEVOLUCAO:
+            r = st.radio("O produto voltou…", ["✓ BOM · volta ao estoque", "✖ RUIM · descarte"],
+                         horizontal=True)
+            volta = r.startswith("✓")
+            st.caption("Bom: soma no físico e não é perda. Ruim: a peça já tinha saído na venda — "
+                       "o estoque não muda, e ela conta como perda.")
+        else:
+            lr = st.selectbox("Saiu de qual estoque?", ["físico"] + list(E.FULLS.values()))
+            local = next((k for k, v in E.FULLS.items() if v == lr), E.FISICO)
+        c1, c2 = st.columns([1, 2])
+        q = c1.number_input("Quantidade", min_value=1, step=1, value=1)
+        pedido = c2.text_input("Plataforma / pedido (opcional)", placeholder="Mercado Livre · 2000012345678")
+        c3, c4 = st.columns([1, 2])
+        foto = c3.file_uploader("Foto do estado (opcional)", type=None, key="est_bx_foto")
+        obs = c4.text_input("Observação", placeholder="caixa amassada, peça inteira")
+        enviar = st.form_submit_button("CONFIRMAR", type="primary")
+    if not enviar:
+        return
+    try:
+        _gravar_baixa(p, motivo, quem, int(q), volta, local, obs.strip(), pedido.strip(), foto)
+        oque = ("voltou ao estoque" if motivo == E.DEVOLUCAO and volta else
+                f"perda de {_rs(int(q) * E.numero(p.get('custo')))}")
+        _avisar(f"✓ {NOME_MOTIVO[motivo]}: {int(q)}× {E.nome_completo(p)} — {oque}.")
+        ss.pop("est_bx_cod", None)
+        st.rerun()
+    except Exception as e:
+        st.error(f"Não gravei — a planilha respondeu: {e}")
+
+
+def _perdas_do_mes(movs, por_id, quem):
+    import placar_core as _pc
+    hoje = _pc.agora_br()
+    bm = E.baixas_do_mes(movs, hoje.year, hoje.month)
+    meses = ("", "JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO",
+             "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO")
+    st.markdown(f"**{meses[hoje.month].capitalize()} · perda a custo: {_rs(bm['perda'])}**"
+                .replace("$", "\\$"))
+    st.markdown(quadros_perda_html(bm), unsafe_allow_html=True)
+    if not bm["lotes"]:
+        st.caption("Nenhuma baixa neste mês.")
+    for linhas in bm["lotes"][:30]:
+        lote = str(linhas[0]["lote"])
+        with st.expander(linha_baixa_txt(linhas, por_id)):
+            m0 = linhas[0]
+            if m0.get("foto_id"):
+                st.markdown(foto_html(m0["foto_id"], 120), unsafe_allow_html=True)
+            if m0.get("pedido"):
+                st.caption(f"Pedido: {m0['pedido']}")
+            st.button("↶ desfazer esta baixa", key=f"est_desf_b_{lote}", on_click=_desfazer,
+                      args=(lote, quem))
+
+
+# ── KITS (Parte 4) ───────────────────────────────────────────────────────────
+
+def _bipe_no_kit(cod):
+    """Bipe montando um kit: entra o item; bipou de novo, vira 2."""
+    ss = st.session_state
+    try:
+        prods, _m, codigos = E.carregar()
+    except Exception as e:
+        _avisar(f"Não consegui ler o estoque: {e}", True)
+        return
+    if E.codigo_gerado(codigos, cod):
+        _avisar("Esse é um código de kit/quantidade. No kit, bipe o código de cada PRODUTO.", True)
+        return
+    var = E.do_codigo(prods, cod)
+    if not var:
+        _avisar(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.", True)
+    elif len(var) == 1:
+        _somar_no_kit(var[0]["id"])
+    else:
+        ss["est_kit_escolha"] = cod       # vários modelos: a tela pergunta qual
+
+
+def _somar_no_kit(pid):
+    ss = st.session_state
+    kit = ss.setdefault("est_kit", {})
+    kit[pid] = kit.get(pid, 0) + 1
+    ss[f"est_kq_{pid}"] = kit[pid]
+    ss.pop("est_kit_escolha", None)
+
+
+def _tirar_do_kit(pid):
+    ss = st.session_state
+    ss.setdefault("est_kit", {}).pop(pid, None)
+    ss.pop(f"est_kq_{pid}", None)
+
+
+def _limpar_kit():
+    ss = st.session_state
+    for pid in list(ss.get("est_kit", {})):
+        ss.pop(f"est_kq_{pid}", None)
+    for k in ("est_kit", "est_kit_escolha", "est_kit_nome"):
+        ss.pop(k, None)
+
+
+def kit_card_html(k, por_id, saldo):
+    """O kit cadastrado: foto, nome, itens e quantos dá para montar. Pura."""
+    itens = E.itens_do_codigo(k)
+    n, faltam = E.da_para_montar(itens, saldo)
+    lista = " · ".join((f"{q}× " if q > 1 else "") + E.nome_completo(por_id.get(pid, {}))
+                       for pid, q in itens.items())
+    falta_txt = (" · falta " + ", ".join(E.nome_completo(por_id.get(pid, {})) for pid in faltam)
+                 if faltam else "")
+    cor = "#E5534B" if n == 0 else "#E8EAED"
+    return (f'<div style="display:flex;gap:10px;align-items:center">{foto_html(k.get("foto_id"), 52)}'
+            f'<div style="min-width:0"><b>{_esc(k.get("nome"))}</b>'
+            f'<div style="font-size:12px;color:#9AA3AE">{_esc(lista)}</div>'
+            f'<div style="font-size:12px;color:{cor}">dá para montar: {n}{_esc(falta_txt)} · custo '
+            f'{_rs(E.custo_da_receita(itens, por_id))}</div></div></div>')
+
+
+def _kits(quem):
+    ss = st.session_state
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    nova = ss.pop("est_etiqueta_nova", None)
+    try:
+        prods, movs, codigos = E.carregar()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    _barra(saida=True)
+    por_id = {p["id"]: p for p in prods}
+    saldo = E.saldos(movs)
+    esq, dir_ = st.columns([1.2, 1])
+    with esq:
+        _criar_kit(prods, codigos, por_id, saldo, nova, quem)
+    with dir_:
+        _kits_cadastrados(codigos, por_id, saldo)
+
+
+def _criar_kit(prods, codigos, por_id, saldo, nova, quem):
+    # Função própria, e não bloco dentro do `with`: o `return` do kit vazio
+    # saía da tela INTEIRA e a lista de kits cadastrados sumia (navegador, 11/11).
+    ss = st.session_state
+    st.markdown("**Criar kit · 1) bipe os itens  2) nome e foto  3) gerar código**")
+    if nova:
+        st.markdown("**Kit criado — imprima a etiqueta:**")
+        _etiqueta(nova[0], nova[1])
+    esc = ss.get("est_kit_escolha")
+    var = E.do_codigo(prods, esc) if esc else []
+    if var:
+        st.warning("Este código tem mais de um modelo. Qual vai no kit?")
+        for v in var:
+            st.button(str(v.get("variacao") or E.nome_completo(v)), key=f"est_ke_{v['id']}",
+                      on_click=_somar_no_kit, args=(v["id"],))
+    kit = ss.get("est_kit", {})
+    for pid in list(kit):
+        p = por_id.get(pid)
+        if not p:
+            continue
+        c0, c1, c2, c3 = st.columns([0.7, 3, 1.2, 0.5])
+        c0.markdown(foto_html(p.get("foto_id"), 44), unsafe_allow_html=True)
+        c1.markdown(f"**{_esc(E.nome_completo(p))}**  \nem estoque: {saldo.get((pid, E.FISICO), 0)}")
+        kit[pid] = int(c2.number_input("no kit", min_value=1, step=1, key=f"est_kq_{pid}"))
+        c3.button("✕", key=f"est_kx_{pid}", on_click=_tirar_do_kit, args=(pid,), help="Tirar do kit")
+    if not kit:
+        st.caption("Bipe o primeiro item do kit. Bipou o mesmo de novo: vira 2 no kit.")
+        return
+    nome = st.text_input("Nome do kit", key="est_kit_nome", placeholder="Kit Embaralhador + 2 baralhos")
+    foto = st.file_uploader("Foto do kit (anexar)", type=None, key="est_kit_foto")
+    n, _f = E.da_para_montar(kit, saldo)
+    st.caption(f"custo do kit: {_rs(E.custo_da_receita(kit, por_id))} · dá para montar: {n} · "
+               "o kit NÃO entra no estoque: ele é só a receita.".replace("$", "\\$"))
+    c1, c2 = st.columns([1.6, 1])
+    salvar = c1.button("SALVAR E GERAR CÓDIGO", type="primary", key="est_kit_salvar",
+                       use_container_width=True)
+    c2.button("Cancelar", key="est_kit_cancelar", on_click=_limpar_kit, use_container_width=True)
+    if salvar:
+        if not str(nome).strip():
+            st.error("Escreva o nome do kit.")
+        else:
+            try:
+                novo = E.novo_codigo_interno(E.todos_os_codigos(prods, codigos))
+                foto_id = ""
+                if foto is not None:
+                    foto_id, erro = E.salvar_foto(foto.getvalue(), f"kit_{novo}")
+                    if erro:
+                        st.warning(f"O kit foi salvo sem foto: {erro}")
+                E.gravar_codigo(E.linha_de_codigo(novo, "kit", nome, "", dict(kit), quem,
+                                                  _quando(), foto_id=foto_id))
+                ss["est_etiqueta_nova"] = (novo, str(nome).strip())
+                _avisar(f"✓ Kit «{str(nome).strip()}» criado com o código {novo}.")
+                _limpar_kit()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Não gravei o kit — a planilha respondeu: {e}")
+
+
+def _kits_cadastrados(codigos, por_id, saldo):
+    ss = st.session_state
+    st.markdown("**Kits cadastrados**")
+    kits = [k for k in codigos if k.get("tipo") == "kit"]
+    if not kits:
+        st.caption("Nenhum kit ainda.")
+    for k in kits:
+        with st.container(border=True):
+            st.markdown(kit_card_html(k, por_id, saldo), unsafe_allow_html=True)
+            st.markdown(E.svg_ean13(k["codigo"], modulo=1, altura=30), unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            if c1.button("🖨 imprimir", key=f"est_kp_{k['codigo']}", use_container_width=True):
+                ss["est_imprimir"] = k["codigo"]
+            with c2.popover("✎ editar", use_container_width=True):
+                novo_nome = st.text_input("Nome", value=str(k.get("nome") or ""),
+                                          key=f"est_kn_{k['codigo']}")
+                if st.button("Salvar nome", key=f"est_ks_{k['codigo']}"):
+                    try:
+                        E.atualizar_codigos({k["codigo"]: {"nome": novo_nome.strip()}})
+                        _avisar("✓ Nome do kit atualizado.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Não gravei — a planilha respondeu: {e}")
+            if ss.get("est_imprimir") == k["codigo"]:
+                _etiqueta(k["codigo"], k.get("nome"), " · ".join(
+                    E.nome_completo(por_id.get(pid, {})) for pid in E.itens_do_codigo(k)))
+
+
+# ── PAINEL (Parte 5) ─────────────────────────────────────────────────────────
+
+def _r0(v):
+    return f"R$ {v:,.0f}".replace(",", ".")
+
+
+def _por_conta_txt(pn):
+    """' · ML1 3 · Shopee 1 2': as peças de cada Full, somadas. Pura."""
+    t = {}
+    for l in pn["linhas"]:
+        for loc, q in l.get("por_full", {}).items():
+            t[loc] = t.get(loc, 0) + max(q, 0)
+    return "".join(f' · {E.FULLS[loc].replace("Full ", "")} {q}' for loc, q in t.items() if q)
+
+
+def topo_painel_html(pn):
+    """Os quatro quadros do topo. Pura."""
+    pct = (pn["valor_parado"] / pn["valor"] * 100) if pn["valor"] else 0
+    q = [("VALOR EM ESTOQUE", _r0(pn["valor"]), f'a custo · {pn["pecas_fisico"] + pn["pecas_full"]} peças · '
+          f'{pn["produtos"]} produtos', "#E8EAED"),
+         ("ESTOQUE FÍSICO", _r0(pn["valor_fisico"]), f'{pn["pecas_fisico"]} peças', "#E8EAED"),
+         ("ESTOQUE FULL", _r0(pn["valor_full"]), f'{pn["pecas_full"]} peças' + _por_conta_txt(pn),
+          "#7db4ec"),
+         ("PARADO HÁ MAIS DE 3 MESES", _r0(pn["valor_parado"]), f'{len(pn["parados"])} produtos · '
+          f'{pct:.1f}% do valor'.replace(".", ","), "#f0c060")]
+    return ('<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:8px 0">'
+            + "".join(f'<div style="padding:12px;border-radius:12px;background:#2c2c2c">'
+                      f'<div style="font-size:11px;color:#9AA3AE;letter-spacing:.1em">{t}</div>'
+                      f'<div style="font-size:22px;font-weight:800;color:{c}">{v}</div>'
+                      f'<div style="font-size:12px;color:#9AA3AE">{d}</div></div>' for t, v, d, c in q)
+            + "</div>")
+
+
+def faixas_html(pn):
+    """As três faixas de idade, com barra proporcional ao valor. Pura."""
+    tot = sum(pn["faixas"].values()) or 1
+    rot = [("ok", "até 3 meses", "#4CC38A"), ("atencao", "3 a 5 meses · atenção", "#f0c060"),
+           ("critico", "mais de 5 meses · crítico", "#E5534B")]
+    return "".join(
+        f'<div style="margin-top:8px"><div style="display:flex;justify-content:space-between;font-size:13px">'
+        f'<span>{r}</span><b style="color:{c}">{_r0(pn["faixas"][f])}</b></div>'
+        f'<div style="height:8px;border-radius:4px;background:#222;margin-top:4px">'
+        f'<div style="width:{pn["faixas"][f] / tot * 100:.0f}%;height:8px;border-radius:4px;background:{c}">'
+        f'</div></div></div>' for f, r, c in rot)
+
+
+def _meses_txt(dias):
+    if dias is None:
+        return "—"
+    m = dias // 30
+    return f"{m} mês" if m == 1 else (f"{m} meses" if m else f"{dias} dias")
+
+
+def _marcar(pid, quem):
+    try:
+        E.marcar_comprado(pid, quem, _quando())
+        _avisar("✓ Marcado como comprado.")
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", True)
+
+
+def tabela_produtos(linhas, busca=""):
+    """As linhas da tabela, filtradas pela busca como TEXTO (passo 13). Pura.
+
+    Busca por nome, variação, código do fornecedor ou código de barras. O
+    "+" de "Porta 2 Relógio + Jóias" é letra, não padrão.
+    """
+    b = " ".join(str(busca or "").lower().split())
+    fora = []
+    for l in linhas:
+        p = l["produto"]
+        alvo = " ".join(str(x or "").lower() for x in (p.get("nome"), p.get("variacao"),
+                                                       p.get("codigo_fornecedor"), p.get("ean")))
+        if b and b not in " ".join(alvo.split()) and E.limpar_codigo(b) != E.limpar_codigo(p.get("ean")):
+            continue
+        fora.append(l)
+    return sorted(fora, key=lambda l: -l["valor"])
+
+
+def _painel(quem):
+    import gdrive
+    import pandas as pd
+    import placar_core as _pc
+    ss = st.session_state
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    try:
+        prods, movs, codigos = E.carregar()
+        marcados = E.marcados_de(E.compras())
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    pn = E.painel(prods, movs, _pc.agora_br().date())
+    st.markdown(topo_painel_html(pn), unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Tempo parado · conta desde o registro**")
+        st.markdown(faixas_html(pn), unsafe_allow_html=True)
+        for l in pn["parados"][:5]:
+            p = l["produto"]
+            cor = "#E5534B" if l["faixa"] == "critico" else "#f0c060"
+            st.markdown(f'<div style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:6px">'
+                        f'{foto_html(p.get("foto_id"), 30)}<b style="flex:1">{_esc(E.nome_completo(p))}</b>'
+                        f'<span style="color:{cor};font-weight:800">{_meses_txt(l["dias"])}</span>'
+                        f'<span>{max(l["fisico"], 0) + max(l["full"], 0)} un</span>'
+                        f'<b>{_r0(l["valor"])}</b></div>', unsafe_allow_html=True)
+        if len(pn["parados"]) > 5:
+            st.caption(f'+ {len(pn["parados"]) - 5} — estão todos na tabela abaixo, pela coluna "No estoque há".')
+    with c2:
+        st.markdown("**Lista de compra do Renan**")
+        lista = E.lista_de_compra(prods, movs, codigos, marcados)
+        if not lista:
+            st.caption("Nada faltando.")
+        for i in lista:
+            p = i["produto"]
+            a, b = st.columns([3, 1.2])
+            a.markdown(f'**{_esc(E.nome_completo(p))}**  \n:red[{_esc(i["motivo"])}]')
+            if i["comprado"]:
+                b.markdown(":green[✓ comprado]")
+            else:
+                b.button("marcar comprado", key=f"est_cmp_{p['id']}", on_click=_marcar,
+                         args=(p["id"], quem), use_container_width=True)
+        st.caption("Entra sozinho quando vende sem estoque ou um kit trava. Sai sozinho quando a "
+                   "mercadoria dá entrada.")
+    st.markdown("**Todos os produtos**")
+    busca = st.text_input("Buscar", key="est_busca", placeholder="🔎 nome, código ou bipe",
+                          label_visibility="collapsed")
+    linhas = tabela_produtos(pn["linhas"], busca)
+    df = pd.DataFrame([{
+        "foto": gdrive.url_thumbnail(l["produto"].get("foto_id"), 120) if l["produto"].get("foto_id") else "",
+        "Produto": E.nome_completo(l["produto"]),
+        "Código": l["produto"].get("codigo_fornecedor") or l["produto"].get("ean"),
+        "Físico": l["fisico"], "Full": l["full"],
+        "Full por conta": " · ".join(f'{E.FULLS[k].replace("Full ", "")} {q}'
+                                     for k, q in l.get("por_full", {}).items()) or "—",
+        "Custo": _rs(l["custo"]), "Valor": _r0(l["valor"]),
+        "No estoque há": _meses_txt(l["dias"]),
+        "Última saída": l["ultima_saida"].strftime("%d/%m") if l["ultima_saida"] else "—",
+    } for l in linhas])
+    if df.empty:
+        st.caption("Nenhum produto" + (" com essa busca." if busca else " cadastrado ainda."))
+        return
+    ev = st.dataframe(df, hide_index=True, use_container_width=True, on_select="rerun",
+                      selection_mode="single-row", key="est_tab",
+                      column_config={"foto": st.column_config.ImageColumn("", width="small")})
+    st.caption(f"{len(linhas)} produto(s)" + (f" com «{busca.strip()}»" if busca.strip() else ""))
+    sel = list(getattr(getattr(ev, "selection", None), "rows", []) or [])
+    if sel and sel[0] < len(linhas):
+        p = linhas[sel[0]]["produto"]
+        st.markdown(f"**Histórico · {_esc(E.nome_completo(p))}**")
+        hist = [m for m in movs if m.get("produto_id") == p["id"]][-30:]
+        st.dataframe(pd.DataFrame([{"Quando": m.get("quando"), "O quê": m.get("tipo"),
+                                    "Onde": E.NOME_LOCAL.get(m.get("local"), m.get("local")),
+                                    "Qtd": E.inteiro(m.get("qtd")), "Quem": m.get("quem"),
+                                    "Obs": m.get("obs")} for m in reversed(hist)]),
+                     hide_index=True, use_container_width=True)
+    else:
+        st.caption("Clique numa linha para ver o histórico de entradas e saídas do produto.")
+
+
+# ── CONTAGEM (Parte 6) ───────────────────────────────────────────────────────
+
+# A CÂMERA DO CELULAR. O Safari do iPhone não lê código de barras sozinho
+# (não tem BarcodeDetector): a leitura vem da biblioteca html5-qrcode, que
+# traz o decodificador dela. O código lido é entregue à MESMA barra do
+# leitor USB — um caminho só para o bipe, venha de onde vier.
+_CAMERA = """<div id="leitor" style="width:100%;max-width:420px;margin:auto"></div>
+<div id="msg" style="font:13px sans-serif;color:#9AA3AE;text-align:center;margin-top:4px"></div>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(function () {
+  var W = window.parent, ultimo = '', visto = 0;
+  function entrega(cod) {
+    // A MESMA ETIQUETA PARADA NA FRENTE não conta de novo: a câmera lê dez
+    // vezes por segundo. Só volta a contar depois que ela SAIU da imagem
+    // (mais de 1,2 s sem ser vista) — para contar duas iguais, tira e põe.
+    var agora = Date.now();
+    var parada = (cod === ultimo && agora - visto < 1200);
+    visto = agora; ultimo = cod;
+    if (parada) return;
+    var b = W.document.querySelector('.st-key-est_bipe input');
+    if (!b) return;
+    Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value').set.call(b, cod);
+    b.dispatchEvent(new Event('input', {bubbles: true}));
+    b.focus();
+    setTimeout(function () { b.blur(); }, 60);
+    if (navigator.vibrate) navigator.vibrate(80);
+    document.getElementById('msg').textContent = 'lido: ' + cod;
+  }
+  try {
+    var F = Html5QrcodeSupportedFormats;
+    var h = new Html5Qrcode('leitor', {formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128]});
+    h.start({facingMode: 'environment'}, {fps: 10, qrbox: {width: 260, height: 110}}, entrega,
+            function () {}).catch(function (e) {
+      document.getElementById('msg').textContent = 'Câmera não abriu: ' + e + ' — permita a câmera no navegador.';
+    });
+  } catch (e) {
+    document.getElementById('msg').textContent = 'Leitor da câmera não carregou: ' + e;
+  }
+})();
+</script>"""
+
+
+def _bipe_na_contagem(cod):
+    """Cada bipe do mesmo produto soma 1; bipou outro, o anterior é gravado."""
+    ss = st.session_state
+    try:
+        prods, _m, codigos = E.carregar()
+    except Exception as e:
+        _avisar(f"Não consegui ler o estoque: {e}", True)
+        return
+    var = E.do_codigo(prods, cod)
+    if not var:
+        _avisar(("Esse é um código de kit/quantidade: na contagem, bipe cada PRODUTO."
+                 if E.codigo_gerado(codigos, cod) else f"Código {cod} não está cadastrado."), True)
+        return
+    if len(var) > 1:
+        ss["est_ct_escolha"] = cod
+        return
+    _contar(var[0]["id"])
+
+
+def _contar(pid):
+    ss = st.session_state
+    ss.pop("est_ct_escolha", None)
+    atual = ss.get("est_ct")
+    if atual and atual["pid"] == pid:
+        ss["est_ct_q"] = int(ss.get("est_ct_q", 0) or 0) + 1
+        return
+    if atual:
+        _gravar_contado()
+    ss["est_ct"] = {"pid": pid}
+    ss["est_ct_q"] = 1
+
+
+def _gravar_contado():
+    """Grava o produto que estava sendo contado. Callback."""
+    ss = st.session_state
+    atual = ss.get("est_ct")
+    q = int(ss.get("est_ct_q", 0) or 0)
+    cid = ss.get("est_ct_id")
+    if not atual or not cid:
+        return
+    try:
+        if q > 0:
+            E.gravar_contado(cid, atual["pid"], q, str(ss.get("est_ct_onde") or "").strip(),
+                             ss.get("est_quem", ""), _quando())
+        ss.pop("est_ct", None)
+        ss.pop("est_ct_q", None)
+    except Exception as e:
+        _avisar(f"Não gravei a contagem — a planilha respondeu: {e}", True)
+
+
+def _abrir_contagem(quem):
+    try:
+        E.abrir_contagem(quem, _quando())
+        _avisar("✓ Contagem aberta. Cada pessoa escolhe onde vai contar e começa a bipar.")
+    except Exception as e:
+        _avisar(f"Não abri — a planilha respondeu: {e}", True)
+
+
+def _ajustar(cid, quem):
+    try:
+        prods, movs, _c = E.carregar()
+        _cs, contados = E.contagem()
+        fech = E.fechamento(prods, movs, contados, cid)
+        E.gravar_movimentos(E.linhas_de_ajuste(fech, quem, _quando(), cid))
+        E.fechar_contagem(cid, quem, _quando())
+        _avisar(f"✓ Contagem fechada: {fech['diferenca']} produto(s) ajustado(s), "
+                f"{fech['bateu']} bateram.")
+    except Exception as e:
+        _avisar(f"Não fechei — a planilha respondeu: {e}", True)
+
+
+def _contagem(quem):
+    import auth
+    ss = st.session_state
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    try:
+        prods, movs, _c = E.carregar()
+        contagens, contados = E.contagem()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    gestor = auth.eh_gestor(quem)
+    aberta = E.contagem_aberta(contagens)
+    if not aberta:
+        st.info("Nenhuma contagem aberta.")
+        if gestor:
+            st.button("ABRIR CONTAGEM", type="primary", key="est_ct_abrir",
+                      on_click=_abrir_contagem, args=(quem,))
+        else:
+            st.caption("Quem abre a contagem é o gestor.")
+        return
+    cid = aberta["id"]
+    ss["est_ct_id"] = cid
+    por_id = {p["id"]: p for p in prods}
+    st.caption(f'Contagem de {str(aberta.get("aberta_em"))[:10]} · aberta por {aberta.get("aberta_por")}')
+    abas = ["Contar"] + (["Fechar (gestor)"] if gestor else [])
+    aba = st.segmented_control("Contagem", abas, default="Contar", key="est_ct_aba",
+                               label_visibility="collapsed") or "Contar"
+    if aba == "Contar":
+        _tela_contar(por_id, contados, cid, prods)
+    else:
+        _tela_fechar(prods, movs, contados, cid, quem)
+
+
+def _tela_contar(por_id, contados, cid, prods):
+    ss = st.session_state
+    st.text_input("Onde você vai contar", key="est_ct_onde", placeholder="Prateleira B")
+    if st.toggle("📷 Usar a câmera do celular", key="est_ct_cam"):
+        import streamlit.components.v1 as _comp
+        _comp.html(_CAMERA, height=330)
+    _barra(saida=True)
+    esc = ss.get("est_ct_escolha")
+    var = E.do_codigo(prods, esc) if esc else []
+    if var:
+        st.warning("Este código tem mais de um modelo. Qual você está contando?")
+        for v in var:
+            st.button(str(v.get("variacao") or E.nome_completo(v)), key=f"est_cte_{v['id']}",
+                      on_click=_contar, args=(v["id"],), use_container_width=True)
+    atual = ss.get("est_ct")
+    if atual and atual["pid"] in por_id:
+        p = por_id[atual["pid"]]
+        st.markdown(f'<div style="display:flex;gap:10px;align-items:center;padding:10px;border-radius:12px;'
+                    f'background:#1f3a2c;margin:8px 0">{foto_html(p.get("foto_id"), 56)}<div>'
+                    f'<b>{_esc(E.nome_completo(p))}</b><div style="font-size:12px;color:#9AA3AE">'
+                    f'{_esc(p.get("codigo_fornecedor") or p.get("ean"))} · bipe lido ✓</div></div></div>',
+                    unsafe_allow_html=True)
+        st.number_input("Quantidade (cada bipe soma 1 · ou digite o da caixa)", min_value=0, step=1,
+                        key="est_ct_q")
+        st.button("CONFIRMAR E PRÓXIMO", type="primary", key="est_ct_ok", on_click=_gravar_contado,
+                  use_container_width=True)
+    elif not var:
+        st.caption("Bipe o produto. Cada bipe do mesmo produto soma 1; bipou outro, o anterior é gravado.")
+    st.markdown("**Quem está contando agora**")
+    qc = E.quem_contou(contados, cid)
+    if not qc:
+        st.caption("Ninguém contou nada ainda.")
+    for (q, onde), n in sorted(qc.items(), key=lambda kv: -kv[1]):
+        st.markdown(f"{_esc(q)} · {_esc(onde or 'sem lugar')} · **{n} peças**")
+
+
+def _tela_fechar(prods, movs, contados, cid, quem):
+    import pandas as pd
+    fech = E.fechamento(prods, movs, contados, cid)
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(f'<div style="padding:10px;border-radius:10px;background:#2c2c2c"><div style="font-size:11px;'
+                f'color:#9AA3AE">BATEU</div><b style="color:#4CC38A;font-size:20px">{fech["bateu"]}</b></div>',
+                unsafe_allow_html=True)
+    c2.markdown(f'<div style="padding:10px;border-radius:10px;background:#2c2c2c"><div style="font-size:11px;'
+                f'color:#9AA3AE">DIFERENÇA</div><b style="color:#E5534B;font-size:20px">{fech["diferenca"]}</b>'
+                f'</div>', unsafe_allow_html=True)
+    c3.markdown(f'<div style="padding:10px;border-radius:10px;background:#2c2c2c"><div style="font-size:11px;'
+                f'color:#9AA3AE">VALOR</div><b style="color:{"#E5534B" if fech["valor"] < 0 else "#4CC38A"};'
+                f'font-size:20px">{_rs(fech["valor"])}</b></div>', unsafe_allow_html=True)
+    if fech["linhas"]:
+        st.dataframe(pd.DataFrame([{"Produto": E.nome_completo(l["produto"]), "Sistema": l["sistema"],
+                                    "Contado": l["contado"],
+                                    "Diferença": ("ok" if not l["dif"] else f'{l["dif"]:+d}')}
+                                   for l in fech["linhas"]]), hide_index=True, use_container_width=True)
+    if fech["nao_contados"]:
+        st.warning(f'{len(fech["nao_contados"])} produto(s) com estoque no Studio que ninguém contou: '
+                   f'ficam como estão, nunca viram zero sozinhos.')
+        with st.expander("Ver os não contados"):
+            st.markdown("  \n".join(f'{_esc(E.nome_completo(n["produto"]))} · Studio: {n["sistema"]}'
+                                     for n in fech["nao_contados"]))
+    st.button("AJUSTAR O ESTOQUE PELA CONTAGEM E FECHAR", type="primary", key="est_ct_fechar",
+              on_click=_ajustar, args=(cid, quem), use_container_width=True)
+    st.caption("O ajuste fica no histórico de cada produto como «contagem», com quem fechou.")
+
+
 # ── a página ─────────────────────────────────────────────────────────────────
 
 def pagina(usuario_logado=None):
     quem = str(usuario_logado or "").strip()
+    st.session_state["est_quem"] = quem      # os callbacks do bipe gravam o nome
     st.markdown("### 📦 Estoque")
     modo = st.segmented_control("Modo", MODOS, default=MODOS[0], key="est_modo",
                                 label_visibility="collapsed") or MODOS[0]
     if modo in EM_CONSTRUCAO:
         st.info(f"**{modo}** é a {EM_CONSTRUCAO[modo]} do Estoque: o layout está aprovado "
                 f"(11/11) e ela está sendo construída. Por enquanto, só a Entrada funciona.")
+        return
+    if modo == "⬆ Saída":
+        _saida(quem)
+        return
+    if modo == MODOS[2]:
+        _baixas(quem)
+        return
+    if modo == "🧩 Kits":
+        _kits(quem)
+        return
+    if modo == "📊 Painel":
+        _painel(quem)
+        return
+    if modo == "📱 Contagem":
+        _contagem(quem)
         return
     _entrada(quem)
 
@@ -564,7 +1531,45 @@ def _entrada(quem):
     else:
         st.caption("Bipe um código. Já cadastrado: abre a ficha. Não cadastrado: o Studio "
                    "pergunta se é produto novo.")
+        _busca_sem_bipe(prods)
     _ultimas(movs, por_id, quem)
+
+
+def _abrir_ficha(ean):
+    _limpar_ficha()
+    st.session_state["est_lido"] = ean
+
+
+def buscar_produtos(prods, texto, limite=8):
+    """Um produto por código de barras, achado pelo nome, variação ou código,
+    como TEXTO (o "+" e o "(" da equipe são letra). Pura."""
+    b = " ".join(str(texto or "").lower().split())
+    if len(b) < 2:
+        return []
+    vistos, fora = set(), []
+    for p in E.ativos(prods):
+        alvo = " ".join(" ".join(str(x or "").lower() for x in (
+            p.get("nome"), p.get("variacao"), p.get("codigo_fornecedor"), p.get("ean"))).split())
+        ean = E.limpar_codigo(p.get("ean"))
+        if b in alvo and ean not in vistos:
+            vistos.add(ean)
+            fora.append(p)
+    return fora[:limite]
+
+
+def _busca_sem_bipe(prods):
+    """Produto que não dá para bipar — o que já está no Full (dono, 11/11)."""
+    with st.expander("🔎 Produto que não dá para bipar (já está no Full) — buscar pelo nome"):
+        txt = st.text_input("Nome ou código", key="est_busca_ent", placeholder="Embaralhador, MBLN-06…")
+        achados = buscar_produtos(prods, txt)
+        if txt and not achados:
+            st.caption("Nenhum produto com esse nome. Cadastre primeiro: bipe ou digite o código "
+                       "de barras na barra acima.")
+        for p in achados:
+            st.button(f'{p.get("nome")} · {p.get("codigo_fornecedor") or p.get("ean")}',
+                      key=f"est_be_{p['id']}", on_click=_abrir_ficha, args=(p.get("ean"),),
+                      use_container_width=True)
+        st.caption("Abre a ficha: em «Onde está entrando», escolha o Full e digite a quantidade.")
 
 
 if __name__ == "__main__":
@@ -596,7 +1601,63 @@ if __name__ == "__main__":
        "sem foto" in foto_html("") and "thumbnail?id=abc" in foto_html("abc"))
     ok("o foco não rouba o campo de quem está digitando",
        "digitando" in _FOCO and "est_bipe" in _FOCO and "location" not in _FOCO)
-    ok("modos: as seis partes aprovadas, e só a Entrada pronta",
-       len(MODOS) == 6 and set(EM_CONSTRUCAO) == set(MODOS) - {MODOS[0]})
+    ok("modos: as seis partes aprovadas e prontas", len(MODOS) == 6 and EM_CONSTRUCAO == {})
+    ok("câmera: entrega o código à MESMA barra do leitor, e não repete a etiqueta parada",
+       ".st-key-est_bipe input" in _CAMERA and "agora - visto < 1200" in _CAMERA and "location" not in _CAMERA
+       and "html5-qrcode@2.3.8" in _CAMERA)
+    ok("destinos da saída: venda e envio ao Full",
+       set(DESTINOS.values()) == {E.VENDA, E.ENVIO_FULL})
+    _kit = E.linhas_de_saida([(prods[0], 1), (prods[1], 1)], E.VENDA, "leo", "x", obs="Kit com 2")
+    ok("rotulo_do_lote: kit pelo nome do kit; produto pelo nome dele",
+       rotulo_do_lote(_kit, por_id) == "Kit com 2"
+       and rotulo_do_lote(_kit[:1], por_id) == "Bailarina <resina> + base · Braço para cima")
+    _bx = E.linhas_de_baixa(prods[1], 1, E.DEVOLUCAO, "my", "11/11/2026 15:00", volta=False,
+                            obs="arranhado")
+    ok("linha_baixa_txt: devolução ruim é descarte, com valor e obs",
+       linha_baixa_txt(_bx, por_id) == "11/11 · Bailarina <resina> + base · Sentada · Devolução → "
+                                       "descarte · arranhado · −1 · R$ 18,40 · my")
+    _bx2 = E.linhas_de_baixa(prods[0], 2, E.DEVOLUCAO, "my", "11/11/2026 15:00", volta=True)
+    _bx3 = E.linhas_de_baixa(prods[0], 1, E.QUEBRA, "leo", "11/11/2026 15:00", local="full_ml1")
+    ok("linha_baixa_txt: devolução boa soma sem valor; quebra do Full diz Full",
+       " · Devolução → voltou ao estoque · +2 · — · my" in linha_baixa_txt(_bx2, por_id)
+       and "Quebra (Full ML1) · −1 · R$ 18,40" in linha_baixa_txt(_bx3, por_id))
+    _sx = E.saldos(ent + E.linhas_de_entrada([(prods[0], 3)], "l", "x", local="full_shopee1"))
+    ok("estoque_txt: físico e cada Full com peça, pelo nome da conta",
+       estoque_txt(_sx, prods[0]["id"]) == "em estoque: físico 6 · Full Shopee 1 3"
+       and estoque_txt(_sx, "nada") == "em estoque: físico 0")
+    _qh = quadros_perda_html({"por_motivo": {E.QUEBRA: 42.0, E.DESCARTE: 0.0, E.DOACAO: 9.8},
+                              "voltaram": 1})
+    ok("quadros_perda_html: os quatro quadros, com o valor inteiro",
+       _qh.count("border-radius:10px") == 4 and "R$ 42,00" in _qh and "R$ 9,80" in _qh
+       and "1 peça(s)" in _qh)
+    _kk = E.linha_de_codigo("2000000000022", "kit", "Kit <A>", "", {prods[0]["id"]: 1, prods[1]["id"]: 2},
+                            "leo", "x")
+    _sk = {(prods[0]["id"], E.FISICO): 5, (prods[1]["id"], E.FISICO): 1}
+    _kc = kit_card_html(_kk, por_id, _sk)
+    ok("kit_card_html: nome escapado, 2× no item dobrado, não monta e diz o que falta, custo",
+       "Kit &lt;A&gt;" in _kc and "2× Bailarina" in _kc and "dá para montar: 0 · falta" in _kc
+       and "Sentada" in _kc.split("falta")[1] and "R$ 55,20" in _kc and "#E5534B" in _kc)
+    import datetime as _dtt
+    _pnl = E.painel(prods, ent, _dtt.date(2026, 11, 11))
+    _tp = topo_painel_html(_pnl)
+    ok("topo_painel_html: os quatro quadros, valor a custo",
+       _tp.count("border-radius:12px") == 4 and "R$ 147" in _tp and "ESTOQUE FULL" in _tp)
+    ok("faixas_html: três faixas", faixas_html(_pnl).count("height:8px;border-radius:4px;background:#222") == 3)
+    _real = E.linhas_de_produto("9", "PRJ-2", "Porta 2 Relógio + Jóias", 31.5, [("", "")], "l", "x")
+    _linhas = [{"produto": p, "valor": 1.0} for p in prods + _real]
+    ok("tabela_produtos: busca o nome REAL com + como texto, e por código bipado",
+       [l["produto"]["nome"] for l in tabela_produtos(_linhas, "relógio + jóias")] == ["Porta 2 Relógio + Jóias"]
+       and len(tabela_produtos(_linhas, "7891 234567895")) == 2 and len(tabela_produtos(_linhas, "")) == 3
+       and tabela_produtos(_linhas, "(P/M) ?") == [])
+    _bp = (E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("", "")], "l", "x")
+           + E.linhas_de_produto("9", "PRJ-2", "Porta 2 Relógio + Jóias", 31.5, [("", "")], "l", "x"))
+    ok("buscar_produtos: nome real com + como texto, um por código, e as 3 posições viram 1",
+       [p["nome"] for p in buscar_produtos(prods + _bp, "relógio + jóias")] == ["Porta 2 Relógio + Jóias"]
+       and len(buscar_produtos(prods + _bp, "bailarina")) == 1 and buscar_produtos(prods, "b") == []
+       and [p["nome"] for p in buscar_produtos(_bp, "s2017")] == ["Embaralhador automático"])
+    _pnf = {"linhas": [{"por_full": {"full_ml1": 3}}, {"por_full": {"full_ml1": 1, "full_shopee1": 2}}]}
+    ok("_por_conta_txt: soma cada Full entre os produtos", _por_conta_txt(_pnf) == " · ML1 4 · Shopee 1 2")
+    ok("janela_html: nome escapado e o aviso de vários modelos",
+       "&lt;resina&gt;" in janela_html(prods, {}) and "MAIS DE UM MODELO" in janela_html(prods, {}))
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
