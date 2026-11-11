@@ -26,7 +26,6 @@ import estoque as E
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
          "🧩 Kits", "📊 Painel", "📱 Contagem")
 EM_CONSTRUCAO = {
-    "🧩 Kits": "Parte 4",
     "📊 Painel": "Parte 5",
     "📱 Contagem": "Parte 6",
 }
@@ -192,6 +191,9 @@ def _ao_bipar():
     if ss.get("est_modo") == MODOS[2]:
         ss["est_bx_cod"] = cod
         ss.pop("est_bx_var", None)
+        return
+    if ss.get("est_modo") == "🧩 Kits":
+        _bipe_no_kit(cod)
         return
     if cod == ss.get("est_lido") and not ss.get("est_cadastrar"):
         ss["est_nova_var"] = True        # bipou de novo o mesmo: nova variação
@@ -887,6 +889,173 @@ def _perdas_do_mes(movs, por_id, quem):
                       args=(lote, quem))
 
 
+# ── KITS (Parte 4) ───────────────────────────────────────────────────────────
+
+def _bipe_no_kit(cod):
+    """Bipe montando um kit: entra o item; bipou de novo, vira 2."""
+    ss = st.session_state
+    try:
+        prods, _m, codigos = E.carregar()
+    except Exception as e:
+        _avisar(f"Não consegui ler o estoque: {e}", True)
+        return
+    if E.codigo_gerado(codigos, cod):
+        _avisar("Esse é um código de kit/quantidade. No kit, bipe o código de cada PRODUTO.", True)
+        return
+    var = E.do_codigo(prods, cod)
+    if not var:
+        _avisar(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.", True)
+    elif len(var) == 1:
+        _somar_no_kit(var[0]["id"])
+    else:
+        ss["est_kit_escolha"] = cod       # vários modelos: a tela pergunta qual
+
+
+def _somar_no_kit(pid):
+    ss = st.session_state
+    kit = ss.setdefault("est_kit", {})
+    kit[pid] = kit.get(pid, 0) + 1
+    ss[f"est_kq_{pid}"] = kit[pid]
+    ss.pop("est_kit_escolha", None)
+
+
+def _tirar_do_kit(pid):
+    ss = st.session_state
+    ss.setdefault("est_kit", {}).pop(pid, None)
+    ss.pop(f"est_kq_{pid}", None)
+
+
+def _limpar_kit():
+    ss = st.session_state
+    for pid in list(ss.get("est_kit", {})):
+        ss.pop(f"est_kq_{pid}", None)
+    for k in ("est_kit", "est_kit_escolha", "est_kit_nome"):
+        ss.pop(k, None)
+
+
+def kit_card_html(k, por_id, saldo):
+    """O kit cadastrado: foto, nome, itens e quantos dá para montar. Pura."""
+    itens = E.itens_do_codigo(k)
+    n, faltam = E.da_para_montar(itens, saldo)
+    lista = " · ".join((f"{q}× " if q > 1 else "") + E.nome_completo(por_id.get(pid, {}))
+                       for pid, q in itens.items())
+    falta_txt = (" · falta " + ", ".join(E.nome_completo(por_id.get(pid, {})) for pid in faltam)
+                 if faltam else "")
+    cor = "#E5534B" if n == 0 else "#E8EAED"
+    return (f'<div style="display:flex;gap:10px;align-items:center">{foto_html(k.get("foto_id"), 52)}'
+            f'<div style="min-width:0"><b>{_esc(k.get("nome"))}</b>'
+            f'<div style="font-size:12px;color:#9AA3AE">{_esc(lista)}</div>'
+            f'<div style="font-size:12px;color:{cor}">dá para montar: {n}{_esc(falta_txt)} · custo '
+            f'{_rs(E.custo_da_receita(itens, por_id))}</div></div></div>')
+
+
+def _kits(quem):
+    ss = st.session_state
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    nova = ss.pop("est_etiqueta_nova", None)
+    try:
+        prods, movs, codigos = E.carregar()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    _barra(saida=True)
+    por_id = {p["id"]: p for p in prods}
+    saldo = E.saldos(movs)
+    esq, dir_ = st.columns([1.2, 1])
+    with esq:
+        _criar_kit(prods, codigos, por_id, saldo, nova, quem)
+    with dir_:
+        _kits_cadastrados(codigos, por_id, saldo)
+
+
+def _criar_kit(prods, codigos, por_id, saldo, nova, quem):
+    # Função própria, e não bloco dentro do `with`: o `return` do kit vazio
+    # saía da tela INTEIRA e a lista de kits cadastrados sumia (navegador, 11/11).
+    ss = st.session_state
+    st.markdown("**Criar kit · 1) bipe os itens  2) nome e foto  3) gerar código**")
+    if nova:
+        st.markdown("**Kit criado — imprima a etiqueta:**")
+        _etiqueta(nova[0], nova[1])
+    esc = ss.get("est_kit_escolha")
+    var = E.do_codigo(prods, esc) if esc else []
+    if var:
+        st.warning("Este código tem mais de um modelo. Qual vai no kit?")
+        for v in var:
+            st.button(str(v.get("variacao") or E.nome_completo(v)), key=f"est_ke_{v['id']}",
+                      on_click=_somar_no_kit, args=(v["id"],))
+    kit = ss.get("est_kit", {})
+    for pid in list(kit):
+        p = por_id.get(pid)
+        if not p:
+            continue
+        c0, c1, c2, c3 = st.columns([0.7, 3, 1.2, 0.5])
+        c0.markdown(foto_html(p.get("foto_id"), 44), unsafe_allow_html=True)
+        c1.markdown(f"**{_esc(E.nome_completo(p))}**  \nem estoque: {saldo.get((pid, E.FISICO), 0)}")
+        kit[pid] = int(c2.number_input("no kit", min_value=1, step=1, key=f"est_kq_{pid}"))
+        c3.button("✕", key=f"est_kx_{pid}", on_click=_tirar_do_kit, args=(pid,), help="Tirar do kit")
+    if not kit:
+        st.caption("Bipe o primeiro item do kit. Bipou o mesmo de novo: vira 2 no kit.")
+        return
+    nome = st.text_input("Nome do kit", key="est_kit_nome", placeholder="Kit Embaralhador + 2 baralhos")
+    foto = st.file_uploader("Foto do kit (anexar)", type=None, key="est_kit_foto")
+    n, _f = E.da_para_montar(kit, saldo)
+    st.caption(f"custo do kit: {_rs(E.custo_da_receita(kit, por_id))} · dá para montar: {n} · "
+               "o kit NÃO entra no estoque: ele é só a receita.".replace("$", "\\$"))
+    c1, c2 = st.columns([1.6, 1])
+    salvar = c1.button("SALVAR E GERAR CÓDIGO", type="primary", key="est_kit_salvar",
+                       use_container_width=True)
+    c2.button("Cancelar", key="est_kit_cancelar", on_click=_limpar_kit, use_container_width=True)
+    if salvar:
+        if not str(nome).strip():
+            st.error("Escreva o nome do kit.")
+        else:
+            try:
+                novo = E.novo_codigo_interno(E.todos_os_codigos(prods, codigos))
+                foto_id = ""
+                if foto is not None:
+                    foto_id, erro = E.salvar_foto(foto.getvalue(), f"kit_{novo}")
+                    if erro:
+                        st.warning(f"O kit foi salvo sem foto: {erro}")
+                E.gravar_codigo(E.linha_de_codigo(novo, "kit", nome, "", dict(kit), quem,
+                                                  _quando(), foto_id=foto_id))
+                ss["est_etiqueta_nova"] = (novo, str(nome).strip())
+                _avisar(f"✓ Kit «{str(nome).strip()}» criado com o código {novo}.")
+                _limpar_kit()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Não gravei o kit — a planilha respondeu: {e}")
+
+
+def _kits_cadastrados(codigos, por_id, saldo):
+    ss = st.session_state
+    st.markdown("**Kits cadastrados**")
+    kits = [k for k in codigos if k.get("tipo") == "kit"]
+    if not kits:
+        st.caption("Nenhum kit ainda.")
+    for k in kits:
+        with st.container(border=True):
+            st.markdown(kit_card_html(k, por_id, saldo), unsafe_allow_html=True)
+            st.markdown(E.svg_ean13(k["codigo"], modulo=1, altura=30), unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            if c1.button("🖨 imprimir", key=f"est_kp_{k['codigo']}", use_container_width=True):
+                ss["est_imprimir"] = k["codigo"]
+            with c2.popover("✎ editar", use_container_width=True):
+                novo_nome = st.text_input("Nome", value=str(k.get("nome") or ""),
+                                          key=f"est_kn_{k['codigo']}")
+                if st.button("Salvar nome", key=f"est_ks_{k['codigo']}"):
+                    try:
+                        E.atualizar_codigos({k["codigo"]: {"nome": novo_nome.strip()}})
+                        _avisar("✓ Nome do kit atualizado.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Não gravei — a planilha respondeu: {e}")
+            if ss.get("est_imprimir") == k["codigo"]:
+                _etiqueta(k["codigo"], k.get("nome"), " · ".join(
+                    E.nome_completo(por_id.get(pid, {})) for pid in E.itens_do_codigo(k)))
+
+
 # ── a página ─────────────────────────────────────────────────────────────────
 
 def pagina(usuario_logado=None):
@@ -904,6 +1073,9 @@ def pagina(usuario_logado=None):
         return
     if modo == MODOS[2]:
         _baixas(quem)
+        return
+    if modo == "🧩 Kits":
+        _kits(quem)
         return
     _entrada(quem)
 
@@ -976,8 +1148,8 @@ if __name__ == "__main__":
        "sem foto" in foto_html("") and "thumbnail?id=abc" in foto_html("abc"))
     ok("o foco não rouba o campo de quem está digitando",
        "digitando" in _FOCO and "est_bipe" in _FOCO and "location" not in _FOCO)
-    ok("modos: as seis partes aprovadas; Entrada, Saída e Baixas prontas",
-       len(MODOS) == 6 and set(EM_CONSTRUCAO) == set(MODOS) - set(MODOS[:3]))
+    ok("modos: as seis partes aprovadas; Entrada, Saída, Baixas e Kits prontas",
+       len(MODOS) == 6 and set(EM_CONSTRUCAO) == set(MODOS) - set(MODOS[:4]))
     ok("destinos da saída: venda e envio ao Full",
        set(DESTINOS.values()) == {E.VENDA, E.ENVIO_FULL})
     _kit = E.linhas_de_saida([(prods[0], 1), (prods[1], 1)], E.VENDA, "leo", "x", obs="Kit com 2")
@@ -999,6 +1171,13 @@ if __name__ == "__main__":
     ok("quadros_perda_html: os quatro quadros, com o valor inteiro",
        _qh.count("border-radius:10px") == 4 and "R$ 42,00" in _qh and "R$ 9,80" in _qh
        and "1 peça(s)" in _qh)
+    _kk = E.linha_de_codigo("2000000000022", "kit", "Kit <A>", "", {prods[0]["id"]: 1, prods[1]["id"]: 2},
+                            "leo", "x")
+    _sk = {(prods[0]["id"], E.FISICO): 5, (prods[1]["id"], E.FISICO): 1}
+    _kc = kit_card_html(_kk, por_id, _sk)
+    ok("kit_card_html: nome escapado, 2× no item dobrado, não monta e diz o que falta, custo",
+       "Kit &lt;A&gt;" in _kc and "2× Bailarina" in _kc and "dá para montar: 0 · falta" in _kc
+       and "Sentada" in _kc.split("falta")[1] and "R$ 55,20" in _kc and "#E5534B" in _kc)
     ok("janela_html: nome escapado e o aviso de vários modelos",
        "&lt;resina&gt;" in janela_html(prods, {}) and "MAIS DE UM MODELO" in janela_html(prods, {}))
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))

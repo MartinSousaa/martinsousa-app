@@ -5297,6 +5297,21 @@ MUTACOES = [
         None,
         ["python3", "estoque.py"],
     ),
+    (
+        'a lista de kits volta a sumir quando o kit novo esta vazio (11/11)',
+        "estoque_tela.py",
+        [("    with esq:\n        _criar_kit(prods, codigos, por_id, saldo, nova, quem)\n    with dir_:\n        _kits_cadastrados(codigos, por_id, saldo)",
+          "    with esq:\n        if not st.session_state.get(\"est_kit\"):\n            return\n        _criar_kit(prods, codigos, por_id, saldo, nova, quem)\n    with dir_:\n        _kits_cadastrados(codigos, por_id, saldo)")],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
+    (
+        'o kit volta a contar o item mais folgado, e nao o mais curto (11/11)',
+        "estoque.py",
+        [("    n = min(por_item.values()) if por_item else 0", "    n = max(por_item.values()) if por_item else 0")],
+        None,
+        ["python3", "estoque.py"],
+    ),
 ]
 
 

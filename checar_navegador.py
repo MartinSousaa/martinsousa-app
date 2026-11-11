@@ -116,6 +116,8 @@ if aba == "Estoque":
     _E.gravar_codigo = lambda l: _db["c"].append(l) or 1
     _E.atualizar_produtos = lambda m: [p.update(m.get(p["id"], {{}})) for p in _db["p"]] and 1
     _E.salvar_foto = lambda d, n: ("", None)
+    _E.atualizar_codigos = lambda m: [k.update(m.get(k["codigo"], {{}})) for k in _db["c"]] and 1
+    st.markdown("KITS=" + ";".join(k["nome"] for k in _db["c"] if k["tipo"] == "kit"))
     _s = _E.saldos(_db["m"])
     st.markdown("SALDO=" + ",".join(f'{{p["variacao"] or p["nome"]}}:{{_s.get((p["id"], "fisico"), 0)}}'
                                     + (f'/{{_s[(p["id"], "full")]}}' if (p["id"], "full") in _s else "")
@@ -338,6 +340,39 @@ def main():
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: quebra tira do físico, devolução ruim só é perda "
                   f"({_bx}, perda={_perda.group(1) if _perda else '?'}, recargas={len(navegou) - 1})")
+            # KITS (Parte 4, 11/11): bipa o embaralhador duas vezes (vira 2),
+            # escolhe a posição da bailarina, salva; a lista de kits aparece
+            # mesmo com o kit novo vazio; e o código do kit, bipado na Saída,
+            # tira 2 + 1.
+            pg.get_by_text("Kits", exact=True).click()
+            pg.wait_for_timeout(2500)
+            for _c in ("5901234123457", "5901234123457", "7891234567895"):
+                pg.keyboard.type(_c, delay=8)
+                pg.keyboard.press("Enter")
+                pg.wait_for_timeout(2500)
+            pg.get_by_role("button", name="Sentada").click()
+            pg.wait_for_timeout(2000)
+            pg.get_by_label("Nome do kit").fill("Kit Embaralhador + Bailarina (P/M)")
+            pg.get_by_role("button", name="SALVAR E GERAR CÓDIGO").click()
+            pg.wait_for_timeout(3500)
+            _ktxt = pg.inner_text("body")
+            _kcod = _re.search(r"código (20\d{11})", _ktxt)
+            _lista = "Kits cadastrados" in _ktxt and "KITS=Kit Embaralhador + Bailarina (P/M)" in _ktxt
+            pg.get_by_text("Saída", exact=True).click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_text("Venda", exact=True).click()
+            pg.wait_for_timeout(1500)
+            if _kcod:
+                pg.keyboard.type(_kcod.group(1), delay=8)
+                pg.keyboard.press("Enter")
+                pg.wait_for_timeout(2500)
+            _kv = _sal()
+            ok = (_lista and _kcod is not None
+                  and _kv == "Braço para cima:-1,Sentada:-3,Embaralhador automático:-6/1"
+                  and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: kit montado por bipe, listado, e vendido tira a receita "
+                  f"(lista={_lista}, código={_kcod.group(1) if _kcod else None}, {_kv})")
             nav.close()
     except Exception as e:
         falhas += 1

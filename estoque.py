@@ -387,6 +387,23 @@ def _ordem_quando(q):
         return q
 
 
+def da_para_montar(itens, saldo):
+    """Quantos kits o estoque FÍSICO monta: o item mais curto manda. Pura.
+
+    `itens` = {produto_id: qtd no kit}. Devolve (quantos, [ids que faltam]).
+    """
+    if not itens:
+        return 0, []
+    por_item = {pid: max(saldo.get((pid, FISICO), 0), 0) // q for pid, q in itens.items() if q > 0}
+    n = min(por_item.values()) if por_item else 0
+    return n, [pid for pid, k in por_item.items() if k == n and n == 0]
+
+
+def custo_da_receita(itens, por_id):
+    """O custo de um kit: a soma dos itens, a preço de custo. Pura."""
+    return sum(numero(por_id.get(pid, {}).get("custo")) * q for pid, q in itens.items())
+
+
 def itens_do_bipe(produtos, codigos, codigo):
     """O que UM bipe na saída tira do estoque. Pura.
 
@@ -523,17 +540,27 @@ def gravar_codigo(linha):
 
 
 def atualizar_produtos(mudancas):
-    """`mudancas` = {produto_id: {coluna: valor}}. Reescreve só as células.
+    """`mudancas` = {produto_id: {coluna: valor}}. Reescreve só as células."""
+    return _atualizar(ABA_PRODUTOS, COL_PRODUTOS, "id", mudancas)
+
+
+def atualizar_codigos(mudancas):
+    """`mudancas` = {codigo: {coluna: valor}} — renomear um kit (Parte 4)."""
+    return _atualizar(ABA_CODIGOS, COL_CODIGOS, "codigo", mudancas)
+
+
+def _atualizar(nome, colunas, chave, mudancas):
+    """Reescreve só as células mudadas, achando a linha pela `chave`.
 
     Lê a aba na hora (e não do cache): outra pessoa pode ter cadastrado
     alguma coisa desde a última leitura, e a linha certa é a de AGORA.
     """
     if not mudancas:
         return 0
-    a = _aba(ABA_PRODUTOS, COL_PRODUTOS)
+    a = _aba(nome, colunas)
     valores = a.get_all_values()
-    cab = [str(c).strip() for c in valores[0]] if valores else COL_PRODUTOS
-    i_id = cab.index("id")
+    cab = [str(c).strip() for c in valores[0]] if valores else colunas
+    i_id = cab.index(chave)
     celulas = []
     import gspread.utils as _gu
     for n, linha in enumerate(valores[1:], start=2):
@@ -692,6 +719,14 @@ if __name__ == "__main__":
     ok("gravar_movimentos: lista vazia não toca a planilha", _n2 == 0)
     ok("atualizar_produtos: só a célula da variação do P2 (E3), e id desconhecido não grava",
        _n3 == 1 and _ab.celulas == [{"range": "E3", "values": [["Sentada"]]}] and _ab.modo == "RAW")
+    _abk = _AbaGrava([COL_CODIGOS, ["2000000000015", "kit", "Kit velho"] + [""] * 5])
+    globals()["_aba"] = lambda nome, colunas: _abk
+    try:
+        _nk = atualizar_codigos({"2000000000015": {"nome": "Kit Embaralhador + 2 baralhos"}})
+    finally:
+        globals()["_aba"] = _real_aba
+    ok("atualizar_codigos: acha o kit pelo código e troca só o nome (C2)",
+       _nk == 1 and _abk.celulas == [{"range": "C2", "values": [["Kit Embaralhador + 2 baralhos"]]}])
     ok("gravar_codigo: uma linha", _n4 == 1 and "2000000000015" in _ab.anexado[-1])
     # A ABA VELHA: o cabeçalho de 11/11 manhã, sem `pedido` e `foto_id`. A
     # linha nova se escreve pelo cabeçalho DA ABA, e as colunas entram no fim.
@@ -828,6 +863,13 @@ if __name__ == "__main__":
     _dz = linhas_que_desfazem(_qb[0]["lote"], _qb, "leo", "x")
     ok("baixas_do_mes: a quebra desfeita sai da perda",
        baixas_do_mes(_qb + _dz, 2026, 11)["perda"] == 0)
+    # KITS (Parte 4): o item mais curto manda, e o que zerou é o que falta.
+    _sk = {("A", FISICO): 11, ("B", FISICO): 30, ("C", FISICO): 1}
+    ok("da_para_montar: o item mais curto manda (2 de C por kit, só 1 em estoque → 0, falta C)",
+       da_para_montar({"A": 1, "B": 2}, _sk) == (11, []) and da_para_montar({"A": 1, "C": 2}, _sk) == (0, ["C"])
+       and da_para_montar({}, _sk) == (0, []) and da_para_montar({"Z": 1}, _sk) == (0, ["Z"]))
+    ok("custo_da_receita: soma a custo",
+       custo_da_receita({"A": 1, "B": 2}, {"A": {"custo": "42.00"}, "B": {"custo": "4,90"}}) == 51.8)
     ok("PERDAS: quebra, descarte e doação — devolução NÃO é perda por si",
        PERDAS == (QUEBRA, DESCARTE, DOACAO) and DEVOLUCAO not in PERDAS)
     ok("cabecalho_completo: coluna nova entra no fim, a ordem velha fica",
