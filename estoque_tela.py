@@ -26,7 +26,6 @@ import estoque as E
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
          "🧩 Kits", "📊 Painel", "📱 Contagem")
 EM_CONSTRUCAO = {
-    "⬆ Saída": "Parte 2",
     "✖ Quebra · Descarte · Devolução": "Parte 3",
     "🧩 Kits": "Parte 4",
     "📊 Painel": "Parte 5",
@@ -89,6 +88,9 @@ if (!window.__msBipe) { window.__msBipe = true;
   }, true);
 }
 """
+
+# Saída (Parte 2): para onde vai o que foi bipado.
+DESTINOS = {"🛒 Venda": E.VENDA, "🚚 Envio para o Full": E.ENVIO_FULL}
 
 _FOCO = """<script>
 // O cursor volta para a barra de bipe depois de cada passada — a não ser que
@@ -179,6 +181,9 @@ def _ao_bipar():
     ss["est_bipe"] = ""
     if not cod:
         return
+    if ss.get("est_modo") == "⬆ Saída":
+        _bipe_na_saida(cod)
+        return
     if cod == ss.get("est_lido") and not ss.get("est_cadastrar"):
         ss["est_nova_var"] = True        # bipou de novo o mesmo: nova variação
         return
@@ -238,24 +243,26 @@ def _desfazer(lote, quem):
         _p, movs, _c = E.carregar()
         linhas = E.linhas_que_desfazem(lote, movs, quem, _quando())
         if not linhas:
-            _avisar("Essa entrada já tinha sido desfeita.", True)
+            _avisar("Isso já tinha sido desfeito.", True)
             return
         E.gravar_movimentos(linhas)
-        _avisar("↶ Entrada desfeita: as peças saíram do estoque de novo.")
+        _avisar("↶ Desfeito: o estoque voltou ao que era antes.")
     except Exception as e:
         _avisar(f"Não desfiz — a planilha respondeu: {e}", True)
 
 
 # ── blocos da tela ───────────────────────────────────────────────────────────
 
-def _barra():
+def _barra(saida=False):
     c1, c2 = st.columns([4, 1.3])
     with c1:
         st.text_input("Bipe ou digite o código de barras", key="est_bipe",
-                      on_change=_ao_bipar, placeholder="▌ bipe o código…",
+                      on_change=_ao_bipar,
+                      placeholder=("🟢 pronto para bipar — não precisa clicar aqui" if saida
+                                   else "▌ bipe o código…"),
                       label_visibility="collapsed")
     with c2:
-        if st.button("➕ Produto sem código", key="est_btn_semcod", use_container_width=True,
+        if not saida and st.button("➕ Produto sem código", key="est_btn_semcod", use_container_width=True,
                      help="Óculos e o que mais vier sem código: o Studio gera e imprime."):
             _limpar_ficha()
             st.session_state["est_sem_codigo"] = True
@@ -514,16 +521,226 @@ def _ultimas(movs, por_id, quem):
                       args=(lt["lote"], quem))
 
 
+# ── SAÍDA (Parte 2) ──────────────────────────────────────────────────────────
+
+def _baixar(itens, destino, quem, rotulo):
+    """Grava a saída de um bipe e deixa o aviso com o que saiu. Levanta erro."""
+    prods, movs, _c = E.carregar()
+    linhas = E.linhas_de_saida(itens, destino, quem, _quando(), obs=rotulo)
+    if not linhas:
+        return None
+    E.gravar_movimentos(linhas)
+    lote = linhas[0]["lote"]
+    st.session_state.setdefault("est_sessao", []).append(lote)
+    saldo = E.saldos(movs + linhas)
+    zerados = [E.nome_completo(p) for p, _q in itens if saldo.get((p["id"], E.FISICO), 0) <= 0]
+    para = " → Full" if destino == E.ENVIO_FULL else ""
+    msg = f"✓ Saiu{para}: {rotulo}"
+    if zerados:
+        msg += " · ⚠️ estoque físico ZEROU: " + ", ".join(zerados)
+    _avisar(msg, False)
+    return lote
+
+
+def _destino():
+    return DESTINOS.get(st.session_state.get("est_dest") or "🛒 Venda", E.VENDA)
+
+
+def _bipe_na_saida(cod):
+    """Um bipe na Saída. Callback: roda antes de a tela ser desenhada."""
+    ss = st.session_state
+    quem = ss.get("est_quem", "")
+    try:
+        prods, movs, codigos = E.carregar()
+        itens, variacoes = E.itens_do_bipe(prods, codigos, cod)
+        if variacoes:
+            ss["est_janela"] = cod           # vários modelos: a tela pergunta qual
+            return
+        if not itens:
+            _avisar(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.", True)
+            return
+        k = E.codigo_gerado(codigos, cod)
+        rotulo = (k.get("nome") if k else E.nome_completo(itens[0][0]))
+        corr = ss.pop("est_corrigir", None)
+        if corr:
+            desf = E.linhas_que_desfazem(corr, movs, quem, _quando())
+            E.gravar_movimentos(desf)
+        _baixar(itens, _destino(), quem, rotulo + (" (no lugar do bipe errado)" if corr else ""))
+        ss.pop("est_janela", None)
+    except Exception as e:
+        _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
+
+
+def _saiu_modelo(pid, quem):
+    """Clique num modelo da janela: sai 1 dele."""
+    ss = st.session_state
+    try:
+        prods, movs, _c = E.carregar()
+        p = next(x for x in prods if x["id"] == pid)
+        corr = ss.pop("est_corrigir", None)
+        if corr:
+            E.gravar_movimentos(E.linhas_que_desfazem(corr, movs, quem, _quando()))
+        _baixar([(p, 1)], _destino(), quem, E.nome_completo(p))
+        ss.pop("est_janela", None)
+    except Exception as e:
+        _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
+
+
+def _fechar_janela():
+    st.session_state.pop("est_janela", None)
+
+
+def _corrigir(lote):
+    st.session_state["est_corrigir"] = lote
+    _avisar("Bipe agora o código CERTO: o errado volta ao estoque e o certo sai no lugar.")
+
+
+def _mudar_qtd(lote, quem):
+    """Troca quantas vezes aquele bipe saiu: desfaz e grava de novo, vezes N."""
+    ss = st.session_state
+    try:
+        n = int(ss.get(f"est_mq_{lote}", 1) or 0)
+        prods, movs, _c = E.carregar()
+        por_id = {p["id"]: p for p in prods}
+        linhas = [m for m in movs if str(m.get("lote")) == lote and m.get("local") == E.FISICO]
+        if not linhas:
+            return
+        destino = linhas[0].get("tipo")
+        E.gravar_movimentos(E.linhas_que_desfazem(lote, movs, quem, _quando()))
+        if n > 0:
+            itens = [(por_id[m["produto_id"]], -E.inteiro(m["qtd"]) * n) for m in linhas
+                     if m["produto_id"] in por_id]
+            _baixar(itens, destino, quem, f"{n}× " + ", ".join(E.nome_completo(p) for p, _q in itens))
+        else:
+            _avisar("↶ Desfeito: o estoque voltou ao que era antes.")
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", True)
+
+
+def rotulo_do_lote(linhas_fisico, por_id):
+    """O nome do que saiu: o do kit quando foi kit, senão o do produto. Pura.
+
+    O kit grava o nome dele em `obs` (`_baixar`); sem isso a lista mostrava
+    «Bailarina · Braço para cima, Bailarina · Sentada» para um bipe só.
+    """
+    if not linhas_fisico:
+        return "?"
+    obs = str(linhas_fisico[0].get("obs") or "").replace(" (no lugar do bipe errado)", "").strip()
+    if len(linhas_fisico) > 1 and obs:
+        return obs
+    return ", ".join(E.nome_completo(por_id.get(m.get("produto_id"), {})) or "?" for m in linhas_fisico)
+
+
+def janela_html(variacoes, saldo):
+    """O título da janela de modelos. Pura."""
+    return (f'<div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:#f0c060">'
+            f'ESTE CÓDIGO TEM MAIS DE UM MODELO · BIPE NA TELA OU CLIQUE NO QUE ESTÁ SAINDO</div>'
+            f'<div style="font-size:18px;font-weight:800;margin:4px 0 8px">'
+            f'{_esc(variacoes[0].get("nome"))} <span style="color:#9AA3AE;font-size:13px">'
+            f'{_esc(variacoes[0].get("codigo_fornecedor"))}</span></div>')
+
+
+def _janela(variacoes, saldo, codigos, por_id, quem):
+    with st.container(border=True):
+        st.markdown(janela_html(variacoes, saldo), unsafe_allow_html=True)
+        for v in variacoes:
+            c0, c1, c2 = st.columns([0.7, 3.4, 1.6])
+            c0.markdown(foto_html(v.get("foto_id"), 54), unsafe_allow_html=True)
+            c1.markdown(f'**{_esc(v.get("variacao") or v.get("nome"))}**  \nsai 1 peça · em estoque: '
+                        f'{saldo.get((v["id"], E.FISICO), 0)}')
+            c2.button("SAIU ESTE", key=f"est_sv_{v['id']}", use_container_width=True,
+                      on_click=_saiu_modelo, args=(v["id"], quem))
+        for k in E.codigos_da_janela(variacoes, codigos):
+            c1, c2 = st.columns([3, 2.4])
+            c1.markdown(f'**{_esc(k.get("nome"))}**  \n{_esc(receita_txt(k, por_id))}')
+            c2.markdown(E.svg_ean13(k["codigo"], modulo=2, altura=44), unsafe_allow_html=True)
+        st.caption("Saindo 2 iguais: clique (ou bipe) 2 vezes.")
+        st.button("Fechar", key="est_fecha_jan", on_click=_fechar_janela)
+
+
+def _lateral_saida(movs, por_id, quem):
+    st.markdown("**Últimos 5 bipados · clique para corrigir**")
+    # SÓ OS BIPES DE QUEM ESTÁ NA TELA: com duas pessoas empacotando, uma
+    # não deve corrigir o bipe da outra sem perceber.
+    lotes = E.ultimos_lotes([m for m in movs if m.get("quem") == quem or m.get("tipo") == E.DESFEITO],
+                            (E.VENDA, E.ENVIO_FULL), 5)
+    if not lotes:
+        st.caption("Nada saiu ainda.")
+    for lt in lotes:
+        fis = [m for m in lt["linhas"] if m.get("local") == E.FISICO]
+        nomes = rotulo_do_lote(fis, por_id)
+        q = sum(-E.inteiro(m["qtd"]) for m in fis)
+        para = " → Full" if lt["linhas"][0].get("tipo") == E.ENVIO_FULL else ""
+        hora = str(lt.get("quando") or "")[-5:]
+        rot = f"{hora} · {nomes} −{q}{para}" + (" · desfeito" if lt["desfeito"] else "")
+        if lt["desfeito"]:
+            st.caption("~~" + rot + "~~")
+            continue
+        with st.expander(rot, expanded=st.session_state.get("est_corrigir") == lt["lote"]):
+            p = por_id.get(fis[0]["produto_id"], {}) if fis else {}
+            st.markdown(foto_html(p.get("foto_id"), 48), unsafe_allow_html=True)
+            st.button("🔁 Trocar pelo código certo", key=f"est_tr_{lt['lote']}",
+                      on_click=_corrigir, args=(lt["lote"],), use_container_width=True)
+            c1, c2 = st.columns([1, 1.3])
+            c1.number_input("vezes", min_value=0, step=1, value=1, key=f"est_mq_{lt['lote']}",
+                            help="Quantas vezes este bipe saiu. 0 = desfaz.")
+            c2.button("Salvar", key=f"est_sq_{lt['lote']}", on_click=_mudar_qtd,
+                      args=(lt["lote"], quem), use_container_width=True)
+            st.button("↶ desfazer", key=f"est_desf_s_{lt['lote']}", on_click=_desfazer,
+                      args=(lt["lote"], quem), use_container_width=True)
+    sess = set(st.session_state.get("est_sessao", []))
+    desf = E.lotes_desfeitos(movs)
+    das = [m for m in movs if str(m.get("lote")) in sess and str(m.get("lote")) not in desf
+           and m.get("local") == E.FISICO]
+    pecas = sum(-E.inteiro(m["qtd"]) for m in das)
+    custo = sum(-E.inteiro(m["qtd"]) * E.numero(m.get("custo_unit")) for m in das)
+    st.markdown(f"**{pecas}** peça(s) nesta sessão · **R\\$ {custo:,.0f}** a custo"
+                .replace(",", "."))
+
+
+def _saida(quem):
+    ss = st.session_state
+    st.segmented_control("Saída para", list(DESTINOS), default="🛒 Venda", key="est_dest")
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    if ss.get("est_corrigir"):
+        st.warning("🔁 Corrigindo um bipe: **bipe o código certo** (ou clique no modelo). ")
+    try:
+        prods, movs, codigos = E.carregar()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    _barra(saida=True)
+    por_id = {p["id"]: p for p in prods}
+    saldo = E.saldos(movs)
+    principal, lateral = st.columns([2.2, 1])
+    with principal:
+        jan = ss.get("est_janela")
+        variacoes = E.do_codigo(prods, jan) if jan else []
+        if variacoes:
+            _janela(variacoes, saldo, codigos, por_id, quem)
+        else:
+            st.caption("Cada bipe é 1 unidade e sai na hora. Código com mais de um modelo abre a "
+                       "janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")
+    with lateral:
+        _lateral_saida(movs, por_id, quem)
+
+
 # ── a página ─────────────────────────────────────────────────────────────────
 
 def pagina(usuario_logado=None):
     quem = str(usuario_logado or "").strip()
+    st.session_state["est_quem"] = quem      # os callbacks do bipe gravam o nome
     st.markdown("### 📦 Estoque")
     modo = st.segmented_control("Modo", MODOS, default=MODOS[0], key="est_modo",
                                 label_visibility="collapsed") or MODOS[0]
     if modo in EM_CONSTRUCAO:
         st.info(f"**{modo}** é a {EM_CONSTRUCAO[modo]} do Estoque: o layout está aprovado "
                 f"(11/11) e ela está sendo construída. Por enquanto, só a Entrada funciona.")
+        return
+    if modo == "⬆ Saída":
+        _saida(quem)
         return
     _entrada(quem)
 
@@ -596,7 +813,15 @@ if __name__ == "__main__":
        "sem foto" in foto_html("") and "thumbnail?id=abc" in foto_html("abc"))
     ok("o foco não rouba o campo de quem está digitando",
        "digitando" in _FOCO and "est_bipe" in _FOCO and "location" not in _FOCO)
-    ok("modos: as seis partes aprovadas, e só a Entrada pronta",
-       len(MODOS) == 6 and set(EM_CONSTRUCAO) == set(MODOS) - {MODOS[0]})
+    ok("modos: as seis partes aprovadas; Entrada e Saída prontas",
+       len(MODOS) == 6 and set(EM_CONSTRUCAO) == set(MODOS) - {MODOS[0], MODOS[1]})
+    ok("destinos da saída: venda e envio ao Full",
+       set(DESTINOS.values()) == {E.VENDA, E.ENVIO_FULL})
+    _kit = E.linhas_de_saida([(prods[0], 1), (prods[1], 1)], E.VENDA, "leo", "x", obs="Kit com 2")
+    ok("rotulo_do_lote: kit pelo nome do kit; produto pelo nome dele",
+       rotulo_do_lote(_kit, por_id) == "Kit com 2"
+       and rotulo_do_lote(_kit[:1], por_id) == "Bailarina <resina> + base · Braço para cima")
+    ok("janela_html: nome escapado e o aviso de vários modelos",
+       "&lt;resina&gt;" in janela_html(prods, {}) and "MAIS DE UM MODELO" in janela_html(prods, {}))
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)

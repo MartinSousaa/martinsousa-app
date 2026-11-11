@@ -44,6 +44,7 @@ COL_CODIGOS = ["codigo", "tipo", "nome", "produto_ean", "itens", "foto_id",
 
 FISICO, FULL = "fisico", "full"
 ENTRADA, DESFEITO = "entrada", "desfeito"
+VENDA, ENVIO_FULL = "venda", "envio_full"
 
 # Prefixo 2 é a faixa que o GS1 reserva para uso INTERNO: nenhum produto do
 # mercado tem código começando por 20. O código que o Studio gera nunca
@@ -242,10 +243,11 @@ def ultimos_lotes(movs, tipo, n=5):
     desfazem juntas. Devolve [{lote, quando, quem, linhas, desfeito}].
     """
     desf = lotes_desfeitos(movs)
+    tipos = (tipo,) if isinstance(tipo, str) else tuple(tipo)
     por = {}
     ordem = []
     for m in movs:
-        if m.get("tipo") != tipo:
+        if m.get("tipo") not in tipos:
             continue
         lt = str(m.get("lote"))
         if lt not in por:
@@ -287,6 +289,58 @@ def linhas_de_entrada(itens, quem, quando, tipo=ENTRADA, local=FISICO, obs=""):
              "custo_unit": f'{numero(p.get("custo")):.2f}', "quem": quem,
              "obs": obs, "desfaz": ""}
             for p, q in itens if int(q or 0) > 0]
+
+
+def linhas_de_saida(itens, destino, quem, quando, obs=""):
+    """As linhas de um bipe na SAÍDA. `itens` = [(produto, qtd)]. Pura.
+
+    VENDA tira do físico. ENVIO PARA O FULL tira do físico e SOMA no Full —
+    duas linhas no mesmo lote, e o desfazer devolve as duas (Parte 2, 11/11).
+    """
+    if destino not in (VENDA, ENVIO_FULL):
+        raise ValueError(f"destino de saída desconhecido: {destino!r}")
+    lote = _id("L")
+    fora = []
+    for p, q in itens:
+        q = int(q or 0)
+        if q <= 0:
+            continue
+        base = {"lote": lote, "quando": quando, "tipo": destino, "produto_id": p["id"],
+                "custo_unit": f'{numero(p.get("custo")):.2f}', "quem": quem, "obs": obs,
+                "desfaz": ""}
+        fora.append({**base, "id": _id("M"), "local": FISICO, "qtd": str(-q)})
+        if destino == ENVIO_FULL:
+            fora.append({**base, "id": _id("M"), "local": FULL, "qtd": str(q)})
+    return fora
+
+
+def itens_do_bipe(produtos, codigos, codigo):
+    """O que UM bipe na saída tira do estoque. Pura.
+
+    Devolve (itens, variacoes):
+      · código gerado (quantidade ou kit) → a receita inteira, e [];
+      · código de UM produto só          → [(produto, 1)], e [];
+      · código com vários modelos         → [], e os modelos (a tela pergunta);
+      · código desconhecido               → [], [].
+    Dono, 11/11: "se for 2 unidades na saída, ela vai bipar os 2" — cada bipe
+    é uma unidade, sem perguntar quantidade.
+    """
+    k = codigo_gerado(codigos, codigo)
+    if k:
+        por_id = {p["id"]: p for p in produtos}
+        return [(por_id[pid], q) for pid, q in itens_do_codigo(k).items() if pid in por_id], []
+    var = do_codigo(produtos, codigo)
+    if len(var) == 1:
+        return [(var[0], 1)], []
+    return [], var
+
+
+def codigos_da_janela(variacoes, codigos):
+    """Os códigos de quantidade/kit do mesmo produto, para a janela. Pura."""
+    if not variacoes:
+        return []
+    ean = limpar_codigo(variacoes[0].get("ean"))
+    return [k for k in codigos if limpar_codigo(k.get("produto_ean")) == ean]
 
 
 def linhas_que_desfazem(lote, movs, quem, quando):
@@ -590,6 +644,8 @@ if __name__ == "__main__":
        len(des) == 2 and s2[(prods[0]["id"], FISICO)] == 0 and s2[(prods[2]["id"], FISICO)] == 0)
     ok("linhas_que_desfazem: desfazer duas vezes não devolve em dobro",
        linhas_que_desfazem(ent[0]["lote"], ent + des, "leo", "x") == [])
+    ok("lotes_desfeitos: o lote da entrada, e só ele",
+       lotes_desfeitos(ent + des) == {ent[0]["lote"]} and lotes_desfeitos(ent) == set())
     lt = ultimos_lotes(ent + des, ENTRADA)
     ok("ultimos_lotes: o lote desfeito aparece marcado",
        len(lt) == 1 and lt[0]["desfeito"] and len(lt[0]["linhas"]) == 2)
@@ -601,6 +657,33 @@ if __name__ == "__main__":
        and codigo_gerado([k], c1) is k and do_codigo(prods, c1) == [])
     ok("nome_completo: nome · variação",
        nome_completo(prods[0]) == "Bailarina  de resina (P/M) + base · Braço para cima")
+
+    # SAÍDA (Parte 2): cada bipe é uma unidade; o código com vários modelos
+    # pergunta; o código gerado tira a receita; o Full soma do outro lado.
+    _k3 = linha_de_codigo("2000000000022", "quantidade", "Kit com 3", "7899999000061",
+                          {p["id"]: 1 for p in prods}, "leo", "x")
+    _it, _var = itens_do_bipe(prods, [_k3], "2000000000022")
+    ok("itens_do_bipe: código gerado tira 1 de cada posição, sem perguntar",
+       sorted(q for _p, q in _it) == [1, 1, 1] and _var == [])
+    _it, _var = itens_do_bipe(prods, [_k3], "7899999000061")
+    ok("itens_do_bipe: código com 3 modelos não tira nada e devolve os modelos",
+       _it == [] and len(_var) == 3)
+    _um = linhas_de_produto("4006381333931", "", "Embaralhador", 42, [("", "")], "leo", "x")
+    _it, _var = itens_do_bipe(_um, [], "4006381333931")
+    ok("itens_do_bipe: código de um produto só tira 1", _it == [(_um[0], 1)] and _var == [])
+    ok("itens_do_bipe: desconhecido não tira nada", itens_do_bipe(_um, [], "123") == ([], []))
+    _v = linhas_de_saida([(_um[0], 2)], VENDA, "leo", "x")
+    _f = linhas_de_saida([(_um[0], 1)], ENVIO_FULL, "leo", "x")
+    _s = saldos(linhas_de_entrada([(_um[0], 10)], "leo", "x") + _v + _f)
+    ok("linhas_de_saida: venda tira do físico; Full tira do físico e soma no Full",
+       _s[(_um[0]["id"], FISICO)] == 7 and _s[(_um[0]["id"], FULL)] == 1
+       and len(_f) == 2 and len({l["lote"] for l in _f}) == 1)
+    _d = linhas_que_desfazem(_f[0]["lote"], _f, "leo", "y")
+    _s2 = saldos(_f + _d)
+    ok("desfazer o envio ao Full devolve os dois lados",
+       _s2[(_um[0]["id"], FISICO)] == 0 and _s2[(_um[0]["id"], FULL)] == 0)
+    ok("codigos_da_janela: os códigos gerados do mesmo produto",
+       codigos_da_janela(prods, [_k3]) == [_k3] and codigos_da_janela(_um, [_k3]) == [])
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)

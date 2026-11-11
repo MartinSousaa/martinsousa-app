@@ -103,8 +103,13 @@ if aba == "Estoque":
     import estoque as _E, estoque_tela as _ET
     _db = st.session_state.setdefault("est_db", {{"p": [], "m": [], "c": []}})
     if not _db["p"]:
-        _db["p"] = _E.linhas_de_produto("7891234567895", "MBLN-06", "Bailarina (P/M) + base", 18.4,
-                                        [("Braço para cima", ""), ("Sentada", "")], "t", "11/11/2026 10:00")
+        _db["p"] = (_E.linhas_de_produto("7891234567895", "MBLN-06", "Bailarina (P/M) + base", 18.4,
+                                         [("Braço para cima", ""), ("Sentada", "")], "t", "11/11/2026 10:00")
+                    + _E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42,
+                                           [("", "")], "t", "11/11/2026 10:00"))
+        _db["c"] = [_E.linha_de_codigo("2000000000015", "quantidade", "Kit com 2 (1 de cada)",
+                                       "7891234567895", {{_db["p"][0]["id"]: 1, _db["p"][1]["id"]: 1}},
+                                       "t", "x")]
     _E.carregar = lambda: (list(_db["p"]), list(_db["m"]), list(_db["c"]))
     _E.gravar_produtos = lambda l: _db["p"].extend(l) or len(l)
     _E.gravar_movimentos = lambda l: _db["m"].extend(l) or len(l)
@@ -113,6 +118,7 @@ if aba == "Estoque":
     _E.salvar_foto = lambda d, n: ("", None)
     _s = _E.saldos(_db["m"])
     st.markdown("SALDO=" + ",".join(f'{{p["variacao"] or p["nome"]}}:{{_s.get((p["id"], "fisico"), 0)}}'
+                                    + (f'/{{_s[(p["id"], "full")]}}' if (p["id"], "full") in _s else "")
                                     for p in _db["p"]))
     _ET.pagina("t")
 '''
@@ -273,11 +279,38 @@ def main():
             pg.get_by_role("button", name="↶ desfazer").first.click()
             pg.wait_for_timeout(2500)
             _desf = _sal()
-            ok = (_depois == "Braço para cima:6,Sentada:2" and _desf == "Braço para cima:0,Sentada:0"
+            ok = (_depois == "Braço para cima:6,Sentada:2,Embaralhador automático:0"
+                  and _desf == "Braço para cima:0,Sentada:0,Embaralhador automático:0"
                   and len(navegou) == 1)
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: confirmar soma, desfazer devolve, nada recarrega "
                   f"({_depois} → {_desf}, recargas={len(navegou) - 1})")
+            # A SAÍDA (Parte 2, 11/11): cada bipe é 1 unidade, sem perguntar;
+            # código com vários modelos abre a janela; o código do kit tira
+            # os dois; o envio ao Full tira do físico e soma no Full.
+            pg.get_by_text("Saída", exact=True).click()
+            pg.wait_for_timeout(2500)
+            for _c in ("5901234123457", "5901234123457", "7891234567895"):
+                pg.keyboard.type(_c, delay=8)
+                pg.keyboard.press("Enter")
+                pg.wait_for_timeout(2500)
+            _jan = pg.get_by_role("button", name="SAIU ESTE").count()
+            pg.get_by_role("button", name="SAIU ESTE").nth(1).click()
+            pg.wait_for_timeout(2500)
+            pg.keyboard.type("2000000000015", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.get_by_text("Envio para o Full").click()
+            pg.wait_for_timeout(2000)
+            pg.keyboard.type("5901234123457", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _sai = _sal()
+            ok = (_jan == 2 and _sai == "Braço para cima:-1,Sentada:-2,Embaralhador automático:-3/1"
+                  and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: saída por bipe, janela de modelos, kit e Full "
+                  f"(janela={_jan} modelos, {_sai}, recargas={len(navegou) - 1})")
             nav.close()
     except Exception as e:
         falhas += 1

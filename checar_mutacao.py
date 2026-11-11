@@ -5251,6 +5251,28 @@ MUTACOES = [
         None,
         ["python3", "checar_tela.py"],
     ),
+    (
+        'o envio ao Full volta a so tirar do fisico, sem somar no Full (11/11)',
+        "estoque.py",
+        [("        if destino == ENVIO_FULL:\n            fora.append(", "        if False:\n            fora.append(")],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'o codigo com varios modelos volta a sair sem perguntar qual (11/11)',
+        "estoque.py",
+        [("    if len(var) == 1:\n        return [(var[0], 1)], []", "    if var:\n        return [(var[0], 1)], []")],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'a saida volta a perder o bipe do codigo com varios modelos (11/11)',
+        "estoque_tela.py",
+        [('            ss["est_janela"] = cod           # vários modelos: a tela pergunta qual\n            return\n',
+          '            pass\n')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 
