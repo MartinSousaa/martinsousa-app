@@ -153,6 +153,13 @@ def cabecalho_html(variacoes, saldo, codigo):
             f'<span style="color:#f0c060">a idade conta daqui</span></div></div></div>')
 
 
+def estoque_txt(saldo, pid):
+    """'em estoque: físico 4 · Full ML1 2 · Full Shopee 1 1'. Pura."""
+    partes = [f"físico {saldo.get((pid, E.FISICO), 0)}"]
+    partes += [f"{nome} {saldo[(pid, loc)]}" for loc, nome in E.FULLS.items() if saldo.get((pid, loc))]
+    return "em estoque: " + " · ".join(partes)
+
+
 def lote_txt(lote, por_id):
     """'14:02 · Bailarina: Braço para cima +6 · Sentada +6 · leo'. Pura."""
     partes = []
@@ -226,6 +233,11 @@ def _quando():
 
 # ── ações (callbacks) ────────────────────────────────────────────────────────
 
+def _local_da_entrada():
+    nome = st.session_state.get("est_onde_entra") or "Físico"
+    return next((k for k, v in E.FULLS.items() if v == nome), E.FISICO)
+
+
 def _confirmar_entrada(variacoes, quem):
     ss = st.session_state
     try:
@@ -235,14 +247,15 @@ def _confirmar_entrada(variacoes, quem):
             novo = str(ss.get(f"est_n_{v['id']}", v.get("variacao") or "")).strip()
             if novo and novo != str(v.get("variacao") or "").strip():
                 renomes[v["id"]] = {"variacao": novo}
-        linhas = E.linhas_de_entrada(itens, quem, _quando())
+        local = _local_da_entrada()
+        linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local)
         if not linhas and not renomes:
             _avisar("Nada para gravar: todas as quantidades estão em zero.", True)
             return
         E.atualizar_produtos(renomes)
         E.gravar_movimentos(linhas)
         total = sum(q for _v, q in itens)
-        _avisar(f"✓ Entrada gravada: {total} peça(s) de {variacoes[0].get('nome')}."
+        _avisar(f"✓ Entrada gravada no {E.NOME_LOCAL[local]}: {total} peça(s) de {variacoes[0].get('nome')}."
                 if linhas else "✓ Nomes das variações atualizados.")
         _limpar_ficha()
     except Exception as e:
@@ -300,15 +313,17 @@ def _ficha(variacoes, saldo, codigos, por_id, quem):
             st.markdown(foto_html(v.get("foto_id"), 54), unsafe_allow_html=True)
         with c1:
             if sem_nome:
-                st.markdown(f'**{_esc(v.get("nome"))}**  \nem estoque: '
-                            f'{saldo.get((v["id"], E.FISICO), 0)}')
+                st.markdown(f'**{_esc(v.get("nome"))}**  \n{estoque_txt(saldo, v["id"])}')
             else:
                 st.text_input("Nome da variação", value=str(v.get("variacao") or ""),
                               key=f"est_n_{v['id']}", label_visibility="collapsed")
-                st.caption(f"em estoque: {saldo.get((v['id'], E.FISICO), 0)}")
+                st.caption(estoque_txt(saldo, v["id"]))
         with c2:
             st.number_input("entrando", min_value=0, step=1, value=0,
                             key=f"est_q_{v['id']}")
+    st.segmented_control("Onde está entrando", ["Físico"] + list(E.FULLS.values()), default="Físico",
+                         key="est_onde_entra",
+                         help="Produto que JÁ está no Full e não dá para bipar: escolha o Full e digite a quantidade.")
     total = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) for v in variacoes)
     valor = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) * E.numero(v.get("custo"))
                 for v in variacoes)
@@ -534,10 +549,15 @@ def _ultimas(movs, por_id, quem):
 
 # ── SAÍDA (Parte 2) ──────────────────────────────────────────────────────────
 
-def _baixar(itens, destino, quem, rotulo):
+def _baixar(itens, destino, quem, rotulo, full=None):
     """Grava a saída de um bipe e deixa o aviso com o que saiu. Levanta erro."""
     prods, movs, _c = E.carregar()
-    linhas = E.linhas_de_saida(itens, destino, quem, _quando(), obs=rotulo)
+    if destino == E.ENVIO_FULL and full is None:
+        full = _full_escolhido()
+        if not full:
+            _avisar("Escolha PARA QUAL Full está indo, antes de bipar.", True)
+            return None
+    linhas = E.linhas_de_saida(itens, destino, quem, _quando(), obs=rotulo, full=full or "")
     if not linhas:
         return None
     E.gravar_movimentos(linhas)
@@ -545,7 +565,7 @@ def _baixar(itens, destino, quem, rotulo):
     st.session_state.setdefault("est_sessao", []).append(lote)
     saldo = E.saldos(movs + linhas)
     zerados = [E.nome_completo(p) for p, _q in itens if saldo.get((p["id"], E.FISICO), 0) <= 0]
-    para = " → Full" if destino == E.ENVIO_FULL else ""
+    para = f" → {E.NOME_LOCAL.get(full, 'Full')}" if destino == E.ENVIO_FULL else ""
     msg = f"✓ Saiu{para}: {rotulo}"
     if zerados:
         msg += " · ⚠️ estoque físico ZEROU: " + ", ".join(zerados)
@@ -555,6 +575,12 @@ def _baixar(itens, destino, quem, rotulo):
 
 def _destino():
     return DESTINOS.get(st.session_state.get("est_dest") or "🛒 Venda", E.VENDA)
+
+
+def _full_escolhido():
+    """O Full escolhido na Saída, pelo nome na tela → a chave. Ou ''."""
+    nome = st.session_state.get("est_full_dest") or ""
+    return next((k for k, v in E.FULLS.items() if v == nome), "")
 
 
 def _bipe_na_saida(cod):
@@ -617,11 +643,14 @@ def _mudar_qtd(lote, quem):
         if not linhas:
             return
         destino = linhas[0].get("tipo")
+        full = next((m.get("local") for m in movs if str(m.get("lote")) == lote
+                     and E.eh_full(m.get("local"))), None)
         E.gravar_movimentos(E.linhas_que_desfazem(lote, movs, quem, _quando()))
         if n > 0:
             itens = [(por_id[m["produto_id"]], -E.inteiro(m["qtd"]) * n) for m in linhas
                      if m["produto_id"] in por_id]
-            _baixar(itens, destino, quem, f"{n}× " + ", ".join(E.nome_completo(p) for p, _q in itens))
+            _baixar(itens, destino, quem, f"{n}× " + ", ".join(E.nome_completo(p) for p, _q in itens),
+                    full=full)
         else:
             _avisar("↶ Desfeito: o estoque voltou ao que era antes.")
     except Exception as e:
@@ -681,7 +710,8 @@ def _lateral_saida(movs, por_id, quem):
         fis = [m for m in lt["linhas"] if m.get("local") == E.FISICO]
         nomes = rotulo_do_lote(fis, por_id)
         q = sum(-E.inteiro(m["qtd"]) for m in fis)
-        para = " → Full" if lt["linhas"][0].get("tipo") == E.ENVIO_FULL else ""
+        _f = next((m.get("local") for m in lt["linhas"] if E.eh_full(m.get("local"))), "")
+        para = f" → {E.NOME_LOCAL.get(_f, 'Full')}" if _f else ""
         hora = str(lt.get("quando") or "")[-5:]
         rot = f"{hora} · {nomes} −{q}{para}" + (" · desfeito" if lt["desfeito"] else "")
         if lt["desfeito"]:
@@ -712,6 +742,10 @@ def _lateral_saida(movs, por_id, quem):
 def _saida(quem):
     ss = st.session_state
     st.segmented_control("Saída para", list(DESTINOS), default="🛒 Venda", key="est_dest")
+    if _destino() == E.ENVIO_FULL:
+        st.segmented_control("Para qual Full?", list(E.FULLS.values()), key="est_full_dest")
+        if not _full_escolhido():
+            st.warning("Escolha para qual Full está indo — cada conta tem o seu estoque.")
     aviso = ss.pop("est_aviso", None)
     if aviso:
         (st.error if aviso[1] else st.success)(aviso[0])
@@ -753,8 +787,8 @@ def linha_baixa_txt(linhas, por_id):
         mot = "Devolução → descarte" if perda else "Devolução → voltou ao estoque"
     else:
         mot = NOME_MOTIVO.get(m0.get("tipo"), m0.get("tipo"))
-        if m0.get("local") == E.FULL:
-            mot += " (Full)"
+        if E.eh_full(m0.get("local")):
+            mot += f' ({E.NOME_LOCAL.get(m0.get("local"), "Full")})'
     q = (-sum(E.inteiro(m["qtd"]) for m in perda) if perda
          else sum(E.inteiro(m["qtd"]) for m in linhas))
     sinal = "−" if perda else "+"
@@ -826,7 +860,7 @@ def _ficha_baixa(var, motivo, saldo, quem):
         p = var[nomes.index(esc)] if esc in nomes else var[0]
     else:
         p = var[0]
-    fis, full = saldo.get((p["id"], E.FISICO), 0), saldo.get((p["id"], E.FULL), 0)
+    fis, full = saldo.get((p["id"], E.FISICO), 0), E.no_full(saldo, p["id"])
     st.markdown(
         f'<div style="display:flex;gap:12px;align-items:center;margin:6px 0">'
         f'{foto_html(p.get("foto_id"), 72)}<div><div style="font-size:11px;font-weight:800;'
@@ -844,8 +878,8 @@ def _ficha_baixa(var, motivo, saldo, quem):
             st.caption("Bom: soma no físico e não é perda. Ruim: a peça já tinha saído na venda — "
                        "o estoque não muda, e ela conta como perda.")
         else:
-            lr = st.radio("Saiu de qual estoque?", ["físico", "Full"], horizontal=True)
-            local = E.FULL if lr == "Full" else E.FISICO
+            lr = st.selectbox("Saiu de qual estoque?", ["físico"] + list(E.FULLS.values()))
+            local = next((k for k, v in E.FULLS.items() if v == lr), E.FISICO)
         c1, c2 = st.columns([1, 2])
         q = c1.number_input("Quantidade", min_value=1, step=1, value=1)
         pedido = c2.text_input("Plataforma / pedido (opcional)", placeholder="Mercado Livre · 2000012345678")
@@ -1062,13 +1096,23 @@ def _r0(v):
     return f"R$ {v:,.0f}".replace(",", ".")
 
 
+def _por_conta_txt(pn):
+    """' · ML1 3 · Shopee 1 2': as peças de cada Full, somadas. Pura."""
+    t = {}
+    for l in pn["linhas"]:
+        for loc, q in l.get("por_full", {}).items():
+            t[loc] = t.get(loc, 0) + max(q, 0)
+    return "".join(f' · {E.FULLS[loc].replace("Full ", "")} {q}' for loc, q in t.items() if q)
+
+
 def topo_painel_html(pn):
     """Os quatro quadros do topo. Pura."""
     pct = (pn["valor_parado"] / pn["valor"] * 100) if pn["valor"] else 0
     q = [("VALOR EM ESTOQUE", _r0(pn["valor"]), f'a custo · {pn["pecas_fisico"] + pn["pecas_full"]} peças · '
           f'{pn["produtos"]} produtos', "#E8EAED"),
          ("ESTOQUE FÍSICO", _r0(pn["valor_fisico"]), f'{pn["pecas_fisico"]} peças', "#E8EAED"),
-         ("ESTOQUE FULL", _r0(pn["valor_full"]), f'{pn["pecas_full"]} peças', "#7db4ec"),
+         ("ESTOQUE FULL", _r0(pn["valor_full"]), f'{pn["pecas_full"]} peças' + _por_conta_txt(pn),
+          "#7db4ec"),
          ("PARADO HÁ MAIS DE 3 MESES", _r0(pn["valor_parado"]), f'{len(pn["parados"])} produtos · '
           f'{pct:.1f}% do valor'.replace(".", ","), "#f0c060")]
     return ('<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:8px 0">'
@@ -1179,7 +1223,10 @@ def _painel(quem):
         "foto": gdrive.url_thumbnail(l["produto"].get("foto_id"), 120) if l["produto"].get("foto_id") else "",
         "Produto": E.nome_completo(l["produto"]),
         "Código": l["produto"].get("codigo_fornecedor") or l["produto"].get("ean"),
-        "Físico": l["fisico"], "Full": l["full"], "Custo": _rs(l["custo"]), "Valor": _r0(l["valor"]),
+        "Físico": l["fisico"], "Full": l["full"],
+        "Full por conta": " · ".join(f'{E.FULLS[k].replace("Full ", "")} {q}'
+                                     for k, q in l.get("por_full", {}).items()) or "—",
+        "Custo": _rs(l["custo"]), "Valor": _r0(l["valor"]),
         "No estoque há": _meses_txt(l["dias"]),
         "Última saída": l["ultima_saida"].strftime("%d/%m") if l["ultima_saida"] else "—",
     } for l in linhas])
@@ -1196,7 +1243,7 @@ def _painel(quem):
         st.markdown(f"**Histórico · {_esc(E.nome_completo(p))}**")
         hist = [m for m in movs if m.get("produto_id") == p["id"]][-30:]
         st.dataframe(pd.DataFrame([{"Quando": m.get("quando"), "O quê": m.get("tipo"),
-                                    "Onde": "Full" if m.get("local") == E.FULL else "físico",
+                                    "Onde": E.NOME_LOCAL.get(m.get("local"), m.get("local")),
                                     "Qtd": E.inteiro(m.get("qtd")), "Quem": m.get("quem"),
                                     "Obs": m.get("obs")} for m in reversed(hist)]),
                      hide_index=True, use_container_width=True)
@@ -1484,7 +1531,45 @@ def _entrada(quem):
     else:
         st.caption("Bipe um código. Já cadastrado: abre a ficha. Não cadastrado: o Studio "
                    "pergunta se é produto novo.")
+        _busca_sem_bipe(prods)
     _ultimas(movs, por_id, quem)
+
+
+def _abrir_ficha(ean):
+    _limpar_ficha()
+    st.session_state["est_lido"] = ean
+
+
+def buscar_produtos(prods, texto, limite=8):
+    """Um produto por código de barras, achado pelo nome, variação ou código,
+    como TEXTO (o "+" e o "(" da equipe são letra). Pura."""
+    b = " ".join(str(texto or "").lower().split())
+    if len(b) < 2:
+        return []
+    vistos, fora = set(), []
+    for p in E.ativos(prods):
+        alvo = " ".join(" ".join(str(x or "").lower() for x in (
+            p.get("nome"), p.get("variacao"), p.get("codigo_fornecedor"), p.get("ean"))).split())
+        ean = E.limpar_codigo(p.get("ean"))
+        if b in alvo and ean not in vistos:
+            vistos.add(ean)
+            fora.append(p)
+    return fora[:limite]
+
+
+def _busca_sem_bipe(prods):
+    """Produto que não dá para bipar — o que já está no Full (dono, 11/11)."""
+    with st.expander("🔎 Produto que não dá para bipar (já está no Full) — buscar pelo nome"):
+        txt = st.text_input("Nome ou código", key="est_busca_ent", placeholder="Embaralhador, MBLN-06…")
+        achados = buscar_produtos(prods, txt)
+        if txt and not achados:
+            st.caption("Nenhum produto com esse nome. Cadastre primeiro: bipe ou digite o código "
+                       "de barras na barra acima.")
+        for p in achados:
+            st.button(f'{p.get("nome")} · {p.get("codigo_fornecedor") or p.get("ean")}',
+                      key=f"est_be_{p['id']}", on_click=_abrir_ficha, args=(p.get("ean"),),
+                      use_container_width=True)
+        st.caption("Abre a ficha: em «Onde está entrando», escolha o Full e digite a quantidade.")
 
 
 if __name__ == "__main__":
@@ -1532,10 +1617,14 @@ if __name__ == "__main__":
        linha_baixa_txt(_bx, por_id) == "11/11 · Bailarina <resina> + base · Sentada · Devolução → "
                                        "descarte · arranhado · −1 · R$ 18,40 · my")
     _bx2 = E.linhas_de_baixa(prods[0], 2, E.DEVOLUCAO, "my", "11/11/2026 15:00", volta=True)
-    _bx3 = E.linhas_de_baixa(prods[0], 1, E.QUEBRA, "leo", "11/11/2026 15:00", local=E.FULL)
+    _bx3 = E.linhas_de_baixa(prods[0], 1, E.QUEBRA, "leo", "11/11/2026 15:00", local="full_ml1")
     ok("linha_baixa_txt: devolução boa soma sem valor; quebra do Full diz Full",
        " · Devolução → voltou ao estoque · +2 · — · my" in linha_baixa_txt(_bx2, por_id)
-       and "Quebra (Full) · −1 · R$ 18,40" in linha_baixa_txt(_bx3, por_id))
+       and "Quebra (Full ML1) · −1 · R$ 18,40" in linha_baixa_txt(_bx3, por_id))
+    _sx = E.saldos(ent + E.linhas_de_entrada([(prods[0], 3)], "l", "x", local="full_shopee1"))
+    ok("estoque_txt: físico e cada Full com peça, pelo nome da conta",
+       estoque_txt(_sx, prods[0]["id"]) == "em estoque: físico 6 · Full Shopee 1 3"
+       and estoque_txt(_sx, "nada") == "em estoque: físico 0")
     _qh = quadros_perda_html({"por_motivo": {E.QUEBRA: 42.0, E.DESCARTE: 0.0, E.DOACAO: 9.8},
                               "voltaram": 1})
     ok("quadros_perda_html: os quatro quadros, com o valor inteiro",
@@ -1560,6 +1649,14 @@ if __name__ == "__main__":
        [l["produto"]["nome"] for l in tabela_produtos(_linhas, "relógio + jóias")] == ["Porta 2 Relógio + Jóias"]
        and len(tabela_produtos(_linhas, "7891 234567895")) == 2 and len(tabela_produtos(_linhas, "")) == 3
        and tabela_produtos(_linhas, "(P/M) ?") == [])
+    _bp = (E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("", "")], "l", "x")
+           + E.linhas_de_produto("9", "PRJ-2", "Porta 2 Relógio + Jóias", 31.5, [("", "")], "l", "x"))
+    ok("buscar_produtos: nome real com + como texto, um por código, e as 3 posições viram 1",
+       [p["nome"] for p in buscar_produtos(prods + _bp, "relógio + jóias")] == ["Porta 2 Relógio + Jóias"]
+       and len(buscar_produtos(prods + _bp, "bailarina")) == 1 and buscar_produtos(prods, "b") == []
+       and [p["nome"] for p in buscar_produtos(_bp, "s2017")] == ["Embaralhador automático"])
+    _pnf = {"linhas": [{"por_full": {"full_ml1": 3}}, {"por_full": {"full_ml1": 1, "full_shopee1": 2}}]}
+    ok("_por_conta_txt: soma cada Full entre os produtos", _por_conta_txt(_pnf) == " · ML1 4 · Shopee 1 2")
     ok("janela_html: nome escapado e o aviso de vários modelos",
        "&lt;resina&gt;" in janela_html(prods, {}) and "MAIS DE UM MODELO" in janela_html(prods, {}))
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))

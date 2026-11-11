@@ -5341,6 +5341,29 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'o envio ao Full volta a sair sem dizer para qual conta (11/11)',
+        "estoque.py",
+        [('    if destino == ENVIO_FULL and full not in FULLS:\n        raise ValueError(f"envio ao Full sem dizer qual: {full!r}")\n', '')],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'o total do Full volta a olhar uma conta so (11/11)',
+        "estoque.py",
+        [('    return sum(q for (p, loc), q in saldo.items() if p == pid and eh_full(loc))',
+          '    return saldo.get((pid, "full_ml1"), 0)')],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'a entrada volta a cair sempre no fisico, mesmo escolhendo o Full (11/11)',
+        "estoque_tela.py",
+        [('        linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local)',
+          '        linhas = E.linhas_de_entrada(itens, quem, _quando())')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 

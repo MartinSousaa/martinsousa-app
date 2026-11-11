@@ -52,6 +52,23 @@ COL_CODIGOS = ["codigo", "tipo", "nome", "produto_ean", "itens", "foto_id",
                "criado_em", "criado_por"]
 
 FISICO, FULL = "fisico", "full"
+# UM FULL POR CONTA (dono, 11/11): "o estoque no full deve ser separado do
+# físico, pois acontece de acabar o físico e ainda termos ele no full" — e
+# cada conta tem o seu Full. Os nomes são os do Bling (`bling_api.py:19-20`).
+# `FULL` sozinho fica só para ler linha antiga, gravada antes da separação.
+FULLS = {"full_ml1": "Full ML1", "full_ml2": "Full ML2", "full_ml3": "Full ML3",
+         "full_ml4": "Full ML4", "full_shopee1": "Full Shopee 1", "full_shopee2": "Full Shopee 2"}
+NOME_LOCAL = {FISICO: "físico", FULL: "Full (sem conta)", **FULLS}
+
+
+def eh_full(local):
+    """O local é um Full (de qualquer conta)? Pura."""
+    return str(local or "").startswith(FULL)
+
+
+def no_full(saldo, pid):
+    """O total do produto em TODOS os Full. Pura."""
+    return sum(q for (p, loc), q in saldo.items() if p == pid and eh_full(loc))
 ENTRADA, DESFEITO = "entrada", "desfeito"
 VENDA, ENVIO_FULL = "venda", "envio_full"
 QUEBRA, DESCARTE, DOACAO, DEVOLUCAO = "quebra", "descarte", "doacao", "devolucao"
@@ -302,14 +319,17 @@ def linhas_de_entrada(itens, quem, quando, tipo=ENTRADA, local=FISICO, obs=""):
             for p, q in itens if int(q or 0) > 0]
 
 
-def linhas_de_saida(itens, destino, quem, quando, obs=""):
+def linhas_de_saida(itens, destino, quem, quando, obs="", full=""):
     """As linhas de um bipe na SAÍDA. `itens` = [(produto, qtd)]. Pura.
 
-    VENDA tira do físico. ENVIO PARA O FULL tira do físico e SOMA no Full —
-    duas linhas no mesmo lote, e o desfazer devolve as duas (Parte 2, 11/11).
+    VENDA tira do físico. ENVIO PARA O FULL tira do físico e SOMA no Full
+    da conta escolhida — duas linhas no mesmo lote, e o desfazer devolve as
+    duas (Parte 2, 11/11).
     """
     if destino not in (VENDA, ENVIO_FULL):
         raise ValueError(f"destino de saída desconhecido: {destino!r}")
+    if destino == ENVIO_FULL and full not in FULLS:
+        raise ValueError(f"envio ao Full sem dizer qual: {full!r}")
     lote = _id("L")
     fora = []
     for p, q in itens:
@@ -321,7 +341,7 @@ def linhas_de_saida(itens, destino, quem, quando, obs=""):
                 "desfaz": ""}
         fora.append({**base, "id": _id("M"), "local": FISICO, "qtd": str(-q)})
         if destino == ENVIO_FULL:
-            fora.append({**base, "id": _id("M"), "local": FULL, "qtd": str(q)})
+            fora.append({**base, "id": _id("M"), "local": full, "qtd": str(q)})
     return fora
 
 
@@ -426,11 +446,13 @@ def painel(produtos, movs, hoje):
     linhas = []
     for p in ativos(produtos):
         fis = saldo.get((p["id"], FISICO), 0)
-        full = saldo.get((p["id"], FULL), 0)
+        full = no_full(saldo, p["id"])
         custo = numero(p.get("custo"))
         reg = data_de(p.get("registrado_em"))
         dias = (hoje - reg).days if reg else None
         linhas.append({"produto": p, "fisico": fis, "full": full, "custo": custo,
+                       "por_full": {loc: saldo.get((p["id"], loc), 0) for loc in FULLS
+                                    if saldo.get((p["id"], loc), 0)},
                        "valor": max(fis, 0) * custo + max(full, 0) * custo,
                        "dias": dias, "faixa": faixa_de_idade(dias),
                        "ultima_saida": ult_saida.get(p["id"])})
@@ -1060,15 +1082,26 @@ if __name__ == "__main__":
     ok("itens_do_bipe: código de um produto só tira 1", _it == [(_um[0], 1)] and _var == [])
     ok("itens_do_bipe: desconhecido não tira nada", itens_do_bipe(_um, [], "123") == ([], []))
     _v = linhas_de_saida([(_um[0], 2)], VENDA, "leo", "x")
-    _f = linhas_de_saida([(_um[0], 1)], ENVIO_FULL, "leo", "x")
+    _f = linhas_de_saida([(_um[0], 1)], ENVIO_FULL, "leo", "x", full="full_ml1")
     _s = saldos(linhas_de_entrada([(_um[0], 10)], "leo", "x") + _v + _f)
     ok("linhas_de_saida: venda tira do físico; Full tira do físico e soma no Full",
-       _s[(_um[0]["id"], FISICO)] == 7 and _s[(_um[0]["id"], FULL)] == 1
+       _s[(_um[0]["id"], FISICO)] == 7 and _s[(_um[0]["id"], "full_ml1")] == 1
        and len(_f) == 2 and len({l["lote"] for l in _f}) == 1)
     _d = linhas_que_desfazem(_f[0]["lote"], _f, "leo", "y")
     _s2 = saldos(_f + _d)
     ok("desfazer o envio ao Full devolve os dois lados",
-       _s2[(_um[0]["id"], FISICO)] == 0 and _s2[(_um[0]["id"], FULL)] == 0)
+       _s2[(_um[0]["id"], FISICO)] == 0 and _s2[(_um[0]["id"], "full_ml1")] == 0)
+    try:
+        linhas_de_saida([(_um[0], 1)], ENVIO_FULL, "leo", "x")
+        ok("linhas_de_saida: envio ao Full sem dizer qual é recusado", False)
+    except ValueError:
+        ok("linhas_de_saida: envio ao Full sem dizer qual é recusado", True)
+    _s4 = saldos(linhas_de_saida([(_um[0], 2)], ENVIO_FULL, "l", "x", full="full_ml1")
+                 + linhas_de_saida([(_um[0], 3)], ENVIO_FULL, "l", "x", full="full_shopee2")
+                 + linhas_de_entrada([(_um[0], 4)], "l", "x", local="full_ml4"))
+    ok("no_full: soma os Full de todas as contas, e cada um fica separado do físico",
+       no_full(_s4, _um[0]["id"]) == 9 and _s4[(_um[0]["id"], FISICO)] == -5
+       and _s4[(_um[0]["id"], "full_shopee2")] == 3 and eh_full("full_shopee1") and not eh_full(FISICO))
     ok("codigos_da_janela: os códigos gerados do mesmo produto",
        codigos_da_janela(prods, [_k3]) == [_k3] and codigos_da_janela(_um, [_k3]) == [])
 
@@ -1077,10 +1110,10 @@ if __name__ == "__main__":
     _qb = linhas_de_baixa(_um[0], 1, QUEBRA, "leo", "11/11/2026 14:00", obs="caiu")
     _dv_bom = linhas_de_baixa(_um[0], 2, DEVOLUCAO, "my", "11/11/2026 15:00", volta=True, pedido="ML 1")
     _dv_ruim = linhas_de_baixa(_um[0], 1, DEVOLUCAO, "my", "10/11/2026 15:00", volta=False)
-    _doa_full = linhas_de_baixa(_um[0], 1, DOACAO, "leo", "09/11/2026 10:00", local=FULL)
+    _doa_full = linhas_de_baixa(_um[0], 1, DOACAO, "leo", "09/11/2026 10:00", local="full_ml2")
     _s3 = saldos(_e + _qb + _dv_bom + _dv_ruim + _doa_full)
     ok("linhas_de_baixa: quebra tira, devolução boa soma, devolução ruim não mexe, doação do Full",
-       _s3[(_um[0]["id"], FISICO)] == 10 - 1 + 2 and _s3[(_um[0]["id"], FULL)] == -1)
+       _s3[(_um[0]["id"], FISICO)] == 10 - 1 + 2 and _s3[(_um[0]["id"], "full_ml2")] == -1)
     _bm = baixas_do_mes(_e + _qb + _dv_bom + _dv_ruim + _doa_full
                         + linhas_de_baixa(_um[0], 5, QUEBRA, "leo", "30/10/2026 10:00"), 2026, 11)
     ok("baixas_do_mes: perda a custo por motivo, só do mês, devolução boa conta peças",
@@ -1110,12 +1143,13 @@ if __name__ == "__main__":
            + linhas_de_produto("3", "", "Leão", 10, [("", "")], "l", "05/11/2026 10:00")
            + linhas_de_produto("4", "", "Mini Yoga", 12.9, [("", "")], "l", "05/11/2026 10:00"))
     _mm = (linhas_de_entrada([(_pp[0], 40), (_pp[1], 9), (_pp[2], 3), (_pp[3], 1)], "l", "05/11/2026 10:00")
-           + linhas_de_saida([(_pp[2], 1)], ENVIO_FULL, "l", "06/11/2026 10:00")
+           + linhas_de_saida([(_pp[2], 1)], ENVIO_FULL, "l", "06/11/2026 10:00", full="full_shopee1")
            + linhas_de_saida([(_pp[3], 2)], VENDA, "l", "10/11/2026 10:00"))
     _pn = painel(_pp, _mm, _hoje)
     ok("painel: valor físico e Full a custo; o Mini Yoga negativo não entra no valor",
        _pn["valor_fisico"] == 40 * 15 + 9 * 60 + 2 * 10 and _pn["valor_full"] == 10
-       and _pn["pecas_full"] == 1 and _pn["produtos"] == 3)
+       and _pn["pecas_full"] == 1 and _pn["produtos"] == 3
+       and [l["por_full"] for l in _pn["linhas"] if l["produto"]["nome"] == "Leão"] == [{"full_shopee1": 1}])
     ok("painel: 6 meses é crítico, 4 meses é atenção, e o recém-chegado não está parado",
        _pn["faixas"] == {"ok": 30.0, "atencao": 540.0, "critico": 600.0}
        and [l["produto"]["nome"] for l in _pn["parados"]] == ["Óculos aviador", "Glass Chess"]
@@ -1155,6 +1189,12 @@ if __name__ == "__main__":
     ok("linhas_de_ajuste: o físico vira o contado, e o não contado fica como estava",
        len(_aj) == 1 and _sa[(_pp[0]["id"], FISICO)] == 36 and _sa[(_pp[2]["id"], FISICO)] == 2
        and _sa[(_pp[3]["id"], FISICO)] == -1)
+    ok("FULLS e NOME_LOCAL: as seis contas do Bling, todas Full, e o nome de cada local",
+       list(FULLS) == ["full_ml1", "full_ml2", "full_ml3", "full_ml4", "full_shopee1", "full_shopee2"]
+       and all(eh_full(k) for k in FULLS) and NOME_LOCAL[FISICO] == "físico"
+       and NOME_LOCAL["full_shopee2"] == "Full Shopee 2" and NOME_LOCAL[FULL] == "Full (sem conta)")
+    ok("ativos: o produto desativado sai, o sem coluna fica",
+       [p["id"] for p in ativos([{"id": "a", "ativo": "1"}, {"id": "b", "ativo": "0"}, {"id": "c"}])] == ["a", "c"])
     ok("PERDAS: quebra, descarte e doação — devolução NÃO é perda por si",
        PERDAS == (QUEBRA, DESCARTE, DOACAO) and DEVOLUCAO not in PERDAS)
     ok("cabecalho_completo: coluna nova entra no fim, a ordem velha fica",

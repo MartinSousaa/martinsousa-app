@@ -133,7 +133,8 @@ if aba == "Estoque":
     st.markdown("KITS=" + ";".join(k["nome"] for k in _db["c"] if k["tipo"] == "kit"))
     _s = _E.saldos(_db["m"])
     st.markdown("SALDO=" + ",".join(f'{{p["variacao"] or p["nome"]}}:{{_s.get((p["id"], "fisico"), 0)}}'
-                                    + (f'/{{_s[(p["id"], "full")]}}' if (p["id"], "full") in _s else "")
+                                    + (f'/{{_E.no_full(_s, p["id"])}}' if any(
+                                        k[0] == p["id"] and _E.eh_full(k[1]) for k in _s) else "")
                                     for p in _db["p"]))
     _ET.pagina("t")
 '''
@@ -317,15 +318,46 @@ def main():
             pg.wait_for_timeout(2500)
             pg.get_by_text("Envio para o Full").click()
             pg.wait_for_timeout(2000)
+            # UM FULL POR CONTA (11/11): sem escolher qual, o bipe não sai.
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("5901234123457", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _sem_full = "Escolha PARA QUAL Full" in pg.inner_text("body")
+            pg.get_by_text("Full ML1", exact=True).click()
+            pg.wait_for_timeout(2000)
+            pg.locator(".st-key-est_bipe input").click()
             pg.keyboard.type("5901234123457", delay=8)
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)
             _sai = _sal()
             ok = (_jan == 2 and _sai == "Braço para cima:-1,Sentada:-2,Embaralhador automático:-3/1"
-                  and len(navegou) == 1)
+                  and _sem_full and len(navegou) == 1)
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: saída por bipe, janela de modelos, kit e Full "
-                  f"(janela={_jan} modelos, {_sai}, recargas={len(navegou) - 1})")
+                  f"(janela={_jan} modelos, {_sai}, sem Full recusou={_sem_full}, recargas={len(navegou) - 1})")
+            # ENTRADA DIRETO NO FULL, SEM BIPAR (11/11): o produto já está no
+            # Full da Shopee e não há peça para bipar.
+            pg.get_by_text("Entrada", exact=True).click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_text("🔎 Produto que não dá para bipar").click()
+            pg.wait_for_timeout(800)
+            pg.get_by_label("Nome ou código").fill("embaralhador")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.get_by_role("button", name=_re.compile("Embaralhador automático")).click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_text("Full Shopee 2", exact=True).click()
+            pg.wait_for_timeout(1500)
+            pg.locator("[class*=st-key-est_q_] input").first.fill("4")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(1500)
+            pg.get_by_role("button", name="CONFIRMAR ENTRADA").click()
+            pg.wait_for_timeout(2500)
+            _ef = _sal()
+            ok = _ef.endswith("Embaralhador automático:-3/5")
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: entrada direto no Full da conta, sem bipar ({_ef})")
             # QUEBRA · DEVOLUÇÃO (Parte 3, 11/11): a quebra tira do físico; a
             # devolução que voltou RUIM não mexe no estoque (a peça já tinha
             # saído na venda) e conta como perda; a observação com símbolo
@@ -348,7 +380,7 @@ def main():
             pg.wait_for_timeout(3000)
             _bx = _sal()
             _perda = _re.search(r"perda a custo: ([^\n]*)", pg.inner_text("body"))
-            ok = (_bx == "Braço para cima:-1,Sentada:-2,Embaralhador automático:-4/1"
+            ok = (_bx == "Braço para cima:-1,Sentada:-2,Embaralhador automático:-4/5"
                   and _perda and _perda.group(1) == "R$ 60,40" and len(navegou) == 1)
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: quebra tira do físico, devolução ruim só é perda "
@@ -381,7 +413,7 @@ def main():
                 pg.wait_for_timeout(2500)
             _kv = _sal()
             ok = (_lista and _kcod is not None
-                  and _kv == "Braço para cima:-1,Sentada:-3,Embaralhador automático:-6/1"
+                  and _kv == "Braço para cima:-1,Sentada:-3,Embaralhador automático:-6/5"
                   and len(navegou) == 1)
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: kit montado por bipe, listado, e vendido tira a receita "
