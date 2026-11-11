@@ -26,7 +26,6 @@ import estoque as E
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
          "🧩 Kits", "📊 Painel", "📱 Contagem")
 EM_CONSTRUCAO = {
-    "✖ Quebra · Descarte · Devolução": "Parte 3",
     "🧩 Kits": "Parte 4",
     "📊 Painel": "Parte 5",
     "📱 Contagem": "Parte 6",
@@ -88,6 +87,12 @@ if (!window.__msBipe) { window.__msBipe = true;
   }, true);
 }
 """
+
+# Parte 3: o motivo da baixa.
+MOTIVOS = {"💔 Quebra": E.QUEBRA, "🗑 Descarte": E.DESCARTE, "🎁 Doação": E.DOACAO,
+           "↩ Devolução": E.DEVOLUCAO}
+NOME_MOTIVO = {E.QUEBRA: "Quebra", E.DESCARTE: "Descarte", E.DOACAO: "Doação",
+               E.DEVOLUCAO: "Devolução"}
 
 # Saída (Parte 2): para onde vai o que foi bipado.
 DESTINOS = {"🛒 Venda": E.VENDA, "🚚 Envio para o Full": E.ENVIO_FULL}
@@ -183,6 +188,10 @@ def _ao_bipar():
         return
     if ss.get("est_modo") == "⬆ Saída":
         _bipe_na_saida(cod)
+        return
+    if ss.get("est_modo") == MODOS[2]:
+        ss["est_bx_cod"] = cod
+        ss.pop("est_bx_var", None)
         return
     if cod == ss.get("est_lido") and not ss.get("est_cadastrar"):
         ss["est_nova_var"] = True        # bipou de novo o mesmo: nova variação
@@ -727,6 +736,157 @@ def _saida(quem):
         _lateral_saida(movs, por_id, quem)
 
 
+# ── QUEBRA · DESCARTE · DOAÇÃO · DEVOLUÇÃO (Parte 3) ────────────────────────
+
+def _rs(v):
+    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def linha_baixa_txt(linhas, por_id):
+    """'11/11 · Bailarina · Sentada · Devolução → voltou ao estoque · +1 · — · my'. Pura."""
+    m0 = linhas[0]
+    p = por_id.get(m0.get("produto_id"), {})
+    perda = [m for m in linhas if m.get("tipo") in E.PERDAS]
+    if m0.get("tipo") == E.DEVOLUCAO:
+        mot = "Devolução → descarte" if perda else "Devolução → voltou ao estoque"
+    else:
+        mot = NOME_MOTIVO.get(m0.get("tipo"), m0.get("tipo"))
+        if m0.get("local") == E.FULL:
+            mot += " (Full)"
+    q = (-sum(E.inteiro(m["qtd"]) for m in perda) if perda
+         else sum(E.inteiro(m["qtd"]) for m in linhas))
+    sinal = "−" if perda else "+"
+    valor = sum(-E.inteiro(m["qtd"]) * E.numero(m.get("custo_unit")) for m in perda)
+    obs = str(m0.get("obs") or "").replace("devolução que voltou ruim.", "").strip()
+    return (f'{str(m0.get("quando") or "")[:5]} · {E.nome_completo(p) or "?"} · {mot}'
+            + (f" · {obs}" if obs else "") + f" · {sinal}{q} · "
+            + (_rs(valor) if perda else "—") + f' · {m0.get("quem", "")}')
+
+
+def quadros_perda_html(bm):
+    """Os quatro quadros do mês, em grade 2×2 — `st.metric` cortava o valor
+    em «R…» na coluna estreita (visto no navegador, 11/11). Pura."""
+    q = [(rot, _rs(bm["por_motivo"][m]), "#E5534B") for rot, m in MOTIVOS.items() if m in E.PERDAS]
+    q.append(("↩ Voltou ao estoque", f"{bm['voltaram']} peça(s)", "#4CC38A"))
+    return ('<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 10px">'
+            + "".join(f'<div style="padding:10px;border-radius:10px;background:#2c2c2c">'
+                      f'<div style="font-size:11px;color:#9AA3AE">{r}</div>'
+                      f'<div style="font-size:18px;font-weight:800;color:{c}">{v}</div></div>'
+                      for r, v, c in q) + "</div>")
+
+
+def _gravar_baixa(p, motivo, quem, q, volta, local, obs, pedido, foto):
+    foto_id = ""
+    if foto is not None:
+        foto_id, erro = E.salvar_foto(foto.getvalue(), f"baixa_{E.limpar_codigo(p.get('ean'))}")
+        if erro:
+            st.warning(f"Gravei sem a foto: {erro}")
+    linhas = E.linhas_de_baixa(p, q, motivo, quem, _quando(), local=local, volta=volta,
+                               obs=obs, pedido=pedido, foto_id=foto_id)
+    E.gravar_movimentos(linhas)
+    return linhas
+
+
+def _baixas(quem):
+    ss = st.session_state
+    rot = st.segmented_control("Motivo", list(MOTIVOS), default="💔 Quebra", key="est_motivo")
+    motivo = MOTIVOS.get(rot or "💔 Quebra", E.QUEBRA)
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    try:
+        prods, movs, codigos = E.carregar()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    _barra(saida=True)
+    por_id = {p["id"]: p for p in prods}
+    saldo = E.saldos(movs)
+    esq, dir_ = st.columns([1.2, 1])
+    with esq:
+        cod = ss.get("est_bx_cod")
+        var = E.do_codigo(prods, cod) if cod else []
+        if cod and not var:
+            st.error(f"Código {cod} não está cadastrado. Cadastre na ⬇ Entrada.")
+        elif not var:
+            st.caption("Bipe o produto. Abre a ficha com quantidade, foto do estado e observação.")
+        else:
+            _ficha_baixa(var, motivo, saldo, quem)
+    with dir_:
+        _perdas_do_mes(movs, por_id, quem)
+
+
+def _ficha_baixa(var, motivo, saldo, quem):
+    ss = st.session_state
+    if len(var) > 1:
+        nomes = [str(v.get("variacao") or "").strip() or E.nome_completo(v) for v in var]
+        esc = st.radio("Qual modelo?", nomes, key="est_bx_var", horizontal=True)
+        p = var[nomes.index(esc)] if esc in nomes else var[0]
+    else:
+        p = var[0]
+    fis, full = saldo.get((p["id"], E.FISICO), 0), saldo.get((p["id"], E.FULL), 0)
+    st.markdown(
+        f'<div style="display:flex;gap:12px;align-items:center;margin:6px 0">'
+        f'{foto_html(p.get("foto_id"), 72)}<div><div style="font-size:11px;font-weight:800;'
+        f'letter-spacing:.12em;color:#f0c060">BIPADO · {NOME_MOTIVO[motivo].upper()}</div>'
+        f'<div style="font-size:18px;font-weight:800">{_esc(E.nome_completo(p))}</div>'
+        f'<div style="font-size:13px;color:#9AA3AE">{_esc(p.get("codigo_fornecedor") or "—")} · custo '
+        f'{_rs(E.numero(p.get("custo")))} · físico {fis} · Full {full}</div></div></div>',
+        unsafe_allow_html=True)
+    with st.form("est_form_bx", clear_on_submit=True):
+        volta, local = False, E.FISICO
+        if motivo == E.DEVOLUCAO:
+            r = st.radio("O produto voltou…", ["✓ BOM · volta ao estoque", "✖ RUIM · descarte"],
+                         horizontal=True)
+            volta = r.startswith("✓")
+            st.caption("Bom: soma no físico e não é perda. Ruim: a peça já tinha saído na venda — "
+                       "o estoque não muda, e ela conta como perda.")
+        else:
+            lr = st.radio("Saiu de qual estoque?", ["físico", "Full"], horizontal=True)
+            local = E.FULL if lr == "Full" else E.FISICO
+        c1, c2 = st.columns([1, 2])
+        q = c1.number_input("Quantidade", min_value=1, step=1, value=1)
+        pedido = c2.text_input("Plataforma / pedido (opcional)", placeholder="Mercado Livre · 2000012345678")
+        c3, c4 = st.columns([1, 2])
+        foto = c3.file_uploader("Foto do estado (opcional)", type=None, key="est_bx_foto")
+        obs = c4.text_input("Observação", placeholder="caixa amassada, peça inteira")
+        enviar = st.form_submit_button("CONFIRMAR", type="primary")
+    if not enviar:
+        return
+    try:
+        _gravar_baixa(p, motivo, quem, int(q), volta, local, obs.strip(), pedido.strip(), foto)
+        oque = ("voltou ao estoque" if motivo == E.DEVOLUCAO and volta else
+                f"perda de {_rs(int(q) * E.numero(p.get('custo')))}")
+        _avisar(f"✓ {NOME_MOTIVO[motivo]}: {int(q)}× {E.nome_completo(p)} — {oque}.")
+        ss.pop("est_bx_cod", None)
+        st.rerun()
+    except Exception as e:
+        st.error(f"Não gravei — a planilha respondeu: {e}")
+
+
+def _perdas_do_mes(movs, por_id, quem):
+    import placar_core as _pc
+    hoje = _pc.agora_br()
+    bm = E.baixas_do_mes(movs, hoje.year, hoje.month)
+    meses = ("", "JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO",
+             "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO")
+    st.markdown(f"**{meses[hoje.month].capitalize()} · perda a custo: {_rs(bm['perda'])}**"
+                .replace("$", "\\$"))
+    st.markdown(quadros_perda_html(bm), unsafe_allow_html=True)
+    if not bm["lotes"]:
+        st.caption("Nenhuma baixa neste mês.")
+    for linhas in bm["lotes"][:30]:
+        lote = str(linhas[0]["lote"])
+        with st.expander(linha_baixa_txt(linhas, por_id)):
+            m0 = linhas[0]
+            if m0.get("foto_id"):
+                st.markdown(foto_html(m0["foto_id"], 120), unsafe_allow_html=True)
+            if m0.get("pedido"):
+                st.caption(f"Pedido: {m0['pedido']}")
+            st.button("↶ desfazer esta baixa", key=f"est_desf_b_{lote}", on_click=_desfazer,
+                      args=(lote, quem))
+
+
 # ── a página ─────────────────────────────────────────────────────────────────
 
 def pagina(usuario_logado=None):
@@ -741,6 +901,9 @@ def pagina(usuario_logado=None):
         return
     if modo == "⬆ Saída":
         _saida(quem)
+        return
+    if modo == MODOS[2]:
+        _baixas(quem)
         return
     _entrada(quem)
 
@@ -813,14 +976,29 @@ if __name__ == "__main__":
        "sem foto" in foto_html("") and "thumbnail?id=abc" in foto_html("abc"))
     ok("o foco não rouba o campo de quem está digitando",
        "digitando" in _FOCO and "est_bipe" in _FOCO and "location" not in _FOCO)
-    ok("modos: as seis partes aprovadas; Entrada e Saída prontas",
-       len(MODOS) == 6 and set(EM_CONSTRUCAO) == set(MODOS) - {MODOS[0], MODOS[1]})
+    ok("modos: as seis partes aprovadas; Entrada, Saída e Baixas prontas",
+       len(MODOS) == 6 and set(EM_CONSTRUCAO) == set(MODOS) - set(MODOS[:3]))
     ok("destinos da saída: venda e envio ao Full",
        set(DESTINOS.values()) == {E.VENDA, E.ENVIO_FULL})
     _kit = E.linhas_de_saida([(prods[0], 1), (prods[1], 1)], E.VENDA, "leo", "x", obs="Kit com 2")
     ok("rotulo_do_lote: kit pelo nome do kit; produto pelo nome dele",
        rotulo_do_lote(_kit, por_id) == "Kit com 2"
        and rotulo_do_lote(_kit[:1], por_id) == "Bailarina <resina> + base · Braço para cima")
+    _bx = E.linhas_de_baixa(prods[1], 1, E.DEVOLUCAO, "my", "11/11/2026 15:00", volta=False,
+                            obs="arranhado")
+    ok("linha_baixa_txt: devolução ruim é descarte, com valor e obs",
+       linha_baixa_txt(_bx, por_id) == "11/11 · Bailarina <resina> + base · Sentada · Devolução → "
+                                       "descarte · arranhado · −1 · R$ 18,40 · my")
+    _bx2 = E.linhas_de_baixa(prods[0], 2, E.DEVOLUCAO, "my", "11/11/2026 15:00", volta=True)
+    _bx3 = E.linhas_de_baixa(prods[0], 1, E.QUEBRA, "leo", "11/11/2026 15:00", local=E.FULL)
+    ok("linha_baixa_txt: devolução boa soma sem valor; quebra do Full diz Full",
+       " · Devolução → voltou ao estoque · +2 · — · my" in linha_baixa_txt(_bx2, por_id)
+       and "Quebra (Full) · −1 · R$ 18,40" in linha_baixa_txt(_bx3, por_id))
+    _qh = quadros_perda_html({"por_motivo": {E.QUEBRA: 42.0, E.DESCARTE: 0.0, E.DOACAO: 9.8},
+                              "voltaram": 1})
+    ok("quadros_perda_html: os quatro quadros, com o valor inteiro",
+       _qh.count("border-radius:10px") == 4 and "R$ 42,00" in _qh and "R$ 9,80" in _qh
+       and "1 peça(s)" in _qh)
     ok("janela_html: nome escapado e o aviso de vários modelos",
        "&lt;resina&gt;" in janela_html(prods, {}) and "MAIS DE UM MODELO" in janela_html(prods, {}))
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))

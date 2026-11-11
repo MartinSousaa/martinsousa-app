@@ -36,7 +36,7 @@ COL_PRODUTOS = ["id", "ean", "codigo_fornecedor", "nome", "variacao", "custo",
 
 ABA_MOV = "estoque_movimentos"
 COL_MOV = ["id", "lote", "quando", "tipo", "local", "produto_id", "qtd",
-           "custo_unit", "quem", "obs", "desfaz"]
+           "custo_unit", "quem", "obs", "desfaz", "pedido", "foto_id"]
 
 ABA_CODIGOS = "estoque_codigos"
 COL_CODIGOS = ["codigo", "tipo", "nome", "produto_ean", "itens", "foto_id",
@@ -45,6 +45,8 @@ COL_CODIGOS = ["codigo", "tipo", "nome", "produto_ean", "itens", "foto_id",
 FISICO, FULL = "fisico", "full"
 ENTRADA, DESFEITO = "entrada", "desfeito"
 VENDA, ENVIO_FULL = "venda", "envio_full"
+QUEBRA, DESCARTE, DOACAO, DEVOLUCAO = "quebra", "descarte", "doacao", "devolucao"
+PERDAS = (QUEBRA, DESCARTE, DOACAO)
 
 # Prefixo 2 é a faixa que o GS1 reserva para uso INTERNO: nenhum produto do
 # mercado tem código começando por 20. O código que o Studio gera nunca
@@ -314,6 +316,77 @@ def linhas_de_saida(itens, destino, quem, quando, obs=""):
     return fora
 
 
+def linhas_de_baixa(p, q, motivo, quem, quando, local=FISICO, volta=False,
+                    obs="", pedido="", foto_id=""):
+    """As linhas de uma quebra, descarte, doação ou devolução. Pura.
+
+    QUEBRA, DESCARTE, DOAÇÃO: tiram do estoque (físico ou Full) e são PERDA.
+    DEVOLUÇÃO que voltou BOA: soma no físico, e não é perda.
+    DEVOLUÇÃO que voltou RUIM: a peça JÁ tinha saído na venda — tirar de
+    novo deixaria o estoque uma peça abaixo do que existe. Ela entra e sai no
+    mesmo lote (saldo não muda), e a linha de saída é a perda.
+    """
+    q = int(q or 0)
+    if q <= 0:
+        return []
+    if motivo not in PERDAS + (DEVOLUCAO,):
+        raise ValueError(f"motivo desconhecido: {motivo!r}")
+    lote = _id("L")
+    base = {"lote": lote, "quando": quando, "produto_id": p["id"],
+            "custo_unit": f'{numero(p.get("custo")):.2f}', "quem": quem, "obs": obs,
+            "desfaz": "", "pedido": pedido, "foto_id": foto_id}
+    if motivo in PERDAS:
+        return [{**base, "id": _id("M"), "tipo": motivo, "local": local, "qtd": str(-q)}]
+    linhas = [{**base, "id": _id("M"), "tipo": DEVOLUCAO, "local": FISICO, "qtd": str(q)}]
+    if not volta:
+        linhas.append({**base, "id": _id("M"), "tipo": DESCARTE, "local": FISICO,
+                       "qtd": str(-q), "obs": ("devolução que voltou ruim. " + obs).strip()})
+    return linhas
+
+
+def baixas_do_mes(movs, ano, mes):
+    """As quebras, descartes, doações e devoluções do mês, sem as desfeitas. Pura.
+
+    Devolve {"por_motivo": {motivo: valor a custo}, "voltaram": peças,
+    "perda": total, "lotes": [lote mais novo primeiro]}.
+    """
+    chave = f"/{mes:02d}/{ano:04d}"
+    desf = lotes_desfeitos(movs)
+    tipos = PERDAS + (DEVOLUCAO,)
+    por_motivo = {m: 0.0 for m in PERDAS}
+    voltaram = 0
+    lotes = {}
+    for m in movs:
+        if m.get("tipo") not in tipos or str(m.get("lote")) in desf:
+            continue
+        if chave not in str(m.get("quando") or "")[:10]:
+            continue
+        lotes.setdefault(str(m["lote"]), []).append(m)
+    for linhas in lotes.values():
+        perda = [m for m in linhas if m.get("tipo") in PERDAS]
+        for m in perda:
+            por_motivo[m["tipo"]] += -inteiro(m["qtd"]) * numero(m.get("custo_unit"))
+        if not perda:
+            voltaram += sum(inteiro(m["qtd"]) for m in linhas)
+    # Mais nova em cima. No MESMO minuto, desempata pela ordem de gravação:
+    # o `sorted` estável deixava a mais velha primeiro, e o "desfazer" da
+    # linha de cima desfazia outra baixa (medido no navegador, 11/11).
+    ordem = [ls for _i, ls in sorted(enumerate(lotes.values()),
+                                     key=lambda t: (_ordem_quando(t[1][0].get("quando")), t[0]),
+                                     reverse=True)]
+    return {"por_motivo": por_motivo, "voltaram": voltaram,
+            "perda": sum(por_motivo.values()), "lotes": ordem}
+
+
+def _ordem_quando(q):
+    """'11/11/2026 14:02' → '2026-11-11 14:02', para ordenar. Pura."""
+    q = str(q or "")
+    try:
+        return f"{q[6:10]}-{q[3:5]}-{q[0:2]} {q[11:16]}"
+    except Exception:
+        return q
+
+
 def itens_do_bipe(produtos, codigos, codigo):
     """O que UM bipe na saída tira do estoque. Pura.
 
@@ -409,11 +482,30 @@ def _limpar_cache():
         pass
 
 
+def cabecalho_completo(cab_da_aba, colunas):
+    """O cabeçalho da aba com as colunas que faltam no FIM. Pura.
+
+    A aba nasceu com as colunas daquele dia; a Parte 3 trouxe `pedido` e
+    `foto_id`. Escrever pela ordem de `colunas` numa aba de cabeçalho velho
+    poria o pedido embaixo de outra coluna — então a coluna nova entra no
+    fim do cabeçalho, e a linha se escreve pelo cabeçalho DA ABA.
+    """
+    cab = [str(c).strip() for c in cab_da_aba if str(c).strip()]
+    return cab + [c for c in colunas if c not in cab]
+
+
 def _anexar(nome, colunas, linhas):
     if not linhas:
         return 0
-    _aba(nome, colunas).append_rows([[str(l.get(c, "")) for c in colunas] for l in linhas],
-                                    value_input_option="RAW")
+    a = _aba(nome, colunas)
+    atual = a.row_values(1)
+    cab = cabecalho_completo(atual, colunas)
+    if cab != [str(c).strip() for c in atual]:
+        if a.col_count < len(cab):
+            a.add_cols(len(cab) - a.col_count)
+        a.update(values=[cab], range_name="A1", value_input_option="RAW")
+    a.append_rows([[str(l.get(c, "")) for c in cab] for l in linhas],
+                  value_input_option="RAW")
     _limpar_cache()
     return len(linhas)
 
@@ -566,6 +658,19 @@ if __name__ == "__main__":
         def get_all_values(self):
             return self.valores
 
+        def row_values(self, n):
+            return list(self.valores[n - 1]) if len(self.valores) >= n else []
+
+        col_count = 11
+
+        def add_cols(self, n):
+            self.col_count += n
+
+        def update(self, values=None, range_name=None, value_input_option=None):
+            valores = values
+            self.cabecalho_novo = valores[0]
+            self.valores[0] = list(valores[0])
+
         def append_rows(self, linhas, value_input_option=None):
             self.anexado += linhas
             self.modo = value_input_option
@@ -587,7 +692,23 @@ if __name__ == "__main__":
     ok("gravar_movimentos: lista vazia não toca a planilha", _n2 == 0)
     ok("atualizar_produtos: só a célula da variação do P2 (E3), e id desconhecido não grava",
        _n3 == 1 and _ab.celulas == [{"range": "E3", "values": [["Sentada"]]}] and _ab.modo == "RAW")
-    ok("gravar_codigo: uma linha", _n4 == 1 and _ab.anexado[-1][0] == "2000000000015")
+    ok("gravar_codigo: uma linha", _n4 == 1 and "2000000000015" in _ab.anexado[-1])
+    # A ABA VELHA: o cabeçalho de 11/11 manhã, sem `pedido` e `foto_id`. A
+    # linha nova se escreve pelo cabeçalho DA ABA, e as colunas entram no fim.
+    # E com duas colunas trocadas à mão (lote antes de id): escrever pela
+    # ordem do código poria o id embaixo de «lote».
+    _velho = ["lote", "id", "quando", "tipo", "local", "produto_id", "qtd",
+              "custo_unit", "quem", "obs", "desfaz"]
+    _abm = _AbaGrava([list(_velho)])
+    globals()["_aba"] = lambda nome, colunas: _abm
+    try:
+        gravar_movimentos([{"id": "M1", "tipo": "quebra", "qtd": "-1", "pedido": "ML 9", "foto_id": "F"}])
+    finally:
+        globals()["_aba"] = _real_aba
+    ok("_anexar: aba de cabeçalho velho ganha as colunas no fim, e a linha cai embaixo delas",
+       _abm.valores[0] == _velho + ["pedido", "foto_id"] and _abm.col_count == 13
+       and _abm.anexado[0][1] == "M1" and _abm.anexado[0][0] == "" and _abm.anexado[0][6] == "-1"
+       and _abm.anexado[0][11:] == ["ML 9", "F"])
     ok("todos_os_codigos: os de produto e os gerados, para o gerador não repetir",
        todos_os_codigos([{"ean": "A"}], [{"codigo": "B"}]) == ["A", "B"])
 
@@ -684,6 +805,36 @@ if __name__ == "__main__":
        _s2[(_um[0]["id"], FISICO)] == 0 and _s2[(_um[0]["id"], FULL)] == 0)
     ok("codigos_da_janela: os códigos gerados do mesmo produto",
        codigos_da_janela(prods, [_k3]) == [_k3] and codigos_da_janela(_um, [_k3]) == [])
+
+    # QUEBRA · DESCARTE · DOAÇÃO · DEVOLUÇÃO (Parte 3).
+    _e = linhas_de_entrada([(_um[0], 10)], "leo", "05/11/2026 09:00")
+    _qb = linhas_de_baixa(_um[0], 1, QUEBRA, "leo", "11/11/2026 14:00", obs="caiu")
+    _dv_bom = linhas_de_baixa(_um[0], 2, DEVOLUCAO, "my", "11/11/2026 15:00", volta=True, pedido="ML 1")
+    _dv_ruim = linhas_de_baixa(_um[0], 1, DEVOLUCAO, "my", "10/11/2026 15:00", volta=False)
+    _doa_full = linhas_de_baixa(_um[0], 1, DOACAO, "leo", "09/11/2026 10:00", local=FULL)
+    _s3 = saldos(_e + _qb + _dv_bom + _dv_ruim + _doa_full)
+    ok("linhas_de_baixa: quebra tira, devolução boa soma, devolução ruim não mexe, doação do Full",
+       _s3[(_um[0]["id"], FISICO)] == 10 - 1 + 2 and _s3[(_um[0]["id"], FULL)] == -1)
+    _bm = baixas_do_mes(_e + _qb + _dv_bom + _dv_ruim + _doa_full
+                        + linhas_de_baixa(_um[0], 5, QUEBRA, "leo", "30/10/2026 10:00"), 2026, 11)
+    ok("baixas_do_mes: perda a custo por motivo, só do mês, devolução boa conta peças",
+       _bm["por_motivo"] == {QUEBRA: 42.0, DESCARTE: 42.0, DOACAO: 42.0} and _bm["voltaram"] == 2
+       and _bm["perda"] == 126.0 and len(_bm["lotes"]) == 4
+       and _bm["lotes"][0][0]["quando"] == "11/11/2026 15:00")
+    _mesmo_min = [linhas_de_baixa(_um[0], 1, QUEBRA, "leo", "11/11/2026 14:00", obs=str(i))
+                  for i in range(3)]
+    ok("baixas_do_mes: no mesmo minuto, a gravada por último fica em cima",
+       [ls[0]["obs"] for ls in baixas_do_mes(sum(_mesmo_min, []), 2026, 11)["lotes"]] == ["2", "1", "0"])
+    _dz = linhas_que_desfazem(_qb[0]["lote"], _qb, "leo", "x")
+    ok("baixas_do_mes: a quebra desfeita sai da perda",
+       baixas_do_mes(_qb + _dz, 2026, 11)["perda"] == 0)
+    ok("cabecalho_completo: coluna nova entra no fim, a ordem velha fica",
+       cabecalho_completo(["id", "lote", "x"], ["id", "pedido", "lote"]) == ["id", "lote", "x", "pedido"])
+    try:
+        linhas_de_baixa(_um[0], 1, "roubo", "leo", "x")
+        ok("linhas_de_baixa: motivo desconhecido é recusado", False)
+    except ValueError:
+        ok("linhas_de_baixa: motivo desconhecido é recusado", True)
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)

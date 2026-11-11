@@ -5273,6 +5273,30 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'a devolucao que volta ruim volta a tirar do estoque de novo (11/11)',
+        "estoque.py",
+        [('    linhas = [{**base, "id": _id("M"), "tipo": DEVOLUCAO, "local": FISICO, "qtd": str(q)}]\n    if not volta:',
+          '    linhas = []\n    if not volta:')],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'a aba de cabecalho velho volta a receber a linha pela ordem do codigo (11/11)',
+        "estoque.py",
+        [("    a.append_rows([[str(l.get(c, \"\")) for c in cab] for l in linhas],",
+          "    a.append_rows([[str(l.get(c, \"\")) for c in colunas] for l in linhas],")],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'a baixa desfeita volta a contar como perda do mes (11/11)',
+        "estoque.py",
+        [('        if m.get("tipo") not in tipos or str(m.get("lote")) in desf:',
+          '        if m.get("tipo") not in tipos:')],
+        None,
+        ["python3", "estoque.py"],
+    ),
 ]
 
 

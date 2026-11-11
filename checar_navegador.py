@@ -311,6 +311,33 @@ def main():
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: saída por bipe, janela de modelos, kit e Full "
                   f"(janela={_jan} modelos, {_sai}, recargas={len(navegou) - 1})")
+            # QUEBRA · DEVOLUÇÃO (Parte 3, 11/11): a quebra tira do físico; a
+            # devolução que voltou RUIM não mexe no estoque (a peça já tinha
+            # saído na venda) e conta como perda; a observação com símbolo
+            # do jeito que a equipe escreve.
+            pg.get_by_text("Quebra · Descarte · Devolução", exact=True).click()
+            pg.wait_for_timeout(2500)
+            pg.keyboard.type("5901234123457", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.get_by_role("button", name="CONFIRMAR").click()
+            pg.wait_for_timeout(3000)
+            pg.get_by_text("Devolução", exact=True).click()
+            pg.wait_for_timeout(2000)
+            pg.keyboard.type("7891234567895", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.get_by_text("✖ RUIM · descarte").click()
+            pg.get_by_label("Observação").fill("Porta 2 Relógio + Jóias (caixa) ?")
+            pg.get_by_role("button", name="CONFIRMAR").click()
+            pg.wait_for_timeout(3000)
+            _bx = _sal()
+            _perda = _re.search(r"perda a custo: ([^\n]*)", pg.inner_text("body"))
+            ok = (_bx == "Braço para cima:-1,Sentada:-2,Embaralhador automático:-4/1"
+                  and _perda and _perda.group(1) == "R$ 60,40" and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: quebra tira do físico, devolução ruim só é perda "
+                  f"({_bx}, perda={_perda.group(1) if _perda else '?'}, recargas={len(navegou) - 1})")
             nav.close()
     except Exception as e:
         falhas += 1
