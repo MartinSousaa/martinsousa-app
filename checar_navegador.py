@@ -120,6 +120,16 @@ if aba == "Estoque":
     _db.setdefault("cmp", [])
     _E.compras = lambda: list(_db["cmp"])
     _E.marcar_comprado = lambda pid, q, w: _db["cmp"].append({{"produto_id": pid, "marcado_em": w}}) or 1
+    _db.setdefault("cg", [])
+    _db.setdefault("ct", [])
+    _E.contagem = lambda: (list(_db["cg"]), list(_db["ct"]))
+    _E.abrir_contagem = lambda q, w: _db["cg"].append({{"id": "C1", "aberta_em": w, "aberta_por": q,
+                                                        "fechada_em": ""}}) or "C1"
+    _E.gravar_contado = lambda c, pid, qt, onde, q, w: _db["ct"].append(
+        {{"contagem": c, "produto_id": pid, "qtd": str(qt), "onde": onde, "quem": q}}) or 1
+    _E.fechar_contagem = lambda c, q, w: [x.update(fechada_em=w) for x in _db["cg"] if x["id"] == c] and 1
+    import auth as _au
+    _au.eh_gestor = lambda u: True
     st.markdown("KITS=" + ";".join(k["nome"] for k in _db["c"] if k["tipo"] == "kit"))
     _s = _E.saldos(_db["m"])
     st.markdown("SALDO=" + ",".join(f'{{p["variacao"] or p["nome"]}}:{{_s.get((p["id"], "fisico"), 0)}}'
@@ -397,6 +407,30 @@ def main():
             print(("ok    " if ok else "FALHA ") + f"estoque: painel põe a venda sem estoque na lista do Renan, "
                   f"grava o comprado e busca o nome com símbolo (renan={_renan}, comprado={_cmp}, "
                   f"busca={_achou.group(1) if _achou else None})")
+            # CONTAGEM (Parte 6, 11/11): o mesmo produto bipado 3 vezes conta
+            # 3; o produto que ninguém contou NÃO vira zero no ajuste.
+            pg.get_by_text("Contagem", exact=True).click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_role("button", name="ABRIR CONTAGEM").click()
+            pg.wait_for_timeout(2500)
+            for _ in range(3):
+                pg.locator(".st-key-est_bipe input").click()
+                pg.keyboard.type("5901234123457", delay=8)
+                pg.keyboard.press("Enter")
+                pg.wait_for_timeout(2500)
+            _qct = pg.locator(".st-key-est_ct_q input").input_value()
+            pg.get_by_role("button", name="CONFIRMAR E PRÓXIMO").click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_text("Fechar (gestor)").click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_role("button", name="AJUSTAR O ESTOQUE PELA CONTAGEM E FECHAR").click()
+            pg.wait_for_timeout(3000)
+            _ct = _sal()
+            ok = (_qct == "3" and _ct.startswith("Braço para cima:-1,Sentada:-3,Embaralhador automático:3")
+                  and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: contagem soma o bipe repetido e o ajuste não zera o "
+                  f"não contado (bipes={_qct}, {_ct})")
             nav.close()
     except Exception as e:
         falhas += 1

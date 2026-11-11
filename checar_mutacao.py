@@ -5326,6 +5326,21 @@ MUTACOES = [
         None,
         ["python3", "estoque.py"],
     ),
+    (
+        'a contagem volta a zerar o produto que ninguem contou (11/11)',
+        "estoque.py",
+        [('        elif sis:\n            nao.append({"produto": p, "sistema": sis})',
+          '        elif sis:\n            linhas.append({"produto": p, "sistema": sis, "contado": 0, "dif": -sis})')],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'o bipe repetido na contagem volta a nao somar (11/11)',
+        "estoque_tela.py",
+        [('        ss["est_ct_q"] = int(ss.get("est_ct_q", 0) or 0) + 1\n', '        pass\n')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 

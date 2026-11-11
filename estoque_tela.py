@@ -25,9 +25,7 @@ import estoque as E
 
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
          "🧩 Kits", "📊 Painel", "📱 Contagem")
-EM_CONSTRUCAO = {
-    "📱 Contagem": "Parte 6",
-}
+EM_CONSTRUCAO = {}
 
 # O BIPE VAI PARA A BARRA, ESTEJA O CURSOR ONDE ESTIVER (dono, 11/11).
 #
@@ -193,6 +191,9 @@ def _ao_bipar():
         return
     if ss.get("est_modo") == "🧩 Kits":
         _bipe_no_kit(cod)
+        return
+    if ss.get("est_modo") == "📱 Contagem":
+        _bipe_na_contagem(cod)
         return
     if cod == ss.get("est_lido") and not ss.get("est_cadastrar"):
         ss["est_nova_var"] = True        # bipou de novo o mesmo: nova variação
@@ -1203,6 +1204,220 @@ def _painel(quem):
         st.caption("Clique numa linha para ver o histórico de entradas e saídas do produto.")
 
 
+# ── CONTAGEM (Parte 6) ───────────────────────────────────────────────────────
+
+# A CÂMERA DO CELULAR. O Safari do iPhone não lê código de barras sozinho
+# (não tem BarcodeDetector): a leitura vem da biblioteca html5-qrcode, que
+# traz o decodificador dela. O código lido é entregue à MESMA barra do
+# leitor USB — um caminho só para o bipe, venha de onde vier.
+_CAMERA = """<div id="leitor" style="width:100%;max-width:420px;margin:auto"></div>
+<div id="msg" style="font:13px sans-serif;color:#9AA3AE;text-align:center;margin-top:4px"></div>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(function () {
+  var W = window.parent, ultimo = '', visto = 0;
+  function entrega(cod) {
+    // A MESMA ETIQUETA PARADA NA FRENTE não conta de novo: a câmera lê dez
+    // vezes por segundo. Só volta a contar depois que ela SAIU da imagem
+    // (mais de 1,2 s sem ser vista) — para contar duas iguais, tira e põe.
+    var agora = Date.now();
+    var parada = (cod === ultimo && agora - visto < 1200);
+    visto = agora; ultimo = cod;
+    if (parada) return;
+    var b = W.document.querySelector('.st-key-est_bipe input');
+    if (!b) return;
+    Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value').set.call(b, cod);
+    b.dispatchEvent(new Event('input', {bubbles: true}));
+    b.focus();
+    setTimeout(function () { b.blur(); }, 60);
+    if (navigator.vibrate) navigator.vibrate(80);
+    document.getElementById('msg').textContent = 'lido: ' + cod;
+  }
+  try {
+    var F = Html5QrcodeSupportedFormats;
+    var h = new Html5Qrcode('leitor', {formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128]});
+    h.start({facingMode: 'environment'}, {fps: 10, qrbox: {width: 260, height: 110}}, entrega,
+            function () {}).catch(function (e) {
+      document.getElementById('msg').textContent = 'Câmera não abriu: ' + e + ' — permita a câmera no navegador.';
+    });
+  } catch (e) {
+    document.getElementById('msg').textContent = 'Leitor da câmera não carregou: ' + e;
+  }
+})();
+</script>"""
+
+
+def _bipe_na_contagem(cod):
+    """Cada bipe do mesmo produto soma 1; bipou outro, o anterior é gravado."""
+    ss = st.session_state
+    try:
+        prods, _m, codigos = E.carregar()
+    except Exception as e:
+        _avisar(f"Não consegui ler o estoque: {e}", True)
+        return
+    var = E.do_codigo(prods, cod)
+    if not var:
+        _avisar(("Esse é um código de kit/quantidade: na contagem, bipe cada PRODUTO."
+                 if E.codigo_gerado(codigos, cod) else f"Código {cod} não está cadastrado."), True)
+        return
+    if len(var) > 1:
+        ss["est_ct_escolha"] = cod
+        return
+    _contar(var[0]["id"])
+
+
+def _contar(pid):
+    ss = st.session_state
+    ss.pop("est_ct_escolha", None)
+    atual = ss.get("est_ct")
+    if atual and atual["pid"] == pid:
+        ss["est_ct_q"] = int(ss.get("est_ct_q", 0) or 0) + 1
+        return
+    if atual:
+        _gravar_contado()
+    ss["est_ct"] = {"pid": pid}
+    ss["est_ct_q"] = 1
+
+
+def _gravar_contado():
+    """Grava o produto que estava sendo contado. Callback."""
+    ss = st.session_state
+    atual = ss.get("est_ct")
+    q = int(ss.get("est_ct_q", 0) or 0)
+    cid = ss.get("est_ct_id")
+    if not atual or not cid:
+        return
+    try:
+        if q > 0:
+            E.gravar_contado(cid, atual["pid"], q, str(ss.get("est_ct_onde") or "").strip(),
+                             ss.get("est_quem", ""), _quando())
+        ss.pop("est_ct", None)
+        ss.pop("est_ct_q", None)
+    except Exception as e:
+        _avisar(f"Não gravei a contagem — a planilha respondeu: {e}", True)
+
+
+def _abrir_contagem(quem):
+    try:
+        E.abrir_contagem(quem, _quando())
+        _avisar("✓ Contagem aberta. Cada pessoa escolhe onde vai contar e começa a bipar.")
+    except Exception as e:
+        _avisar(f"Não abri — a planilha respondeu: {e}", True)
+
+
+def _ajustar(cid, quem):
+    try:
+        prods, movs, _c = E.carregar()
+        _cs, contados = E.contagem()
+        fech = E.fechamento(prods, movs, contados, cid)
+        E.gravar_movimentos(E.linhas_de_ajuste(fech, quem, _quando(), cid))
+        E.fechar_contagem(cid, quem, _quando())
+        _avisar(f"✓ Contagem fechada: {fech['diferenca']} produto(s) ajustado(s), "
+                f"{fech['bateu']} bateram.")
+    except Exception as e:
+        _avisar(f"Não fechei — a planilha respondeu: {e}", True)
+
+
+def _contagem(quem):
+    import auth
+    ss = st.session_state
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    try:
+        prods, movs, _c = E.carregar()
+        contagens, contados = E.contagem()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    gestor = auth.eh_gestor(quem)
+    aberta = E.contagem_aberta(contagens)
+    if not aberta:
+        st.info("Nenhuma contagem aberta.")
+        if gestor:
+            st.button("ABRIR CONTAGEM", type="primary", key="est_ct_abrir",
+                      on_click=_abrir_contagem, args=(quem,))
+        else:
+            st.caption("Quem abre a contagem é o gestor.")
+        return
+    cid = aberta["id"]
+    ss["est_ct_id"] = cid
+    por_id = {p["id"]: p for p in prods}
+    st.caption(f'Contagem de {str(aberta.get("aberta_em"))[:10]} · aberta por {aberta.get("aberta_por")}')
+    abas = ["Contar"] + (["Fechar (gestor)"] if gestor else [])
+    aba = st.segmented_control("Contagem", abas, default="Contar", key="est_ct_aba",
+                               label_visibility="collapsed") or "Contar"
+    if aba == "Contar":
+        _tela_contar(por_id, contados, cid, prods)
+    else:
+        _tela_fechar(prods, movs, contados, cid, quem)
+
+
+def _tela_contar(por_id, contados, cid, prods):
+    ss = st.session_state
+    st.text_input("Onde você vai contar", key="est_ct_onde", placeholder="Prateleira B")
+    if st.toggle("📷 Usar a câmera do celular", key="est_ct_cam"):
+        import streamlit.components.v1 as _comp
+        _comp.html(_CAMERA, height=330)
+    _barra(saida=True)
+    esc = ss.get("est_ct_escolha")
+    var = E.do_codigo(prods, esc) if esc else []
+    if var:
+        st.warning("Este código tem mais de um modelo. Qual você está contando?")
+        for v in var:
+            st.button(str(v.get("variacao") or E.nome_completo(v)), key=f"est_cte_{v['id']}",
+                      on_click=_contar, args=(v["id"],), use_container_width=True)
+    atual = ss.get("est_ct")
+    if atual and atual["pid"] in por_id:
+        p = por_id[atual["pid"]]
+        st.markdown(f'<div style="display:flex;gap:10px;align-items:center;padding:10px;border-radius:12px;'
+                    f'background:#1f3a2c;margin:8px 0">{foto_html(p.get("foto_id"), 56)}<div>'
+                    f'<b>{_esc(E.nome_completo(p))}</b><div style="font-size:12px;color:#9AA3AE">'
+                    f'{_esc(p.get("codigo_fornecedor") or p.get("ean"))} · bipe lido ✓</div></div></div>',
+                    unsafe_allow_html=True)
+        st.number_input("Quantidade (cada bipe soma 1 · ou digite o da caixa)", min_value=0, step=1,
+                        key="est_ct_q")
+        st.button("CONFIRMAR E PRÓXIMO", type="primary", key="est_ct_ok", on_click=_gravar_contado,
+                  use_container_width=True)
+    elif not var:
+        st.caption("Bipe o produto. Cada bipe do mesmo produto soma 1; bipou outro, o anterior é gravado.")
+    st.markdown("**Quem está contando agora**")
+    qc = E.quem_contou(contados, cid)
+    if not qc:
+        st.caption("Ninguém contou nada ainda.")
+    for (q, onde), n in sorted(qc.items(), key=lambda kv: -kv[1]):
+        st.markdown(f"{_esc(q)} · {_esc(onde or 'sem lugar')} · **{n} peças**")
+
+
+def _tela_fechar(prods, movs, contados, cid, quem):
+    import pandas as pd
+    fech = E.fechamento(prods, movs, contados, cid)
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(f'<div style="padding:10px;border-radius:10px;background:#2c2c2c"><div style="font-size:11px;'
+                f'color:#9AA3AE">BATEU</div><b style="color:#4CC38A;font-size:20px">{fech["bateu"]}</b></div>',
+                unsafe_allow_html=True)
+    c2.markdown(f'<div style="padding:10px;border-radius:10px;background:#2c2c2c"><div style="font-size:11px;'
+                f'color:#9AA3AE">DIFERENÇA</div><b style="color:#E5534B;font-size:20px">{fech["diferenca"]}</b>'
+                f'</div>', unsafe_allow_html=True)
+    c3.markdown(f'<div style="padding:10px;border-radius:10px;background:#2c2c2c"><div style="font-size:11px;'
+                f'color:#9AA3AE">VALOR</div><b style="color:{"#E5534B" if fech["valor"] < 0 else "#4CC38A"};'
+                f'font-size:20px">{_rs(fech["valor"])}</b></div>', unsafe_allow_html=True)
+    if fech["linhas"]:
+        st.dataframe(pd.DataFrame([{"Produto": E.nome_completo(l["produto"]), "Sistema": l["sistema"],
+                                    "Contado": l["contado"],
+                                    "Diferença": ("ok" if not l["dif"] else f'{l["dif"]:+d}')}
+                                   for l in fech["linhas"]]), hide_index=True, use_container_width=True)
+    if fech["nao_contados"]:
+        st.warning(f'{len(fech["nao_contados"])} produto(s) com estoque no Studio que ninguém contou: '
+                   f'ficam como estão, nunca viram zero sozinhos.')
+        with st.expander("Ver os não contados"):
+            st.markdown("  \n".join(f'{_esc(E.nome_completo(n["produto"]))} · Studio: {n["sistema"]}'
+                                     for n in fech["nao_contados"]))
+    st.button("AJUSTAR O ESTOQUE PELA CONTAGEM E FECHAR", type="primary", key="est_ct_fechar",
+              on_click=_ajustar, args=(cid, quem), use_container_width=True)
+    st.caption("O ajuste fica no histórico de cada produto como «contagem», com quem fechou.")
+
+
 # ── a página ─────────────────────────────────────────────────────────────────
 
 def pagina(usuario_logado=None):
@@ -1226,6 +1441,9 @@ def pagina(usuario_logado=None):
         return
     if modo == "📊 Painel":
         _painel(quem)
+        return
+    if modo == "📱 Contagem":
+        _contagem(quem)
         return
     _entrada(quem)
 
@@ -1298,8 +1516,10 @@ if __name__ == "__main__":
        "sem foto" in foto_html("") and "thumbnail?id=abc" in foto_html("abc"))
     ok("o foco não rouba o campo de quem está digitando",
        "digitando" in _FOCO and "est_bipe" in _FOCO and "location" not in _FOCO)
-    ok("modos: as seis partes aprovadas; só a Contagem por fazer",
-       len(MODOS) == 6 and set(EM_CONSTRUCAO) == {"📱 Contagem"})
+    ok("modos: as seis partes aprovadas e prontas", len(MODOS) == 6 and EM_CONSTRUCAO == {})
+    ok("câmera: entrega o código à MESMA barra do leitor, e não repete a etiqueta parada",
+       ".st-key-est_bipe input" in _CAMERA and "agora - visto < 1200" in _CAMERA and "location" not in _CAMERA
+       and "html5-qrcode@2.3.8" in _CAMERA)
     ok("destinos da saída: venda e envio ao Full",
        set(DESTINOS.values()) == {E.VENDA, E.ENVIO_FULL})
     _kit = E.linhas_de_saida([(prods[0], 1), (prods[1], 1)], E.VENDA, "leo", "x", obs="Kit com 2")

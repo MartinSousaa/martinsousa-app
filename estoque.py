@@ -38,6 +38,12 @@ ABA_MOV = "estoque_movimentos"
 COL_MOV = ["id", "lote", "quando", "tipo", "local", "produto_id", "qtd",
            "custo_unit", "quem", "obs", "desfaz", "pedido", "foto_id"]
 
+ABA_CONTAGENS = "estoque_contagens"
+COL_CONTAGENS = ["id", "aberta_em", "aberta_por", "fechada_em", "fechada_por"]
+ABA_CONTADOS = "estoque_contados"
+COL_CONTADOS = ["contagem", "produto_id", "qtd", "onde", "quem", "quando"]
+AJUSTE_CONTAGEM = "contagem"
+
 ABA_COMPRAS = "estoque_compras"
 COL_COMPRAS = ["produto_id", "marcado_em", "quem"]
 
@@ -476,6 +482,68 @@ def lista_de_compra(produtos, movs, codigos, marcados):
             for pid, mot in fora.items()]
 
 
+# ── CONTAGEM (Parte 6) ───────────────────────────────────────────────────────
+
+def contagem_aberta(contagens):
+    """A contagem em andamento (sem `fechada_em`), ou None. Pura."""
+    abertas = [c for c in contagens if not str(c.get("fechada_em") or "").strip()]
+    return abertas[-1] if abertas else None
+
+
+def contado_por_produto(contados, contagem_id):
+    """{produto_id: total contado} — o mesmo produto em dois lugares SOMA. Pura."""
+    t = {}
+    for c in contados:
+        if str(c.get("contagem")) == str(contagem_id):
+            t[str(c["produto_id"])] = t.get(str(c["produto_id"]), 0) + inteiro(c.get("qtd"))
+    return t
+
+
+def quem_contou(contados, contagem_id):
+    """{(quem, onde): peças} desta contagem, para 'quem está contando agora'. Pura."""
+    t = {}
+    for c in contados:
+        if str(c.get("contagem")) == str(contagem_id):
+            ch = (c.get("quem", ""), c.get("onde", ""))
+            t[ch] = t.get(ch, 0) + inteiro(c.get("qtd"))
+    return t
+
+
+def fechamento(produtos, movs, contados, contagem_id):
+    """O que a contagem achou contra o que o Studio diz. Pura.
+
+    Só os CONTADOS entram no ajuste. Produto do Studio que ninguém contou
+    aparece como "não contado" e NUNCA vira zero sozinho: esquecer uma
+    prateleira não pode apagar o estoque dela.
+    Devolve {"linhas": [{produto, sistema, contado, dif}], "nao_contados": [...],
+    "bateu": n, "diferenca": n, "valor": R$ da diferença a custo}.
+    """
+    saldo = saldos(movs)
+    cont = contado_por_produto(contados, contagem_id)
+    linhas, nao = [], []
+    for p in ativos(produtos):
+        sis = saldo.get((p["id"], FISICO), 0)
+        if p["id"] in cont:
+            linhas.append({"produto": p, "sistema": sis, "contado": cont[p["id"]],
+                           "dif": cont[p["id"]] - sis})
+        elif sis:
+            nao.append({"produto": p, "sistema": sis})
+    dif = [l for l in linhas if l["dif"]]
+    return {"linhas": sorted(linhas, key=lambda l: -abs(l["dif"])), "nao_contados": nao,
+            "bateu": len(linhas) - len(dif), "diferenca": len(dif),
+            "valor": sum(l["dif"] * numero(l["produto"].get("custo")) for l in dif)}
+
+
+def linhas_de_ajuste(fech, quem, quando, contagem_id):
+    """Os movimentos que põem o físico no que foi CONTADO. Pura."""
+    lote = _id("L")
+    return [{"id": _id("M"), "lote": lote, "quando": quando, "tipo": AJUSTE_CONTAGEM,
+             "local": FISICO, "produto_id": l["produto"]["id"], "qtd": str(l["dif"]),
+             "custo_unit": f'{numero(l["produto"].get("custo")):.2f}', "quem": quem,
+             "obs": f"contagem {contagem_id}", "desfaz": ""}
+            for l in fech["linhas"] if l["dif"]]
+
+
 def marcados_de(linhas):
     """{produto_id: marcado_em} da aba de compras. Pura."""
     return {str(l.get("produto_id")): l.get("marcado_em") for l in linhas if l.get("produto_id")}
@@ -592,17 +660,25 @@ def _compras_sem_cache():
     return _ler(ABA_COMPRAS, COL_COMPRAS)
 
 
+def _contagem_sem_cache():
+    return _ler(ABA_CONTAGENS, COL_CONTAGENS), _ler(ABA_CONTADOS, COL_CONTADOS)
+
+
 try:
     import streamlit as _st
     carregar = _st.cache_data(ttl=120, show_spinner=False)(_carregar_sem_cache)
     compras = _st.cache_data(ttl=120, show_spinner=False)(_compras_sem_cache)
+    # 20 s, e não 2 min: com várias pessoas contando, o fechamento precisa
+    # ver o que o celular do outro acabou de gravar.
+    contagem = _st.cache_data(ttl=20, show_spinner=False)(_contagem_sem_cache)
 except Exception:          # fora do Streamlit (auto-teste)
     carregar = _carregar_sem_cache
     compras = _compras_sem_cache
+    contagem = _contagem_sem_cache
 
 
 def _limpar_cache():
-    for f in (carregar, compras):
+    for f in (carregar, compras, contagem):
         try:
             f.clear()
         except Exception:
@@ -643,6 +719,23 @@ def gravar_produtos(linhas):
 
 def gravar_movimentos(linhas):
     return _anexar(ABA_MOV, COL_MOV, linhas)
+
+
+def abrir_contagem(quem, quando):
+    cid = _id("C")
+    _anexar(ABA_CONTAGENS, COL_CONTAGENS, [{"id": cid, "aberta_em": quando, "aberta_por": quem}])
+    return cid
+
+
+def fechar_contagem(contagem_id, quem, quando):
+    return _atualizar(ABA_CONTAGENS, COL_CONTAGENS, "id",
+                      {contagem_id: {"fechada_em": quando, "fechada_por": quem}})
+
+
+def gravar_contado(contagem_id, produto_id, qtd, onde, quem, quando):
+    return _anexar(ABA_CONTADOS, COL_CONTADOS, [{"contagem": contagem_id, "produto_id": produto_id,
+                                                 "qtd": str(int(qtd)), "onde": onde, "quem": quem,
+                                                 "quando": quando}])
 
 
 def marcar_comprado(produto_id, quem, quando):
@@ -838,6 +931,20 @@ if __name__ == "__main__":
         marcar_comprado("P9", "renan", "11/11/2026 16:00")
     finally:
         globals()["_aba"] = _real_aba
+    _abg = _AbaGrava([list(COL_CONTAGENS)])
+    _abd = _AbaGrava([list(COL_CONTADOS)])
+    globals()["_aba"] = lambda nome, colunas: _abg if nome == ABA_CONTAGENS else _abd
+    try:
+        _cid = abrir_contagem("leo", "11/11/2026 08:00")
+        _abg.valores.append(_abg.anexado[0])
+        _fz = fechar_contagem(_cid, "leo", "11/11/2026 18:00")
+        gravar_contado(_cid, "P1", 3.0, "Prateleira B", "my", "11/11/2026 09:00")
+    finally:
+        globals()["_aba"] = _real_aba
+    ok("abrir_contagem / fechar_contagem / gravar_contado: grava, acha a linha (D2, E2) e a quantidade inteira",
+       _cid.startswith("C") and _fz == 2
+       and [c["range"] for c in _abg.celulas] == ["D2", "E2"]
+       and _abd.anexado == [[_cid, "P1", "3", "Prateleira B", "my", "11/11/2026 09:00"]])
     ok("marcar_comprado: grava produto, quando e quem, e marcados_de lê de volta",
        _abc.anexado == [["P9", "11/11/2026 16:00", "renan"]]
        and marcados_de([dict(zip(COL_COMPRAS, _abc.anexado[0]))]) == {"P9": "11/11/2026 16:00"})
@@ -1027,6 +1134,27 @@ if __name__ == "__main__":
        lista_de_compra(_pp, _mm, [], {_pp[3]["id"]: "x"})[0]["comprado"])
     ok("faixa_de_idade: as bordas de 3 e 5 meses",
        [faixa_de_idade(d) for d in (None, 90, 91, 151, 152)] == ["ok", "ok", "atencao", "atencao", "critico"])
+    # CONTAGEM (Parte 6): duas pessoas, o mesmo produto em dois lugares soma;
+    # o que ninguém contou não zera; o ajuste põe o físico no contado.
+    _cc = [{"id": "C1", "fechada_em": "x"}, {"id": "C2", "fechada_em": ""}]
+    ok("contagem_aberta: a sem data de fechamento", contagem_aberta(_cc)["id"] == "C2"
+       and contagem_aberta(_cc[:1]) is None)
+    _ct = [{"contagem": "C2", "produto_id": _pp[0]["id"], "qtd": "30", "onde": "A", "quem": "leo"},
+           {"contagem": "C2", "produto_id": _pp[0]["id"], "qtd": "6", "onde": "B", "quem": "my"},
+           {"contagem": "C2", "produto_id": _pp[1]["id"], "qtd": "9", "onde": "B", "quem": "my"},
+           {"contagem": "C1", "produto_id": _pp[1]["id"], "qtd": "99", "onde": "B", "quem": "my"}]
+    ok("contado_por_produto: soma os dois lugares, e só desta contagem",
+       contado_por_produto(_ct, "C2") == {_pp[0]["id"]: 36, _pp[1]["id"]: 9})
+    ok("quem_contou: por pessoa e lugar", quem_contou(_ct, "C2")[("my", "B")] == 15)
+    _fc = fechamento(_pp, _mm, _ct, "C2")
+    ok("fechamento: óculos 40 → 36 é diferença; Glass Chess bateu; os outros não foram contados",
+       _fc["bateu"] == 1 and _fc["diferenca"] == 1 and _fc["valor"] == -60.0
+       and {l["produto"]["nome"] for l in _fc["nao_contados"]} == {"Leão", "Mini Yoga"})
+    _aj = linhas_de_ajuste(_fc, "leo", "11/11/2026 18:00", "C2")
+    _sa = saldos(_mm + _aj)
+    ok("linhas_de_ajuste: o físico vira o contado, e o não contado fica como estava",
+       len(_aj) == 1 and _sa[(_pp[0]["id"], FISICO)] == 36 and _sa[(_pp[2]["id"], FISICO)] == 2
+       and _sa[(_pp[3]["id"], FISICO)] == -1)
     ok("PERDAS: quebra, descarte e doação — devolução NÃO é perda por si",
        PERDAS == (QUEBRA, DESCARTE, DOACAO) and DEVOLUCAO not in PERDAS)
     ok("cabecalho_completo: coluna nova entra no fim, a ordem velha fica",
