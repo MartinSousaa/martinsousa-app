@@ -1,0 +1,606 @@
+"""estoque.py — o estoque da mercadoria: cadastro, variações e movimentos (11/11).
+
+O dono desenhou em seis partes, aprovadas uma a uma. Este arquivo é o
+NÚCLEO das seis: o que fica gravado e a conta do saldo. A tela mora em
+`estoque_tela.py`.
+
+AS TRÊS ABAS DA PLANILHA
+------------------------
+`estoque_produtos`   uma linha por VARIAÇÃO. A bailarina MBLN-06 tem o
+                     mesmo código de barras nas três posições: são três
+                     linhas com o mesmo `ean` e `variacao` diferente.
+`estoque_movimentos` TUDO o que mexe no estoque é uma linha nova, nunca uma
+                     conta reescrita: entrada, saída, quebra, desfazer. O
+                     saldo é a SOMA das linhas — assim o histórico explica o
+                     número, e duas pessoas gravando ao mesmo tempo não
+                     apagam uma à outra.
+`estoque_codigos`    os códigos que o Studio GERA: variação de quantidade
+                     ("kit com 3, 1 de cada posição") e kit de produtos
+                     diferentes. Eles NÃO entram no estoque — são a receita
+                     do que sai quando o código é bipado. Dono, 11/11: "se eu
+                     der entrada nos produtos e depois dar entrada em kit, vai
+                     duplicar".
+
+O CÓDIGO DE BARRAS É TEXTO, NUNCA NÚMERO
+----------------------------------------
+`get_all_records` do gspread converte "0789…" em 789… e o zero da frente
+some — o bipe nunca mais acharia o produto. Tudo aqui lê por
+`get_all_values`, que devolve texto, e grava com RAW.
+"""
+import json
+import secrets
+
+ABA_PRODUTOS = "estoque_produtos"
+COL_PRODUTOS = ["id", "ean", "codigo_fornecedor", "nome", "variacao", "custo",
+                "foto_id", "registrado_em", "registrado_por", "ativo"]
+
+ABA_MOV = "estoque_movimentos"
+COL_MOV = ["id", "lote", "quando", "tipo", "local", "produto_id", "qtd",
+           "custo_unit", "quem", "obs", "desfaz"]
+
+ABA_CODIGOS = "estoque_codigos"
+COL_CODIGOS = ["codigo", "tipo", "nome", "produto_ean", "itens", "foto_id",
+               "criado_em", "criado_por"]
+
+FISICO, FULL = "fisico", "full"
+ENTRADA, DESFEITO = "entrada", "desfeito"
+
+# Prefixo 2 é a faixa que o GS1 reserva para uso INTERNO: nenhum produto do
+# mercado tem código começando por 20. O código que o Studio gera nunca
+# colide com o de um fornecedor.
+PREFIXO_INTERNO = "20"
+
+
+# ── texto da planilha ────────────────────────────────────────────────────────
+
+def limpar_codigo(txt):
+    """O código como o leitor manda: sem espaço nem quebra de linha. Pura.
+
+    O leitor termina o bipe com Enter, e quem digita à mão põe espaço no meio
+    ("7 891 234…"). Os zeros da frente FICAM: o código é texto.
+    """
+    return "".join(str(txt or "").split())
+
+
+def numero(txt, padrao=0.0):
+    """'18,40', 'R$ 1.234,50', '18.4' → float. Pura."""
+    s = str(txt or "").replace("R$", "").strip()
+    if not s:
+        return padrao
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return padrao
+
+
+def inteiro(txt, padrao=0):
+    try:
+        return int(round(numero(txt, padrao)))
+    except (TypeError, ValueError):
+        return padrao
+
+
+def linhas_para_dicts(valores, colunas):
+    """`get_all_values` → [dict], pelo cabeçalho DA ABA. Pura.
+
+    Lê pelo cabeçalho que está na planilha, e não pela ordem de `colunas`:
+    alguém que mova uma coluna à mão não troca o custo pelo nome.
+    """
+    if not valores:
+        return []
+    cab = [str(c).strip() for c in valores[0]]
+    fora = []
+    for linha in valores[1:]:
+        if not any(str(v).strip() for v in linha):
+            continue
+        d = {c: "" for c in colunas}
+        for i, c in enumerate(cab):
+            if c and i < len(linha):
+                d[c] = str(linha[i])
+        fora.append(d)
+    return fora
+
+
+# ── código de barras (EAN-13) ────────────────────────────────────────────────
+
+_L = ["0001101", "0011001", "0010011", "0111101", "0100011",
+      "0110001", "0101111", "0111011", "0110111", "0001011"]
+_R = ["".join("1" if b == "0" else "0" for b in c) for c in _L]
+_G = [c[::-1] for c in _R]
+_PARIDADE = ["LLLLLL", "LLGLGG", "LLGGLG", "LLGGGL", "LGLLGG",
+             "LGGLLG", "LGGGLL", "LGLGLG", "LGLGGL", "LGGLGL"]
+
+
+def digito_ean13(doze):
+    """O 13º dígito (verificador) de 12 dígitos. Pura."""
+    s = sum(int(d) * (3 if i % 2 else 1) for i, d in enumerate(doze))
+    return str((10 - s % 10) % 10)
+
+
+def ean13_valido(cod):
+    cod = limpar_codigo(cod)
+    return len(cod) == 13 and cod.isdigit() and digito_ean13(cod[:12]) == cod[12]
+
+
+def modulos_ean13(cod):
+    """A sequência de barras (1) e espaços (0) do EAN-13. Pura."""
+    if not ean13_valido(cod):
+        raise ValueError(f"EAN-13 inválido: {cod!r}")
+    par = _PARIDADE[int(cod[0])]
+    esq = "".join((_L if p == "L" else _G)[int(d)] for p, d in zip(par, cod[1:7]))
+    dir_ = "".join(_R[int(d)] for d in cod[7:13])
+    return "101" + esq + "01010" + dir_ + "101"
+
+
+def svg_ean13(cod, modulo=2, altura=60, texto=True):
+    """O código desenhado em SVG, com a margem branca que o leitor exige. Pura.
+
+    A margem (11 módulos de cada lado) não é enfeite: sem ela o leitor não
+    acha onde o código começa — e o dono vai bipar NA TELA (Parte 2).
+    """
+    mods = modulos_ean13(cod)
+    quieta = 11
+    larg = (len(mods) + 2 * quieta) * modulo
+    alt_txt = 16 if texto else 0
+    rects = []
+    i = 0
+    while i < len(mods):
+        if mods[i] == "1":
+            j = i
+            while j < len(mods) and mods[j] == "1":
+                j += 1
+            rects.append(f'<rect x="{(quieta + i) * modulo}" y="4" '
+                         f'width="{(j - i) * modulo}" height="{altura}"/>')
+            i = j
+        else:
+            i += 1
+    legenda = (f'<text x="{larg / 2}" y="{altura + 4 + alt_txt - 2}" '
+               f'font-family="monospace" font-size="14" text-anchor="middle">'
+               f'{cod}</text>') if texto else ""
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{larg}" '
+            f'height="{altura + 8 + alt_txt}" viewBox="0 0 {larg} {altura + 8 + alt_txt}">'
+            f'<rect width="100%" height="100%" fill="#fff"/>'
+            f'<g fill="#000">{"".join(rects)}</g>{legenda}</svg>')
+
+
+def novo_codigo_interno(existentes):
+    """O próximo código 20…, que não colide com nenhum já usado. Pura.
+
+    `existentes` são TODOS os códigos conhecidos (produto e gerado): um
+    produto de fornecedor que por acaso comece com 20 também é evitado.
+    """
+    usados = {limpar_codigo(c) for c in existentes}
+    maior = 0
+    for c in usados:
+        if c.startswith(PREFIXO_INTERNO) and len(c) == 13 and c.isdigit():
+            maior = max(maior, int(c[2:12]))
+    n = maior + 1
+    while True:
+        doze = PREFIXO_INTERNO + f"{n:010d}"
+        cod = doze + digito_ean13(doze)
+        if cod not in usados:
+            return cod
+        n += 1
+
+
+# ── produtos, saldo e lotes (puras) ──────────────────────────────────────────
+
+def ativos(produtos):
+    return [p for p in produtos if str(p.get("ativo", "1")).strip() not in ("0", "nao", "não")]
+
+
+def do_codigo(produtos, codigo):
+    """As variações cadastradas com este código de barras. Pura."""
+    c = limpar_codigo(codigo)
+    if not c:
+        return []
+    return [p for p in ativos(produtos) if limpar_codigo(p.get("ean")) == c]
+
+
+def codigo_gerado(codigos, codigo):
+    """O código de quantidade/kit com este número, ou None. Pura."""
+    c = limpar_codigo(codigo)
+    for k in codigos:
+        if limpar_codigo(k.get("codigo")) == c:
+            return k
+    return None
+
+
+def itens_do_codigo(k):
+    """{produto_id: qtd} da receita de um código gerado. Pura."""
+    try:
+        d = json.loads(k.get("itens") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return {str(pid): inteiro(q) for pid, q in d.items() if inteiro(q) > 0}
+
+
+def nome_completo(p):
+    v = str(p.get("variacao") or "").strip()
+    return f'{p.get("nome", "")} · {v}' if v else str(p.get("nome", ""))
+
+
+def saldos(movs):
+    """{(produto_id, local): quantidade}. A soma das linhas, e mais nada. Pura."""
+    s = {}
+    for m in movs:
+        ch = (str(m.get("produto_id")), str(m.get("local") or FISICO))
+        s[ch] = s.get(ch, 0) + inteiro(m.get("qtd"))
+    return s
+
+
+def lotes_desfeitos(movs):
+    return {str(m.get("desfaz")) for m in movs if str(m.get("desfaz") or "").strip()}
+
+
+def ultimos_lotes(movs, tipo, n=5):
+    """Os últimos `n` lotes de um tipo, do mais novo ao mais velho. Pura.
+
+    Um lote é um CONFIRMAR: as três posições da bailarina entram juntas e se
+    desfazem juntas. Devolve [{lote, quando, quem, linhas, desfeito}].
+    """
+    desf = lotes_desfeitos(movs)
+    por = {}
+    ordem = []
+    for m in movs:
+        if m.get("tipo") != tipo:
+            continue
+        lt = str(m.get("lote"))
+        if lt not in por:
+            por[lt] = {"lote": lt, "quando": m.get("quando", ""),
+                       "quem": m.get("quem", ""), "linhas": [], "desfeito": lt in desf}
+            ordem.append(lt)
+        por[lt]["linhas"].append(m)
+    return [por[lt] for lt in reversed(ordem)][:n]
+
+
+def _id(prefixo):
+    return prefixo + secrets.token_hex(5)
+
+
+def linhas_de_produto(ean, codigo_fornecedor, nome, custo, variacoes, quem, quando):
+    """As linhas de `estoque_produtos` de um cadastro novo. Pura.
+
+    `variacoes` = [(nome_da_variacao, foto_id)]; produto sem variação passa
+    [("", foto_id)]. Devolve as linhas, cada uma com o seu `id`.
+    """
+    return [{"id": _id("P"), "ean": limpar_codigo(ean),
+             "codigo_fornecedor": str(codigo_fornecedor or "").strip(),
+             "nome": str(nome or "").strip(), "variacao": str(v or "").strip(),
+             "custo": f"{float(custo or 0):.2f}", "foto_id": foto or "",
+             "registrado_em": quando, "registrado_por": quem, "ativo": "1"}
+            for v, foto in variacoes]
+
+
+def linhas_de_entrada(itens, quem, quando, tipo=ENTRADA, local=FISICO, obs=""):
+    """As linhas de movimento de um CONFIRMAR. `itens` = [(produto, qtd)]. Pura.
+
+    Quantidade zero não grava linha: a posição que não entrou não aparece no
+    histórico como se tivesse entrado.
+    """
+    lote = _id("L")
+    sinal = -1 if tipo not in (ENTRADA,) else 1
+    return [{"id": _id("M"), "lote": lote, "quando": quando, "tipo": tipo,
+             "local": local, "produto_id": p["id"], "qtd": str(sinal * int(q)),
+             "custo_unit": f'{numero(p.get("custo")):.2f}', "quem": quem,
+             "obs": obs, "desfaz": ""}
+            for p, q in itens if int(q or 0) > 0]
+
+
+def linhas_que_desfazem(lote, movs, quem, quando):
+    """O lote ao contrário: cada linha volta com o sinal trocado. Pura.
+
+    Desfazer NÃO apaga: grava o contrário, e o histórico mostra os dois.
+    Lote já desfeito devolve [] — clicar duas vezes não devolve em dobro.
+    """
+    lote = str(lote)
+    if lote in lotes_desfeitos(movs):
+        return []
+    novo = _id("L")
+    return [{"id": _id("M"), "lote": novo, "quando": quando, "tipo": DESFEITO,
+             "local": m.get("local") or FISICO, "produto_id": m.get("produto_id"),
+             "qtd": str(-inteiro(m.get("qtd"))), "custo_unit": m.get("custo_unit", ""),
+             "quem": quem, "obs": f'desfaz {m.get("tipo")}', "desfaz": lote}
+            for m in movs if str(m.get("lote")) == lote and m.get("tipo") != DESFEITO]
+
+
+def linha_de_codigo(codigo, tipo, nome, produto_ean, itens, quem, quando, foto_id=""):
+    """Uma linha de `estoque_codigos`. `itens` = {produto_id: qtd}. Pura."""
+    return {"codigo": codigo, "tipo": tipo, "nome": str(nome or "").strip(),
+            "produto_ean": limpar_codigo(produto_ean),
+            "itens": json.dumps({k: int(v) for k, v in itens.items() if int(v) > 0},
+                                ensure_ascii=False),
+            "foto_id": foto_id, "criado_em": quando, "criado_por": quem}
+
+
+def todos_os_codigos(produtos, codigos):
+    return [p.get("ean") for p in produtos] + [k.get("codigo") for k in codigos]
+
+
+# ── planilha (efeito) ────────────────────────────────────────────────────────
+
+def _aba(nome, colunas):
+    import sheets as _sh
+    pl = _sh.planilha()
+    try:
+        return pl.worksheet(nome)
+    except Exception:
+        a = pl.add_worksheet(title=nome, rows=500, cols=len(colunas))
+        a.append_row(colunas, value_input_option="RAW")
+        return a
+
+
+def _ler(nome, colunas):
+    return linhas_para_dicts(_aba(nome, colunas).get_all_values(), colunas)
+
+
+def _carregar_sem_cache():
+    return (_ler(ABA_PRODUTOS, COL_PRODUTOS), _ler(ABA_MOV, COL_MOV),
+            _ler(ABA_CODIGOS, COL_CODIGOS))
+
+
+try:
+    import streamlit as _st
+    carregar = _st.cache_data(ttl=120, show_spinner=False)(_carregar_sem_cache)
+except Exception:          # fora do Streamlit (auto-teste)
+    carregar = _carregar_sem_cache
+
+
+def _limpar_cache():
+    try:
+        carregar.clear()
+    except Exception:
+        pass
+
+
+def _anexar(nome, colunas, linhas):
+    if not linhas:
+        return 0
+    _aba(nome, colunas).append_rows([[str(l.get(c, "")) for c in colunas] for l in linhas],
+                                    value_input_option="RAW")
+    _limpar_cache()
+    return len(linhas)
+
+
+def gravar_produtos(linhas):
+    return _anexar(ABA_PRODUTOS, COL_PRODUTOS, linhas)
+
+
+def gravar_movimentos(linhas):
+    return _anexar(ABA_MOV, COL_MOV, linhas)
+
+
+def gravar_codigo(linha):
+    return _anexar(ABA_CODIGOS, COL_CODIGOS, [linha])
+
+
+def atualizar_produtos(mudancas):
+    """`mudancas` = {produto_id: {coluna: valor}}. Reescreve só as células.
+
+    Lê a aba na hora (e não do cache): outra pessoa pode ter cadastrado
+    alguma coisa desde a última leitura, e a linha certa é a de AGORA.
+    """
+    if not mudancas:
+        return 0
+    a = _aba(ABA_PRODUTOS, COL_PRODUTOS)
+    valores = a.get_all_values()
+    cab = [str(c).strip() for c in valores[0]] if valores else COL_PRODUTOS
+    i_id = cab.index("id")
+    celulas = []
+    import gspread.utils as _gu
+    for n, linha in enumerate(valores[1:], start=2):
+        pid = linha[i_id] if i_id < len(linha) else ""
+        for col, val in mudancas.get(pid, {}).items():
+            if col in cab:
+                celulas.append({"range": _gu.rowcol_to_a1(n, cab.index(col) + 1),
+                                "values": [[str(val)]]})
+    if celulas:
+        a.batch_update(celulas, value_input_option="RAW")
+    _limpar_cache()
+    return len(celulas)
+
+
+def salvar_foto(dados, nome):
+    """A foto no Drive, já convertida e reduzida. Devolve (file_id, erro).
+
+    Qualquer formato entra (HEIC do iPhone inclusive) — `imagem.normalizar_imagem`
+    é a porta única do Studio para isso. Depois, reduz para 800 px: a foto
+    aparece pequena na tela, e uma de 10 MB atrasaria cada bipe.
+    """
+    import io
+    import gdrive
+    import imagem
+    try:
+        b, _mime, _ext = imagem.normalizar_imagem(dados)
+        from PIL import Image
+        im = Image.open(io.BytesIO(b))
+        im.thumbnail((800, 800))
+        buf = io.BytesIO()
+        im.convert("RGB").save(buf, format="JPEG", quality=85)
+        b = buf.getvalue()
+    except Exception as e:
+        return "", f"não consegui abrir a foto ({e})"
+    info, erro = gdrive.upload(b, f"estoque_{nome}.jpg", gdrive.pasta_estoque_id(),
+                               mimetype="image/jpeg")
+    if erro:
+        return "", erro
+    return info["id"], None
+
+
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    # Código de barras: os zeros da frente ficam, o espaço sai.
+    ok("limpar_codigo: tira espaço, mantém o zero da frente",
+       limpar_codigo(" 0789 1234\n") == "07891234")
+    ok("numero: formato brasileiro e com R$",
+       numero("R$ 1.234,50") == 1234.5 and numero("18,40") == 18.4 and numero("18.4") == 18.4
+       and numero("") == 0.0)
+
+    # EAN-13: o dígito verificador confere com códigos REAIS de mercado (os
+    # dois primeiros são de livros com ISBN impresso; o terceiro é o
+    # exemplo da norma GS1).
+    ok("digito_ean13: confere com códigos reais",
+       ean13_valido("9788535902778") and ean13_valido("9780306406157")
+       and ean13_valido("4006381333931") and not ean13_valido("4006381333932"))
+    m = modulos_ean13("4006381333931")
+    ok("modulos_ean13: 95 módulos, guardas nas pontas e no meio",
+       len(m) == 95 and m.startswith("101") and m.endswith("101") and m[45:50] == "01010")
+    # Cada dígito tem 2 barras e 2 espaços, e 7 módulos: a regra que todo
+    # leitor usa para se achar. Se a tabela tivesse um dígito errado, um
+    # deles sairia com 1 ou 3 barras.
+    def _barras(c):
+        return sum(1 for i, b in enumerate(c) if b == "1" and (i == 0 or c[i - 1] == "0"))
+    ok("modulos_ean13: todo dígito tem 2 barras em 7 módulos",
+       all(_barras(c) == 2 and len(c) == 7 for c in _L + _G + _R))
+    ok("svg_ean13: com margem e com o número embaixo",
+       svg_ean13("4006381333931").startswith("<svg") and ">4006381333931<" in svg_ean13("4006381333931"))
+    try:
+        svg_ean13("123")
+        ok("svg_ean13: recusa código inválido", False)
+    except ValueError:
+        ok("svg_ean13: recusa código inválido", True)
+
+    c1 = novo_codigo_interno([])
+    c2 = novo_codigo_interno([c1, "7891234567895"])
+    ok("novo_codigo_interno: prefixo 20, válido, e o seguinte não repete",
+       c1.startswith("20") and ean13_valido(c1) and ean13_valido(c2) and c2 != c1
+       and int(c2[2:12]) == int(c1[2:12]) + 1)
+
+    # A planilha lida como TEXTO: o zero da frente sobrevive, e a coluna
+    # movida à mão não troca um campo pelo outro.
+    vals = [["nome", "id", "ean", "custo"], ["Bailarina", "P1", "0789000000017", "18.40"],
+            ["", "", "", ""]]
+    d = linhas_para_dicts(vals, COL_PRODUTOS)
+    ok("linhas_para_dicts: lê pelo cabeçalho da aba, mantém o zero, pula linha vazia",
+       len(d) == 1 and d[0]["ean"] == "0789000000017" and d[0]["nome"] == "Bailarina"
+       and d[0]["variacao"] == "")
+
+    # A LEITURA DE VERDADE (`_ler`), com uma aba que se comporta como o
+    # gspread: `get_all_records` converte o código em número e o zero some.
+    class _AbaFalsa:
+        def get_all_values(self):
+            return [["id", "ean"], ["P1", "0789000000011"]]
+
+        def get_all_records(self):
+            return [{"id": "P1", "ean": 789000000011}]
+    _real_aba = globals()["_aba"]
+    globals()["_aba"] = lambda nome, colunas: _AbaFalsa()
+    try:
+        _lido = _ler(ABA_PRODUTOS, COL_PRODUTOS)
+    except Exception:
+        _lido = []
+    finally:
+        globals()["_aba"] = _real_aba
+    ok("_ler: o código chega da planilha com o zero da frente",
+       len(_lido) == 1 and _lido[0]["ean"] == "0789000000011")
+
+    # A GRAVAÇÃO DE VERDADE, numa aba falsa que guarda o que recebeu: as
+    # colunas na ordem do cabeçalho, RAW (o código não vira número), e a
+    # célula certa na edição — a linha 3 é a do segundo produto.
+    class _AbaGrava:
+        def __init__(self, valores):
+            self.valores, self.anexado, self.celulas, self.modo = valores, [], [], None
+
+        def get_all_values(self):
+            return self.valores
+
+        def append_rows(self, linhas, value_input_option=None):
+            self.anexado += linhas
+            self.modo = value_input_option
+
+        def batch_update(self, celulas, value_input_option=None):
+            self.celulas += celulas
+            self.modo = value_input_option
+    _ab = _AbaGrava([COL_PRODUTOS, ["P1"] + [""] * 9, ["P2"] + [""] * 9])
+    globals()["_aba"] = lambda nome, colunas: _ab
+    try:
+        _n1 = gravar_produtos([{"id": "P3", "ean": "0789000000011", "nome": "Óculos"}])
+        _n2 = gravar_movimentos([])
+        _n3 = atualizar_produtos({"P2": {"variacao": "Sentada"}, "PX": {"nome": "x"}})
+        _n4 = gravar_codigo({"codigo": "2000000000015"})
+    finally:
+        globals()["_aba"] = _real_aba
+    ok("gravar_produtos: na ordem das colunas, como texto (RAW)",
+       _n1 == 1 and _ab.anexado[0][:2] == ["P3", "0789000000011"] and _ab.anexado[0][3] == "Óculos")
+    ok("gravar_movimentos: lista vazia não toca a planilha", _n2 == 0)
+    ok("atualizar_produtos: só a célula da variação do P2 (E3), e id desconhecido não grava",
+       _n3 == 1 and _ab.celulas == [{"range": "E3", "values": [["Sentada"]]}] and _ab.modo == "RAW")
+    ok("gravar_codigo: uma linha", _n4 == 1 and _ab.anexado[-1][0] == "2000000000015")
+    ok("todos_os_codigos: os de produto e os gerados, para o gerador não repetir",
+       todos_os_codigos([{"ean": "A"}], [{"codigo": "B"}]) == ["A", "B"])
+
+    # A FOTO: qualquer formato entra pela porta única (`normalizar_imagem`),
+    # sai JPEG de no máximo 800 px e vai para a pasta do ESTOQUE.
+    import io as _io_t
+    import sys as _sys_t
+    import types as _types_t
+    from PIL import Image as _Im
+    _png = _io_t.BytesIO()
+    _Im.new("RGB", (2400, 1200), (200, 30, 30)).save(_png, format="PNG")
+    _enviado = {}
+    _f_img = _types_t.ModuleType("imagem")
+    _f_img.normalizar_imagem = lambda b: (_enviado.setdefault("normalizou", True) and b, "image/png", "png")
+    _f_gd = _types_t.ModuleType("gdrive")
+    _f_gd.pasta_estoque_id = lambda: "PASTA_ESTOQUE"
+    _f_gd.upload = lambda b, nome, pasta, mimetype=None: (
+        _enviado.update(b=b, nome=nome, pasta=pasta) or ({"id": "F1"}, None))
+    _reais = {k: _sys_t.modules.get(k) for k in ("imagem", "gdrive")}
+    _sys_t.modules.update(imagem=_f_img, gdrive=_f_gd)
+    try:
+        _fid, _err = salvar_foto(_png.getvalue(), "0789")
+    finally:
+        for k, v in _reais.items():
+            if v is None:
+                _sys_t.modules.pop(k, None)
+            else:
+                _sys_t.modules[k] = v
+    _sai = _Im.open(_io_t.BytesIO(_enviado.get("b", b"")))
+    ok("salvar_foto: passa pelo conversor, sai JPEG de até 800 px, na pasta do estoque",
+       _fid == "F1" and _err is None and _enviado.get("normalizou") and _sai.format == "JPEG"
+       and max(_sai.size) == 800 and _enviado["pasta"] == "PASTA_ESTOQUE")
+
+    # O caminho inteiro de um cadastro com três posições, uma entrada e o
+    # desfazer — com o NOME REAL que a equipe digita (passo 13).
+    prods = linhas_de_produto("7899999000061", "MBLN-06", "Bailarina  de resina (P/M) + base",
+                              "18,40".replace(",", "."), [("Braço para cima", "f1"),
+                                                          ("Perna estendida", ""), ("Sentada", "")],
+                              "leo", "11/11/2026 14:02")
+    ok("linhas_de_produto: uma linha por variação, mesmo código, ids diferentes",
+       len(prods) == 3 and len({p["id"] for p in prods}) == 3
+       and all(p["ean"] == "7899999000061" for p in prods) and prods[0]["custo"] == "18.40")
+    ok("do_codigo: o bipe acha as três posições, com espaço no meio do bipe",
+       len(do_codigo(prods, "7899 9990 00061")) == 3 and do_codigo(prods, "") == [])
+    ent = linhas_de_entrada([(prods[0], 6), (prods[1], 0), (prods[2], 6)], "leo", "11/11/2026 14:03")
+    ok("linhas_de_entrada: quantidade zero não grava, o lote é um só",
+       len(ent) == 2 and len({e["lote"] for e in ent}) == 1 and ent[0]["qtd"] == "6")
+    s = saldos(ent)
+    ok("saldos: soma por produto e por local",
+       s[(prods[0]["id"], FISICO)] == 6 and (prods[1]["id"], FISICO) not in s)
+    des = linhas_que_desfazem(ent[0]["lote"], ent, "leo", "11/11/2026 14:05")
+    s2 = saldos(ent + des)
+    ok("linhas_que_desfazem: devolve tudo, e não apaga a entrada",
+       len(des) == 2 and s2[(prods[0]["id"], FISICO)] == 0 and s2[(prods[2]["id"], FISICO)] == 0)
+    ok("linhas_que_desfazem: desfazer duas vezes não devolve em dobro",
+       linhas_que_desfazem(ent[0]["lote"], ent + des, "leo", "x") == [])
+    lt = ultimos_lotes(ent + des, ENTRADA)
+    ok("ultimos_lotes: o lote desfeito aparece marcado",
+       len(lt) == 1 and lt[0]["desfeito"] and len(lt[0]["linhas"]) == 2)
+
+    k = linha_de_codigo(c1, "quantidade", "Kit com 3 (1 de cada)", "7899999000061",
+                        {p["id"]: 1 for p in prods}, "leo", "x")
+    ok("codigo gerado: a receita volta igual, e não é produto",
+       itens_do_codigo(k) == {p["id"]: 1 for p in prods}
+       and codigo_gerado([k], c1) is k and do_codigo(prods, c1) == [])
+    ok("nome_completo: nome · variação",
+       nome_completo(prods[0]) == "Bailarina  de resina (P/M) + base · Braço para cima")
+
+    print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
+    raise SystemExit(1 if falhas else 0)
