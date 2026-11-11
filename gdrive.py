@@ -271,6 +271,12 @@ def pasta_abonos_id():
             or pasta_imagens_id())
 
 
+def pasta_estoque_id():
+    """Pasta das fotos do estoque (11/11). Cai na de imagens se não configurada."""
+    return (str(_secret("DRIVE_PASTA_ESTOQUE_ID", "")).strip()
+            or pasta_imagens_id())
+
+
 def url_thumbnail(file_id, tamanho=200):
     """URL de thumbnail do Drive (exige o arquivo público)."""
     if not file_id:
@@ -341,3 +347,28 @@ def diagnostico(pasta_id=None):
         rel["erro"] = "Upload funcionou, mas não consegui apagar o arquivo de teste."
 
     return rel
+
+
+if __name__ == "__main__":
+    # As pastas que caem na de imagens quando o secret não existe (11/11).
+    # Sem rede: só o `_secret` é trocado.
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    _real_secret = _secret
+    _secret = lambda n, p="": {"DRIVE_PASTA_IMAGENS_ID": "IMG"}.get(n, p)
+    _sem = (pasta_estoque_id(), pasta_abonos_id())
+    _secret = lambda n, p="": {"DRIVE_PASTA_IMAGENS_ID": "IMG", "DRIVE_PASTA_ESTOQUE_ID": " EST ",
+                               "DRIVE_PASTA_ABONOS_ID": "ABO"}.get(n, p)
+    _com = (pasta_estoque_id(), pasta_abonos_id())
+    _secret = _real_secret
+    ok("pasta_estoque_id e pasta_abonos_id: sem secret, a pasta de imagens", _sem == ("IMG", "IMG"))
+    ok("pasta_estoque_id e pasta_abonos_id: com secret, a própria (sem espaço)", _com == ("EST", "ABO"))
+    ok("url_thumbnail: sem id não monta link", url_thumbnail("") is None
+       and url_thumbnail("abc", 300).endswith("id=abc&sz=w300"))
+    print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
+    raise SystemExit(1 if falhas else 0)

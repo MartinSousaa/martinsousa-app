@@ -5212,6 +5212,37 @@ MUTACOES = [
         None,
         ["python3", "checar_alcance.py"],
     ),
+    # ── ESTOQUE (dono, 11/11) ──────────────────────────────────────────
+    (
+        'o bipe com o cursor na quantidade volta a ser digitado DENTRO dela (11/11)',
+        "estoque_tela.py",
+        [("      if (bipe && document.activeElement !== barra) {",
+          "      if (false) {")],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
+    (
+        'desfazer duas vezes volta a devolver o estoque em dobro (11/11)',
+        "estoque.py",
+        [("    if lote in lotes_desfeitos(movs):\n        return []\n", "")],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'a posicao com quantidade zero volta a gravar linha de entrada (11/11)',
+        "estoque.py",
+        [("            for p, q in itens if int(q or 0) > 0]", "            for p, q in itens]")],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'o codigo de barras volta a ser lido como numero e perde o zero (11/11)',
+        "estoque.py",
+        [("    return linhas_para_dicts(_aba(nome, colunas).get_all_values(), colunas)",
+          "    return [{c: str(l.get(c, \"\")) for c in colunas} for l in _aba(nome, colunas).get_all_records()]")],
+        None,
+        ["python3", "estoque.py"],
+    ),
 ]
 
 

@@ -34,7 +34,7 @@ import sys
 sys.path.insert(0, {raiz!r})
 import streamlit as st
 import clique
-aba = st.radio("Home", ["Painel", "Produtos", "Metas", "Fila"], horizontal=True, key="home_aba")
+aba = st.radio("Home", ["Painel", "Produtos", "Metas", "Fila", "Estoque"], horizontal=True, key="home_aba")
 if aba == "Painel":
     # O PAINEL TEM CLIQUE PRÓPRIO, como a Home de verdade (28/10). Sem isto o
     # verificador não via o defeito: a escuta nascia na caixinha do Painel,
@@ -96,6 +96,25 @@ if aba == "Fila":
     _et._avisos_da_fila()
     if _fila:
         _et._perguntar(_fila, _FV, "teste")
+if aba == "Estoque":
+    # O BIPE (dono, 11/11): o leitor e um teclado, e digita onde estiver o
+    # cursor. So a planilha e o Drive sao trocados; a tela e a escuta do
+    # bipe sao as de verdade. O nome tem simbolo, como o da equipe.
+    import estoque as _E, estoque_tela as _ET
+    _db = st.session_state.setdefault("est_db", {{"p": [], "m": [], "c": []}})
+    if not _db["p"]:
+        _db["p"] = _E.linhas_de_produto("7891234567895", "MBLN-06", "Bailarina (P/M) + base", 18.4,
+                                        [("Braço para cima", ""), ("Sentada", "")], "t", "11/11/2026 10:00")
+    _E.carregar = lambda: (list(_db["p"]), list(_db["m"]), list(_db["c"]))
+    _E.gravar_produtos = lambda l: _db["p"].extend(l) or len(l)
+    _E.gravar_movimentos = lambda l: _db["m"].extend(l) or len(l)
+    _E.gravar_codigo = lambda l: _db["c"].append(l) or 1
+    _E.atualizar_produtos = lambda m: [p.update(m.get(p["id"], {{}})) for p in _db["p"]] and 1
+    _E.salvar_foto = lambda d, n: ("", None)
+    _s = _E.saldos(_db["m"])
+    st.markdown("SALDO=" + ",".join(f'{{p["variacao"] or p["nome"]}}:{{_s.get((p["id"], "fisico"), 0)}}'
+                                    for p in _db["p"]))
+    _ET.pagina("t")
 '''
 
 
@@ -209,6 +228,56 @@ def main():
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"salvar a fila tira os nomes da tabela e avisa acima dela "
                   f"(fila={_fl}, aviso acima={_acima})")
+            # O BIPE CAI NA BARRA, ESTEJA O CURSOR ONDE ESTIVER (11/11). Com o
+            # cursor na QUANTIDADE, o leitor escreveria o código dentro dela
+            # (6 → 64006381333931) e o Enter confirmaria a entrada.
+            pg.get_by_text("Estoque", exact=True).click()
+            pg.wait_for_timeout(3000)
+            _sal = lambda: _re.search(r"SALDO=([^\n]*)", pg.inner_text("body")).group(1)
+            _barra_foco = pg.evaluate("document.activeElement === document.querySelector('.st-key-est_bipe input')")
+            pg.keyboard.type("7891234567895", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _ficha = "CONFIRMAR ENTRADA" in pg.inner_text("body")
+            ok = _barra_foco and _ficha
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: o cursor nasce na barra e o bipe abre a ficha "
+                  f"(foco={_barra_foco}, ficha={_ficha})")
+            _q = pg.locator("[class*=st-key-est_q_] input")
+            _q.nth(0).fill("6")
+            _q.nth(1).fill("2")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(1500)
+            _q.nth(0).click()
+            pg.wait_for_timeout(300)
+            pg.keyboard.type("4006381333931", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(3000)
+            _txt = pg.inner_text("body")
+            ok = "Cadastrar como produto novo?" in _txt and "4006381333931" in _txt
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + "estoque: bipe com o cursor na quantidade vai para a barra "
+                  f"(pergunta={'Cadastrar como produto novo?' in _txt})")
+            pg.get_by_role("button", name="NÃO, BIPEI ERRADO").click()
+            pg.wait_for_timeout(2000)
+            pg.keyboard.type("7891234567895", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _q.nth(0).fill("6")
+            _q.nth(1).fill("2")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(1500)
+            pg.get_by_role("button", name="CONFIRMAR ENTRADA").click()
+            pg.wait_for_timeout(2500)
+            _depois = _sal()
+            pg.get_by_role("button", name="↶ desfazer").first.click()
+            pg.wait_for_timeout(2500)
+            _desf = _sal()
+            ok = (_depois == "Braço para cima:6,Sentada:2" and _desf == "Braço para cima:0,Sentada:0"
+                  and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: confirmar soma, desfazer devolve, nada recarrega "
+                  f"({_depois} → {_desf}, recargas={len(navegou) - 1})")
             nav.close()
     except Exception as e:
         falhas += 1

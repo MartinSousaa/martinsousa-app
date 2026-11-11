@@ -335,14 +335,10 @@ def _quebras(usuario_logado=None):
 
 
 def _estoque(usuario_logado=None):
-    st.markdown("### 📦 Estoque")
-    st.info(
-        "**Esta tela ainda não existe.** O dono pediu para criá-la e "
-        "configurá-la junto — o lugar dela na navegação já está aqui, e o "
-        "conteúdo depende de duas respostas: **o que ela precisa mostrar** "
-        "(saldo por SKU, giro, ruptura?) e **qual é a fonte da verdade** "
-        "(Bling, planilha, contagem física?)."
-    )
+    # Desenhado com o dono em 11/11, seis partes aprovadas uma a uma. A fonte
+    # da verdade é o próprio Studio: o cadastro começa do zero, nada vem do
+    # Bling ("nada virá do Bling" — dono, 11/11).
+    _abrir_tela("estoque_tela", usuario_logado)
 
 
 SUBTELAS_OPERACIONAL = {
