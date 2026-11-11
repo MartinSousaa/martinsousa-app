@@ -38,6 +38,9 @@ ABA_MOV = "estoque_movimentos"
 COL_MOV = ["id", "lote", "quando", "tipo", "local", "produto_id", "qtd",
            "custo_unit", "quem", "obs", "desfaz", "pedido", "foto_id"]
 
+ABA_COMPRAS = "estoque_compras"
+COL_COMPRAS = ["produto_id", "marcado_em", "quem"]
+
 ABA_CODIGOS = "estoque_codigos"
 COL_CODIGOS = ["codigo", "tipo", "nome", "produto_ean", "itens", "foto_id",
                "criado_em", "criado_por"]
@@ -378,6 +381,106 @@ def baixas_do_mes(movs, ano, mes):
             "perda": sum(por_motivo.values()), "lotes": ordem}
 
 
+# ── PAINEL (Parte 5) ─────────────────────────────────────────────────────────
+
+ATENCAO_DIAS, CRITICO_DIAS = 91, 152      # 3 e 5 meses (dono, 11/11)
+
+
+def data_de(q):
+    """'11/11/2026 14:02' → date, ou None. Pura."""
+    import datetime as _dt
+    try:
+        return _dt.datetime.strptime(str(q or "")[:10], "%d/%m/%Y").date()
+    except ValueError:
+        return None
+
+
+def faixa_de_idade(dias):
+    """'ok', 'atencao' (3 a 5 meses) ou 'critico' (mais de 5). Pura."""
+    if dias is None or dias < ATENCAO_DIAS:
+        return "ok"
+    return "atencao" if dias < CRITICO_DIAS else "critico"
+
+
+def painel(produtos, movs, hoje):
+    """Tudo o que o Painel mostra, numa passada só pelos movimentos. Pura.
+
+    A IDADE conta do REGISTRO no Studio (dono, 11/11: "a partir do registro
+    no sistema que ele irá começar a contar a vida útil"). Só entra na conta
+    de parado o que ainda TEM peça: produto zerado não está parado.
+    """
+    saldo = saldos(movs)
+    ult_saida = {}
+    for m in movs:
+        if m.get("tipo") in (VENDA, ENVIO_FULL) + PERDAS and inteiro(m.get("qtd")) < 0:
+            d = data_de(m.get("quando"))
+            pid = str(m.get("produto_id"))
+            if d and (pid not in ult_saida or d > ult_saida[pid]):
+                ult_saida[pid] = d
+    linhas = []
+    for p in ativos(produtos):
+        fis = saldo.get((p["id"], FISICO), 0)
+        full = saldo.get((p["id"], FULL), 0)
+        custo = numero(p.get("custo"))
+        reg = data_de(p.get("registrado_em"))
+        dias = (hoje - reg).days if reg else None
+        linhas.append({"produto": p, "fisico": fis, "full": full, "custo": custo,
+                       "valor": max(fis, 0) * custo + max(full, 0) * custo,
+                       "dias": dias, "faixa": faixa_de_idade(dias),
+                       "ultima_saida": ult_saida.get(p["id"])})
+    com_peca = [l for l in linhas if l["fisico"] > 0 or l["full"] > 0]
+    faixas = {f: sum(l["valor"] for l in com_peca if l["faixa"] == f) for f in ("ok", "atencao", "critico")}
+    parados = sorted([l for l in com_peca if l["faixa"] != "ok"],
+                     key=lambda l: (-(l["dias"] or 0), -l["valor"]))
+    total = sum(l["valor"] for l in linhas)
+    return {
+        "linhas": linhas, "faixas": faixas, "parados": parados, "valor": total,
+        "valor_fisico": sum(max(l["fisico"], 0) * l["custo"] for l in linhas),
+        "valor_full": sum(max(l["full"], 0) * l["custo"] for l in linhas),
+        "pecas_fisico": sum(max(l["fisico"], 0) for l in linhas),
+        "pecas_full": sum(max(l["full"], 0) for l in linhas),
+        "produtos": len(com_peca),
+        "valor_parado": faixas["atencao"] + faixas["critico"],
+    }
+
+
+def lista_de_compra(produtos, movs, codigos, marcados):
+    """A lista do Renan. Pura.
+
+    Entra sozinho: (1) o que VENDEU e ficou com o físico em zero ou abaixo —
+    a venda aconteceu sem peça; (2) o item que trava um kit. Sai sozinho
+    quando o saldo volta a ficar positivo. `marcados` = {produto_id: data}
+    de quem clicou "comprado": a marca vale enquanto ele seguir na lista.
+    Devolve [{produto, motivo, comprado}].
+    """
+    saldo = saldos(movs)
+    por_id = {p["id"]: p for p in ativos(produtos)}
+    vendeu = {}
+    for m in movs:
+        if m.get("tipo") in (VENDA, ENVIO_FULL) and m.get("local") == FISICO and inteiro(m.get("qtd")) < 0:
+            vendeu[str(m.get("produto_id"))] = vendeu.get(str(m.get("produto_id")), 0) + 1
+    fora = {}
+    for pid, n in vendeu.items():
+        s = saldo.get((pid, FISICO), 0)
+        if pid in por_id and s <= 0:
+            fora[pid] = ("vendeu sem estoque" if s < 0 else "zerou na venda") + (
+                f" · faltam {-s}" if s < 0 else "")
+    for k in codigos:
+        if k.get("tipo") != "kit":
+            continue
+        n, faltam = da_para_montar(itens_do_codigo(k), saldo)
+        for pid in faltam:
+            if pid in por_id and pid not in fora:
+                fora[pid] = f'trava o kit «{k.get("nome")}»'
+    return [{"produto": por_id[pid], "motivo": mot, "comprado": pid in marcados}
+            for pid, mot in fora.items()]
+
+
+def marcados_de(linhas):
+    """{produto_id: marcado_em} da aba de compras. Pura."""
+    return {str(l.get("produto_id")): l.get("marcado_em") for l in linhas if l.get("produto_id")}
+
+
 def _ordem_quando(q):
     """'11/11/2026 14:02' → '2026-11-11 14:02', para ordenar. Pura."""
     q = str(q or "")
@@ -485,18 +588,25 @@ def _carregar_sem_cache():
             _ler(ABA_CODIGOS, COL_CODIGOS))
 
 
+def _compras_sem_cache():
+    return _ler(ABA_COMPRAS, COL_COMPRAS)
+
+
 try:
     import streamlit as _st
     carregar = _st.cache_data(ttl=120, show_spinner=False)(_carregar_sem_cache)
+    compras = _st.cache_data(ttl=120, show_spinner=False)(_compras_sem_cache)
 except Exception:          # fora do Streamlit (auto-teste)
     carregar = _carregar_sem_cache
+    compras = _compras_sem_cache
 
 
 def _limpar_cache():
-    try:
-        carregar.clear()
-    except Exception:
-        pass
+    for f in (carregar, compras):
+        try:
+            f.clear()
+        except Exception:
+            pass
 
 
 def cabecalho_completo(cab_da_aba, colunas):
@@ -533,6 +643,11 @@ def gravar_produtos(linhas):
 
 def gravar_movimentos(linhas):
     return _anexar(ABA_MOV, COL_MOV, linhas)
+
+
+def marcar_comprado(produto_id, quem, quando):
+    return _anexar(ABA_COMPRAS, COL_COMPRAS,
+                   [{"produto_id": produto_id, "marcado_em": quando, "quem": quem}])
 
 
 def gravar_codigo(linha):
@@ -717,6 +832,15 @@ if __name__ == "__main__":
     ok("gravar_produtos: na ordem das colunas, como texto (RAW)",
        _n1 == 1 and _ab.anexado[0][:2] == ["P3", "0789000000011"] and _ab.anexado[0][3] == "Óculos")
     ok("gravar_movimentos: lista vazia não toca a planilha", _n2 == 0)
+    _abc = _AbaGrava([list(COL_COMPRAS)])
+    globals()["_aba"] = lambda nome, colunas: _abc
+    try:
+        marcar_comprado("P9", "renan", "11/11/2026 16:00")
+    finally:
+        globals()["_aba"] = _real_aba
+    ok("marcar_comprado: grava produto, quando e quem, e marcados_de lê de volta",
+       _abc.anexado == [["P9", "11/11/2026 16:00", "renan"]]
+       and marcados_de([dict(zip(COL_COMPRAS, _abc.anexado[0]))]) == {"P9": "11/11/2026 16:00"})
     ok("atualizar_produtos: só a célula da variação do P2 (E3), e id desconhecido não grava",
        _n3 == 1 and _ab.celulas == [{"range": "E3", "values": [["Sentada"]]}] and _ab.modo == "RAW")
     _abk = _AbaGrava([COL_CODIGOS, ["2000000000015", "kit", "Kit velho"] + [""] * 5])
@@ -870,6 +994,39 @@ if __name__ == "__main__":
        and da_para_montar({}, _sk) == (0, []) and da_para_montar({"Z": 1}, _sk) == (0, ["Z"]))
     ok("custo_da_receita: soma a custo",
        custo_da_receita({"A": 1, "B": 2}, {"A": {"custo": "42.00"}, "B": {"custo": "4,90"}}) == 51.8)
+    # PAINEL (Parte 5): idade do registro, faixas, Full separado, e a lista
+    # do Renan entrando e saindo sozinha.
+    import datetime as _dtp
+    _hoje = _dtp.date(2026, 11, 11)
+    _pp = (linhas_de_produto("1", "", "Óculos aviador", 15, [("", "")], "l", "01/05/2026 10:00")
+           + linhas_de_produto("2", "", "Glass Chess", 60, [("", "")], "l", "20/07/2026 10:00")
+           + linhas_de_produto("3", "", "Leão", 10, [("", "")], "l", "05/11/2026 10:00")
+           + linhas_de_produto("4", "", "Mini Yoga", 12.9, [("", "")], "l", "05/11/2026 10:00"))
+    _mm = (linhas_de_entrada([(_pp[0], 40), (_pp[1], 9), (_pp[2], 3), (_pp[3], 1)], "l", "05/11/2026 10:00")
+           + linhas_de_saida([(_pp[2], 1)], ENVIO_FULL, "l", "06/11/2026 10:00")
+           + linhas_de_saida([(_pp[3], 2)], VENDA, "l", "10/11/2026 10:00"))
+    _pn = painel(_pp, _mm, _hoje)
+    ok("painel: valor físico e Full a custo; o Mini Yoga negativo não entra no valor",
+       _pn["valor_fisico"] == 40 * 15 + 9 * 60 + 2 * 10 and _pn["valor_full"] == 10
+       and _pn["pecas_full"] == 1 and _pn["produtos"] == 3)
+    ok("painel: 6 meses é crítico, 4 meses é atenção, e o recém-chegado não está parado",
+       _pn["faixas"] == {"ok": 30.0, "atencao": 540.0, "critico": 600.0}
+       and [l["produto"]["nome"] for l in _pn["parados"]] == ["Óculos aviador", "Glass Chess"]
+       and _pn["valor_parado"] == 1140.0)
+    ok("painel: última saída por produto",
+       {l["produto"]["nome"]: l["ultima_saida"] for l in _pn["linhas"]}["Mini Yoga"] == _dtp.date(2026, 11, 10))
+    _kp = linha_de_codigo("2000000000039", "kit", "Kit Pôquer", "", {_pp[1]["id"]: 10}, "l", "x")
+    _lc = lista_de_compra(_pp, _mm, [_kp], {})
+    ok("lista_de_compra: vendeu sem estoque (faltam 1) e o item que trava o kit",
+       {(l["produto"]["nome"], l["motivo"]) for l in _lc}
+       == {("Mini Yoga", "vendeu sem estoque · faltam 1"), ("Glass Chess", "trava o kit «Kit Pôquer»")})
+    _mm2 = _mm + linhas_de_entrada([(_pp[3], 5)], "l", "11/11/2026 09:00")
+    _lc2 = lista_de_compra(_pp, _mm2, [], marcados_de([{"produto_id": _pp[3]["id"], "marcado_em": "x"}]))
+    ok("lista_de_compra: a entrada tira o produto da lista sozinha", _lc2 == [])
+    ok("lista_de_compra: a marca de comprado aparece enquanto está na lista",
+       lista_de_compra(_pp, _mm, [], {_pp[3]["id"]: "x"})[0]["comprado"])
+    ok("faixa_de_idade: as bordas de 3 e 5 meses",
+       [faixa_de_idade(d) for d in (None, 90, 91, 151, 152)] == ["ok", "ok", "atencao", "atencao", "critico"])
     ok("PERDAS: quebra, descarte e doação — devolução NÃO é perda por si",
        PERDAS == (QUEBRA, DESCARTE, DOACAO) and DEVOLUCAO not in PERDAS)
     ok("cabecalho_completo: coluna nova entra no fim, a ordem velha fica",

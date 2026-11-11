@@ -5312,6 +5312,20 @@ MUTACOES = [
         None,
         ["python3", "estoque.py"],
     ),
+    (
+        'a venda sem estoque volta a ficar fora da lista do Renan (11/11)',
+        "estoque.py",
+        [("        if pid in por_id and s <= 0:", "        if pid in por_id and s < -999:")],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'o produto zerado volta a contar como parado (11/11)',
+        "estoque.py",
+        [('    com_peca = [l for l in linhas if l["fisico"] > 0 or l["full"] > 0]', '    com_peca = linhas')],
+        None,
+        ["python3", "estoque.py"],
+    ),
 ]
 
 

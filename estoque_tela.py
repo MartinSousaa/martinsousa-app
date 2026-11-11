@@ -26,7 +26,6 @@ import estoque as E
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
          "🧩 Kits", "📊 Painel", "📱 Contagem")
 EM_CONSTRUCAO = {
-    "📊 Painel": "Parte 5",
     "📱 Contagem": "Parte 6",
 }
 
@@ -1056,6 +1055,154 @@ def _kits_cadastrados(codigos, por_id, saldo):
                     E.nome_completo(por_id.get(pid, {})) for pid in E.itens_do_codigo(k)))
 
 
+# ── PAINEL (Parte 5) ─────────────────────────────────────────────────────────
+
+def _r0(v):
+    return f"R$ {v:,.0f}".replace(",", ".")
+
+
+def topo_painel_html(pn):
+    """Os quatro quadros do topo. Pura."""
+    pct = (pn["valor_parado"] / pn["valor"] * 100) if pn["valor"] else 0
+    q = [("VALOR EM ESTOQUE", _r0(pn["valor"]), f'a custo · {pn["pecas_fisico"] + pn["pecas_full"]} peças · '
+          f'{pn["produtos"]} produtos', "#E8EAED"),
+         ("ESTOQUE FÍSICO", _r0(pn["valor_fisico"]), f'{pn["pecas_fisico"]} peças', "#E8EAED"),
+         ("ESTOQUE FULL", _r0(pn["valor_full"]), f'{pn["pecas_full"]} peças', "#7db4ec"),
+         ("PARADO HÁ MAIS DE 3 MESES", _r0(pn["valor_parado"]), f'{len(pn["parados"])} produtos · '
+          f'{pct:.1f}% do valor'.replace(".", ","), "#f0c060")]
+    return ('<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:8px 0">'
+            + "".join(f'<div style="padding:12px;border-radius:12px;background:#2c2c2c">'
+                      f'<div style="font-size:11px;color:#9AA3AE;letter-spacing:.1em">{t}</div>'
+                      f'<div style="font-size:22px;font-weight:800;color:{c}">{v}</div>'
+                      f'<div style="font-size:12px;color:#9AA3AE">{d}</div></div>' for t, v, d, c in q)
+            + "</div>")
+
+
+def faixas_html(pn):
+    """As três faixas de idade, com barra proporcional ao valor. Pura."""
+    tot = sum(pn["faixas"].values()) or 1
+    rot = [("ok", "até 3 meses", "#4CC38A"), ("atencao", "3 a 5 meses · atenção", "#f0c060"),
+           ("critico", "mais de 5 meses · crítico", "#E5534B")]
+    return "".join(
+        f'<div style="margin-top:8px"><div style="display:flex;justify-content:space-between;font-size:13px">'
+        f'<span>{r}</span><b style="color:{c}">{_r0(pn["faixas"][f])}</b></div>'
+        f'<div style="height:8px;border-radius:4px;background:#222;margin-top:4px">'
+        f'<div style="width:{pn["faixas"][f] / tot * 100:.0f}%;height:8px;border-radius:4px;background:{c}">'
+        f'</div></div></div>' for f, r, c in rot)
+
+
+def _meses_txt(dias):
+    if dias is None:
+        return "—"
+    m = dias // 30
+    return f"{m} mês" if m == 1 else (f"{m} meses" if m else f"{dias} dias")
+
+
+def _marcar(pid, quem):
+    try:
+        E.marcar_comprado(pid, quem, _quando())
+        _avisar("✓ Marcado como comprado.")
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", True)
+
+
+def tabela_produtos(linhas, busca=""):
+    """As linhas da tabela, filtradas pela busca como TEXTO (passo 13). Pura.
+
+    Busca por nome, variação, código do fornecedor ou código de barras. O
+    "+" de "Porta 2 Relógio + Jóias" é letra, não padrão.
+    """
+    b = " ".join(str(busca or "").lower().split())
+    fora = []
+    for l in linhas:
+        p = l["produto"]
+        alvo = " ".join(str(x or "").lower() for x in (p.get("nome"), p.get("variacao"),
+                                                       p.get("codigo_fornecedor"), p.get("ean")))
+        if b and b not in " ".join(alvo.split()) and E.limpar_codigo(b) != E.limpar_codigo(p.get("ean")):
+            continue
+        fora.append(l)
+    return sorted(fora, key=lambda l: -l["valor"])
+
+
+def _painel(quem):
+    import gdrive
+    import pandas as pd
+    import placar_core as _pc
+    ss = st.session_state
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    try:
+        prods, movs, codigos = E.carregar()
+        marcados = E.marcados_de(E.compras())
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    pn = E.painel(prods, movs, _pc.agora_br().date())
+    st.markdown(topo_painel_html(pn), unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Tempo parado · conta desde o registro**")
+        st.markdown(faixas_html(pn), unsafe_allow_html=True)
+        for l in pn["parados"][:5]:
+            p = l["produto"]
+            cor = "#E5534B" if l["faixa"] == "critico" else "#f0c060"
+            st.markdown(f'<div style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:6px">'
+                        f'{foto_html(p.get("foto_id"), 30)}<b style="flex:1">{_esc(E.nome_completo(p))}</b>'
+                        f'<span style="color:{cor};font-weight:800">{_meses_txt(l["dias"])}</span>'
+                        f'<span>{max(l["fisico"], 0) + max(l["full"], 0)} un</span>'
+                        f'<b>{_r0(l["valor"])}</b></div>', unsafe_allow_html=True)
+        if len(pn["parados"]) > 5:
+            st.caption(f'+ {len(pn["parados"]) - 5} — estão todos na tabela abaixo, pela coluna "No estoque há".')
+    with c2:
+        st.markdown("**Lista de compra do Renan**")
+        lista = E.lista_de_compra(prods, movs, codigos, marcados)
+        if not lista:
+            st.caption("Nada faltando.")
+        for i in lista:
+            p = i["produto"]
+            a, b = st.columns([3, 1.2])
+            a.markdown(f'**{_esc(E.nome_completo(p))}**  \n:red[{_esc(i["motivo"])}]')
+            if i["comprado"]:
+                b.markdown(":green[✓ comprado]")
+            else:
+                b.button("marcar comprado", key=f"est_cmp_{p['id']}", on_click=_marcar,
+                         args=(p["id"], quem), use_container_width=True)
+        st.caption("Entra sozinho quando vende sem estoque ou um kit trava. Sai sozinho quando a "
+                   "mercadoria dá entrada.")
+    st.markdown("**Todos os produtos**")
+    busca = st.text_input("Buscar", key="est_busca", placeholder="🔎 nome, código ou bipe",
+                          label_visibility="collapsed")
+    linhas = tabela_produtos(pn["linhas"], busca)
+    df = pd.DataFrame([{
+        "foto": gdrive.url_thumbnail(l["produto"].get("foto_id"), 120) if l["produto"].get("foto_id") else "",
+        "Produto": E.nome_completo(l["produto"]),
+        "Código": l["produto"].get("codigo_fornecedor") or l["produto"].get("ean"),
+        "Físico": l["fisico"], "Full": l["full"], "Custo": _rs(l["custo"]), "Valor": _r0(l["valor"]),
+        "No estoque há": _meses_txt(l["dias"]),
+        "Última saída": l["ultima_saida"].strftime("%d/%m") if l["ultima_saida"] else "—",
+    } for l in linhas])
+    if df.empty:
+        st.caption("Nenhum produto" + (" com essa busca." if busca else " cadastrado ainda."))
+        return
+    ev = st.dataframe(df, hide_index=True, use_container_width=True, on_select="rerun",
+                      selection_mode="single-row", key="est_tab",
+                      column_config={"foto": st.column_config.ImageColumn("", width="small")})
+    st.caption(f"{len(linhas)} produto(s)" + (f" com «{busca.strip()}»" if busca.strip() else ""))
+    sel = list(getattr(getattr(ev, "selection", None), "rows", []) or [])
+    if sel and sel[0] < len(linhas):
+        p = linhas[sel[0]]["produto"]
+        st.markdown(f"**Histórico · {_esc(E.nome_completo(p))}**")
+        hist = [m for m in movs if m.get("produto_id") == p["id"]][-30:]
+        st.dataframe(pd.DataFrame([{"Quando": m.get("quando"), "O quê": m.get("tipo"),
+                                    "Onde": "Full" if m.get("local") == E.FULL else "físico",
+                                    "Qtd": E.inteiro(m.get("qtd")), "Quem": m.get("quem"),
+                                    "Obs": m.get("obs")} for m in reversed(hist)]),
+                     hide_index=True, use_container_width=True)
+    else:
+        st.caption("Clique numa linha para ver o histórico de entradas e saídas do produto.")
+
+
 # ── a página ─────────────────────────────────────────────────────────────────
 
 def pagina(usuario_logado=None):
@@ -1076,6 +1223,9 @@ def pagina(usuario_logado=None):
         return
     if modo == "🧩 Kits":
         _kits(quem)
+        return
+    if modo == "📊 Painel":
+        _painel(quem)
         return
     _entrada(quem)
 
@@ -1148,8 +1298,8 @@ if __name__ == "__main__":
        "sem foto" in foto_html("") and "thumbnail?id=abc" in foto_html("abc"))
     ok("o foco não rouba o campo de quem está digitando",
        "digitando" in _FOCO and "est_bipe" in _FOCO and "location" not in _FOCO)
-    ok("modos: as seis partes aprovadas; Entrada, Saída, Baixas e Kits prontas",
-       len(MODOS) == 6 and set(EM_CONSTRUCAO) == set(MODOS) - set(MODOS[:4]))
+    ok("modos: as seis partes aprovadas; só a Contagem por fazer",
+       len(MODOS) == 6 and set(EM_CONSTRUCAO) == {"📱 Contagem"})
     ok("destinos da saída: venda e envio ao Full",
        set(DESTINOS.values()) == {E.VENDA, E.ENVIO_FULL})
     _kit = E.linhas_de_saida([(prods[0], 1), (prods[1], 1)], E.VENDA, "leo", "x", obs="Kit com 2")
@@ -1178,6 +1328,18 @@ if __name__ == "__main__":
     ok("kit_card_html: nome escapado, 2× no item dobrado, não monta e diz o que falta, custo",
        "Kit &lt;A&gt;" in _kc and "2× Bailarina" in _kc and "dá para montar: 0 · falta" in _kc
        and "Sentada" in _kc.split("falta")[1] and "R$ 55,20" in _kc and "#E5534B" in _kc)
+    import datetime as _dtt
+    _pnl = E.painel(prods, ent, _dtt.date(2026, 11, 11))
+    _tp = topo_painel_html(_pnl)
+    ok("topo_painel_html: os quatro quadros, valor a custo",
+       _tp.count("border-radius:12px") == 4 and "R$ 147" in _tp and "ESTOQUE FULL" in _tp)
+    ok("faixas_html: três faixas", faixas_html(_pnl).count("height:8px;border-radius:4px;background:#222") == 3)
+    _real = E.linhas_de_produto("9", "PRJ-2", "Porta 2 Relógio + Jóias", 31.5, [("", "")], "l", "x")
+    _linhas = [{"produto": p, "valor": 1.0} for p in prods + _real]
+    ok("tabela_produtos: busca o nome REAL com + como texto, e por código bipado",
+       [l["produto"]["nome"] for l in tabela_produtos(_linhas, "relógio + jóias")] == ["Porta 2 Relógio + Jóias"]
+       and len(tabela_produtos(_linhas, "7891 234567895")) == 2 and len(tabela_produtos(_linhas, "")) == 3
+       and tabela_produtos(_linhas, "(P/M) ?") == [])
     ok("janela_html: nome escapado e o aviso de vários modelos",
        "&lt;resina&gt;" in janela_html(prods, {}) and "MAIS DE UM MODELO" in janela_html(prods, {}))
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))

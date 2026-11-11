@@ -117,6 +117,9 @@ if aba == "Estoque":
     _E.atualizar_produtos = lambda m: [p.update(m.get(p["id"], {{}})) for p in _db["p"]] and 1
     _E.salvar_foto = lambda d, n: ("", None)
     _E.atualizar_codigos = lambda m: [k.update(m.get(k["codigo"], {{}})) for k in _db["c"]] and 1
+    _db.setdefault("cmp", [])
+    _E.compras = lambda: list(_db["cmp"])
+    _E.marcar_comprado = lambda pid, q, w: _db["cmp"].append({{"produto_id": pid, "marcado_em": w}}) or 1
     st.markdown("KITS=" + ";".join(k["nome"] for k in _db["c"] if k["tipo"] == "kit"))
     _s = _E.saldos(_db["m"])
     st.markdown("SALDO=" + ",".join(f'{{p["variacao"] or p["nome"]}}:{{_s.get((p["id"], "fisico"), 0)}}'
@@ -373,6 +376,27 @@ def main():
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: kit montado por bipe, listado, e vendido tira a receita "
                   f"(lista={_lista}, código={_kcod.group(1) if _kcod else None}, {_kv})")
+            # PAINEL (Parte 5, 11/11): a venda sem estoque cai na lista do
+            # Renan sozinha, o "comprado" fica gravado, e a busca acha o nome
+            # com símbolo como TEXTO.
+            pg.get_by_text("Painel", exact=True).nth(1).click()
+            pg.wait_for_timeout(3500)
+            _ptxt = pg.inner_text("body")
+            _renan = "vendeu sem estoque" in _ptxt
+            pg.get_by_role("button", name="marcar comprado").first.click()
+            pg.wait_for_timeout(3000)
+            _cmp = "✓ comprado" in pg.inner_text("body")
+            pg.get_by_placeholder("🔎 nome, código ou bipe").fill("bailarina (p/m) + base")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            # A tabela é desenhada em canvas: o texto das células não chega ao
+            # inner_text. Conta-se pela legenda que a tela escreve embaixo.
+            _achou = _re.search(r"(\d+) produto\(s\) com «bailarina", pg.inner_text("body"))
+            ok = _renan and _cmp and _achou is not None and _achou.group(1) == "2"
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: painel põe a venda sem estoque na lista do Renan, "
+                  f"grava o comprado e busca o nome com símbolo (renan={_renan}, comprado={_cmp}, "
+                  f"busca={_achou.group(1) if _achou else None})")
             nav.close()
     except Exception as e:
         falhas += 1
