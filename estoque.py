@@ -828,6 +828,8 @@ if __name__ == "__main__":
     _dz = linhas_que_desfazem(_qb[0]["lote"], _qb, "leo", "x")
     ok("baixas_do_mes: a quebra desfeita sai da perda",
        baixas_do_mes(_qb + _dz, 2026, 11)["perda"] == 0)
+    ok("PERDAS: quebra, descarte e doação — devolução NÃO é perda por si",
+       PERDAS == (QUEBRA, DESCARTE, DOACAO) and DEVOLUCAO not in PERDAS)
     ok("cabecalho_completo: coluna nova entra no fim, a ordem velha fica",
        cabecalho_completo(["id", "lote", "x"], ["id", "pedido", "lote"]) == ["id", "lote", "x", "pedido"])
     try:
