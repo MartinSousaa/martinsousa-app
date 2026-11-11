@@ -3298,6 +3298,18 @@ def _chat_no_centro(conta):
               "slot_do_chat" in _chamadas_ap,
               "o chat voltou a ser desenhado so na barra lateral de 284px, "
               "que e o defeito que o dono pediu para corrigir")
+        # O ESTOQUE NAS DUAS BARRAS DA EQUIPE (dono, 11/11): a de admin
+        # (`_render_abas_operacao`) e a de colaborador. Uma so seria a
+        # Forma 1 — quem empacota sem perfil admin nao acharia a tela.
+        _abas_est = [_d for _d in _ast_ap.walk(_arv_ap) if isinstance(_d, _ast_ap.Dict)
+                     and any(isinstance(_k, _ast_ap.Constant) and _k.value == "🙋 Abono"
+                             for _k in _d.keys)]
+        conta("o Estoque esta nas duas barras da equipe (admin e colaborador)",
+              len(_abas_est) == 2 and all(
+                  any(isinstance(_k, _ast_ap.Constant) and _k.value == "📦 Estoque" for _k in _d.keys)
+                  for _d in _abas_est),
+              "o dono abriu o Estoque para a equipe toda; numa barra so, "
+              "metade da equipe nao acha a tela de bipar")
         conta("e ele ZERA esse lugar no comeco de cada passada",
               "esquecer_slot_do_chat" in _chamadas_ap,
               "sem zerar, o conteiner da passada anterior continua valendo e "

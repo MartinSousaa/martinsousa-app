@@ -5243,6 +5243,14 @@ MUTACOES = [
         None,
         ["python3", "estoque.py"],
     ),
+    (
+        'o Estoque volta a faltar na barra dos colaboradores (11/11)',
+        "app.py",
+        [("        # Estoque para a equipe toda (dono, 11/11) — a mesma da barra de admin.\n"
+          "        \"📦 Estoque\":              lambda: _abrir('estoque_tela', 'pagina', usuario_logado),\n", "")],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
 ]
 
 

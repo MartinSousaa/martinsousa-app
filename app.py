@@ -2067,6 +2067,10 @@ def _render_abas_operacao(usuario_logado):
         "Vídeo":                  lambda: _abrir('video', 'pagina_video', usuario_logado),
         "Calculadora de Preço Mínimo":       _render_analise_venda_tab,
         "Histórico":              atividades.pagina_historico,
+        # ESTOQUE PARA A EQUIPE TODA (dono, 11/11): quem empacota e o Renan
+        # bipam aqui. A mesma tela de Gestão › Operacional — nas DUAS barras,
+        # a de admin e a de colaborador.
+        "📦 Estoque":             lambda: _abrir('estoque_tela', 'pagina', usuario_logado),
         "🙋 Abono":               lambda: analise_metas.pagina_pedir_abono(usuario_logado),
     }, "aba")
 
@@ -2297,6 +2301,8 @@ else:
         "Histórico":              atividades.pagina_historico,
         "🏆 Painel de Metas":      lambda: placar.pagina_placar(usuario_logado),
         "📊 Análise de Metas":     lambda: analise_metas.pagina_analise_metas(usuario_logado),
+        # Estoque para a equipe toda (dono, 11/11) — a mesma da barra de admin.
+        "📦 Estoque":              lambda: _abrir('estoque_tela', 'pagina', usuario_logado),
         # Tópico próprio, e não uma aba dentro de Análise de Metas: pedir abono
         # é coisa de quem lembrou de uma hora trabalhada, não de quem está
         # analisando meta. Escondido lá dentro, ninguém achava.
