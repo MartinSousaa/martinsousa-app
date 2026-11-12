@@ -561,8 +561,10 @@ def main():
             _pacote = "pacote de 3" in pg.inner_text("body")
             pg.get_by_label("Produto", exact=True).fill("Caneca (P) + tampa")
             pg.get_by_label("SKU (varejo)").fill("  ms-3500 ")
-            pg.get_by_label("Quantidade entrando").fill("4")
-            pg.get_by_text("Atacado", exact=True).click()
+            # Duas quantidades no lugar do «Esta compra é» (dono, 12/11).
+            pg.get_by_label("Qtd atacado").fill("4")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(1500)
             pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
             pg.wait_for_timeout(3500)
             _btxt = pg.inner_text("body")
