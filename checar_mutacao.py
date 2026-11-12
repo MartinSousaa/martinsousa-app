@@ -5522,6 +5522,13 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'a lista de Produtos sem EAN volta a mostrar os de EAN de fabrica (12/11)',
+        "estoque_tela.py",
+        [("        if not ean or (not todos and not eh_codigo_do_studio(ean)):", "        if not ean:")],
+        None,
+        ["python3", "estoque_tela.py"],
+    ),
 ]
 
 

@@ -627,6 +627,30 @@ def main():
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: a barra procura pelo SKU e o clique age como o "
                   f"bipe; o que não existe é dito (achou={_achou_b}, {_depois_b[-30:]}, nada={_nada})")
+            # PRODUTOS SEM EAN (dono, 12/11): a lista acha pela palavra, desenha
+            # o código grande, e o código lido da tela sai como um bipe.
+            pg.get_by_role("button", name=_re.compile("Produtos sem EAN")).click()
+            pg.wait_for_timeout(2000)
+            _vazio = "Nenhum produto sem EAN" in pg.inner_text("body")
+            pg.get_by_text("Mostrar também os com EAN de fábrica").click()
+            pg.wait_for_timeout(1500)
+            pg.locator(".st-key-est_sem_ean_busca input").fill("embaralhador")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _lista = pg.inner_text("body")
+            _um = "1 de" in _lista and pg.locator("mark").count() >= 1 and pg.locator("svg").count() >= 1
+            _antes_e = _sal()
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("5901234123457", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _depois_e = _sal()
+            _n0 = int(_re.search(r"Embaralhador automático:(-?\d+)", _antes_e).group(1))
+            _n1 = int(_re.search(r"Embaralhador automático:(-?\d+)", _depois_e).group(1))
+            ok = _vazio and _um and _n1 == _n0 - 1 and len(navegou) == 1
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: Produtos sem EAN acha pela palavra, desenha o código "
+                  f"e o código lido sai como bipe (vazio={_vazio}, achou={_um}, {_n0} → {_n1})")
             nav.close()
     except Exception as e:
         falhas += 1
