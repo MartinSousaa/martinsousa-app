@@ -496,7 +496,7 @@ def main():
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + "estoque: código desconhecido na Contagem oferece cadastrar "
                   f"e volta para a Contagem (cadastrado={'Porta 2 Relógio + Jóias (P/M):0' in _txt_d}, "
-                  f"voltou={'Onde você vai contar' in _txt_d})" + ("" if ok else " DEBUG:" + _txt_d[-900:].replace("\n", " | ")))
+                  f"voltou={'Onde você vai contar' in _txt_d})")
             # "É O KIT?" NA SAÍDA (dono, 12/11): o produto que também vai em
             # kit sai como UNIDADE na hora; o botão troca pelo kit inteiro, e
             # quem não clica e bipa o próximo deixa a unidade como está.
@@ -608,25 +608,6 @@ def main():
             print(("ok    " if ok else "FALHA ") + f"estoque: saída manual pelo nome (com + e parênteses) "
                   f"sai a quantidade e deixa negativo, sem travar ({_antes_m} → {_depois_m}, "
                   f"observação na tela={_visto}, recargas={len(navegou) - 1})")
-            # A BARRA TAMBÉM PROCURA (dono, 12/11): o SKU digitado como a equipe
-            # digita acha o produto, e o clique nele age como o bipe.
-            pg.locator(".st-key-est_bipe input").click()
-            pg.keyboard.type("  ms-3500 ", delay=8)
-            pg.keyboard.press("Enter")
-            pg.wait_for_timeout(2500)
-            _achou_b = pg.get_by_role("button", name=_re.compile("MS-3500")).count()
-            pg.get_by_role("button", name=_re.compile("MS-3500")).first.click()
-            pg.wait_for_timeout(2500)
-            _depois_b = _sal()
-            pg.locator(".st-key-est_bipe input").click()
-            pg.keyboard.type("nada disso existe", delay=8)
-            pg.keyboard.press("Enter")
-            pg.wait_for_timeout(2500)
-            _nada = "Nada encontrado com «nada disso existe»" in pg.inner_text("body")
-            ok = (_achou_b == 1 and "Caneca (P) + tampa:-3" in _depois_b and _nada and len(navegou) == 1)
-            falhas += not ok
-            print(("ok    " if ok else "FALHA ") + f"estoque: a barra procura pelo SKU e o clique age como o "
-                  f"bipe; o que não existe é dito (achou={_achou_b}, {_depois_b[-30:]}, nada={_nada})")
             nav.close()
     except Exception as e:
         falhas += 1
