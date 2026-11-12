@@ -5514,6 +5514,14 @@ MUTACOES = [
         None,
         ["python3", "lpv_mensal.py"],
     ),
+    (
+        'a barra do estoque volta a so aceitar codigo de barras (12/11)',
+        "estoque_tela.py",
+        [("    if prods is not None and not eh_codigo_cadastrado(prods, codigos, cod) and procurar(bruto):",
+          "    if False:")],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 

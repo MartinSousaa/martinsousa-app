@@ -679,7 +679,7 @@ Uma aba tem UM dono: o lugar onde o dado é digitado. O outro lado é consulta.
 | Não operacionais | ADS E CROSS |
 | Cheques (preenchimento e baixa) | SIMPLES - FLEX |
 | Devoluções | AJUSTE DE PLANILHA |
-| | PREÇO DE CUSTO — **o Studio NÃO deve considerar** |
+| | PREÇO DE CUSTO — o Studio LÊ o custo por SKU dela no cadastro do estoque (dono, 12/11; até então "não considerar") |
 | | BASE DE VENDAS 2026 (o Studio lê para os indicadores) |
 
 Depende do que ainda não existe: **A RECEBER** precisa de integração com as
