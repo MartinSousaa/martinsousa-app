@@ -5542,6 +5542,14 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'a Shopee 2 volta a trocar o code com o app da Shopee 1 (12/11)',
+        "shopee_api.py",
+        [("def _post_publico(caminho, corpo, loja=None):\n    pid, chave = credenciais(loja)",
+          "def _post_publico(caminho, corpo, loja=None):\n    pid, chave = credenciais()")],
+        None,
+        ["python3", "shopee_api.py"],
+    ),
 ]
 
 
