@@ -5378,6 +5378,48 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'a saida volta a tirar do ATACADO antes do varejo (12/11)',
+        "estoque.py",
+        [('    fora, resto = [], int(q)\n    for o in ORIGENS:', '    fora, resto = [], int(q)\n    for o in reversed(ORIGENS):')],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'o desfazer volta a esquecer a origem da peca (12/11)',
+        "estoque.py",
+        [('             "origem": origem_de(m)}', '             "origem": ""}')],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'o SKU de PACOTE volta a passar como se fosse da unidade (12/11)',
+        "estoque.py",
+        [('    if l["qtd"] > 1:', '    if l["qtd"] > 99:')],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'a edicao volta a pular em silencio a coluna que a aba nao tem (12/11)',
+        "estoque.py",
+        [('    if novas:\n        cab2 =', '    if False:\n        cab2 =')],
+        None,
+        ["python3", "estoque.py"],
+    ),
+    (
+        'a unidade bipada volta a nao perguntar se era kit (12/11)',
+        "estoque_tela.py",
+        [('        if lote and not k:\n            _perguntar_kit(lote, itens[0][0]["id"], codigos)', '        if False:\n            pass')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
+    (
+        'o Painel volta a nao avisar dos produtos sem SKU (12/11)',
+        "estoque_tela.py",
+        [('    _alerta_sem_sku(prods)\n', '')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 

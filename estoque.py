@@ -32,11 +32,20 @@ import secrets
 
 ABA_PRODUTOS = "estoque_produtos"
 COL_PRODUTOS = ["id", "ean", "codigo_fornecedor", "nome", "variacao", "custo",
-                "foto_id", "registrado_em", "registrado_por", "ativo"]
+                "foto_id", "registrado_em", "registrado_por", "ativo",
+                "sku", "sku_atacado", "custo_atacado"]
 
 ABA_MOV = "estoque_movimentos"
 COL_MOV = ["id", "lote", "quando", "tipo", "local", "produto_id", "qtd",
-           "custo_unit", "quem", "obs", "desfaz", "pedido", "foto_id"]
+           "custo_unit", "quem", "obs", "desfaz", "pedido", "foto_id", "origem"]
+
+# ATACADO E VAREJO (dono, 12/11): o mesmo produto chega por duas compras, cada
+# uma com o seu SKU e o seu custo. A entrada diz de qual veio; TODA saída
+# (venda, Full, quebra, ajuste de contagem) tira do VAREJO primeiro — "quando
+# zerar as unidades cadastradas no varejo, ele volta a debitar as unidades do
+# atacado". Linha antiga, sem origem, é varejo: era o único que existia.
+VAREJO, ATACADO = "varejo", "atacado"
+ORIGENS = (VAREJO, ATACADO)
 
 ABA_CONTAGENS = "estoque_contagens"
 COL_CONTAGENS = ["id", "aberta_em", "aberta_por", "fechada_em", "fechada_por"]
@@ -260,6 +269,51 @@ def saldos(movs):
     return s
 
 
+def origem_de(m):
+    o = str(m.get("origem") or "").strip()
+    return o if o in ORIGENS else VAREJO
+
+
+def saldos_por_origem(movs):
+    """{(produto_id, local, origem): quantidade}. Pura."""
+    s = {}
+    for m in movs:
+        ch = (str(m.get("produto_id")), str(m.get("local") or FISICO), origem_de(m))
+        s[ch] = s.get(ch, 0) + inteiro(m.get("qtd"))
+    return s
+
+
+def custo_de(p, origem=VAREJO):
+    """O custo unitário da peça pela origem. Atacado sem custo próprio usa o
+    do varejo: custo zero faria o estoque valer menos do que vale. Pura."""
+    if origem == ATACADO and numero(p.get("custo_atacado"), -1) > 0:
+        return numero(p.get("custo_atacado"))
+    return numero(p.get("custo"))
+
+
+def repartir(saldo_o, pid, local, q):
+    """De onde saem `q` peças: VAREJO primeiro, depois ATACADO. Pura.
+
+    Devolve [(origem, qtd)] e ATUALIZA `saldo_o` (para o próximo item do
+    mesmo lote ver o que sobrou). O que passar dos dois sai do varejo e o
+    deixa negativo — a venda sem peça continua aparecendo, como sempre.
+    """
+    fora, resto = [], int(q)
+    for o in ORIGENS:
+        tem = max(saldo_o.get((pid, local, o), 0), 0)
+        n = min(tem, resto)
+        if n > 0:
+            fora.append((o, n))
+            resto -= n
+    if resto > 0:
+        fora.append((VAREJO, resto))
+    juntos = {}
+    for o, n in fora:
+        juntos[o] = juntos.get(o, 0) + n
+        saldo_o[(pid, local, o)] = saldo_o.get((pid, local, o), 0) - n
+    return [(o, juntos[o]) for o in ORIGENS if juntos.get(o)]
+
+
 def lotes_desfeitos(movs):
     return {str(m.get("desfaz")) for m in movs if str(m.get("desfaz") or "").strip()}
 
@@ -290,7 +344,8 @@ def _id(prefixo):
     return prefixo + secrets.token_hex(5)
 
 
-def linhas_de_produto(ean, codigo_fornecedor, nome, custo, variacoes, quem, quando):
+def linhas_de_produto(ean, codigo_fornecedor, nome, custo, variacoes, quem, quando,
+                      sku="", sku_atacado="", custo_atacado=""):
     """As linhas de `estoque_produtos` de um cadastro novo. Pura.
 
     `variacoes` = [(nome_da_variacao, foto_id)]; produto sem variação passa
@@ -300,12 +355,16 @@ def linhas_de_produto(ean, codigo_fornecedor, nome, custo, variacoes, quem, quan
              "codigo_fornecedor": str(codigo_fornecedor or "").strip(),
              "nome": str(nome or "").strip(), "variacao": str(v or "").strip(),
              "custo": f"{float(custo or 0):.2f}", "foto_id": foto or "",
-             "registrado_em": quando, "registrado_por": quem, "ativo": "1"}
+             "registrado_em": quando, "registrado_por": quem, "ativo": "1",
+             "sku": normalizar_sku(sku), "sku_atacado": normalizar_sku(sku_atacado),
+             "custo_atacado": (f"{float(custo_atacado):.2f}" if str(custo_atacado).strip() else "")}
             for v, foto in variacoes]
 
 
-def linhas_de_entrada(itens, quem, quando, tipo=ENTRADA, local=FISICO, obs=""):
+def linhas_de_entrada(itens, quem, quando, tipo=ENTRADA, local=FISICO, obs="", origem=VAREJO):
     """As linhas de movimento de um CONFIRMAR. `itens` = [(produto, qtd)]. Pura.
+
+    `origem`: VAREJO ou ATACADO — de qual compra a peça veio, e o custo dela.
 
     Quantidade zero não grava linha: a posição que não entrou não aparece no
     histórico como se tivesse entrado.
@@ -314,17 +373,21 @@ def linhas_de_entrada(itens, quem, quando, tipo=ENTRADA, local=FISICO, obs=""):
     sinal = -1 if tipo not in (ENTRADA,) else 1
     return [{"id": _id("M"), "lote": lote, "quando": quando, "tipo": tipo,
              "local": local, "produto_id": p["id"], "qtd": str(sinal * int(q)),
-             "custo_unit": f'{numero(p.get("custo")):.2f}', "quem": quem,
-             "obs": obs, "desfaz": ""}
+             "custo_unit": f'{custo_de(p, origem):.2f}', "quem": quem,
+             "obs": obs, "desfaz": "", "origem": origem}
             for p, q in itens if int(q or 0) > 0]
 
 
-def linhas_de_saida(itens, destino, quem, quando, obs="", full=""):
+def linhas_de_saida(itens, destino, quem, quando, obs="", full="", movs=()):
     """As linhas de um bipe na SAÍDA. `itens` = [(produto, qtd)]. Pura.
 
     VENDA tira do físico. ENVIO PARA O FULL tira do físico e SOMA no Full
     da conta escolhida — duas linhas no mesmo lote, e o desfazer devolve as
     duas (Parte 2, 11/11).
+
+    `movs`: os movimentos de ANTES — é por eles que a saída sabe quanto há
+    de varejo e de atacado, e tira do varejo primeiro. A peça que vai ao Full
+    leva a origem com ela.
     """
     if destino not in (VENDA, ENVIO_FULL):
         raise ValueError(f"destino de saída desconhecido: {destino!r}")
@@ -332,21 +395,23 @@ def linhas_de_saida(itens, destino, quem, quando, obs="", full=""):
         raise ValueError(f"envio ao Full sem dizer qual: {full!r}")
     lote = _id("L")
     fora = []
+    saldo_o = saldos_por_origem(movs)
     for p, q in itens:
         q = int(q or 0)
         if q <= 0:
             continue
-        base = {"lote": lote, "quando": quando, "tipo": destino, "produto_id": p["id"],
-                "custo_unit": f'{numero(p.get("custo")):.2f}', "quem": quem, "obs": obs,
-                "desfaz": ""}
-        fora.append({**base, "id": _id("M"), "local": FISICO, "qtd": str(-q)})
-        if destino == ENVIO_FULL:
-            fora.append({**base, "id": _id("M"), "local": full, "qtd": str(q)})
+        for origem, n in repartir(saldo_o, p["id"], FISICO, q):
+            base = {"lote": lote, "quando": quando, "tipo": destino, "produto_id": p["id"],
+                    "custo_unit": f'{custo_de(p, origem):.2f}', "quem": quem, "obs": obs,
+                    "desfaz": "", "origem": origem}
+            fora.append({**base, "id": _id("M"), "local": FISICO, "qtd": str(-n)})
+            if destino == ENVIO_FULL:
+                fora.append({**base, "id": _id("M"), "local": full, "qtd": str(n)})
     return fora
 
 
 def linhas_de_baixa(p, q, motivo, quem, quando, local=FISICO, volta=False,
-                    obs="", pedido="", foto_id=""):
+                    obs="", pedido="", foto_id="", movs=()):
     """As linhas de uma quebra, descarte, doação ou devolução. Pura.
 
     QUEBRA, DESCARTE, DOAÇÃO: tiram do estoque (físico ou Full) e são PERDA.
@@ -354,6 +419,8 @@ def linhas_de_baixa(p, q, motivo, quem, quando, local=FISICO, volta=False,
     DEVOLUÇÃO que voltou RUIM: a peça JÁ tinha saído na venda — tirar de
     novo deixaria o estoque uma peça abaixo do que existe. Ela entra e sai no
     mesmo lote (saldo não muda), e a linha de saída é a perda.
+    A perda tira do VAREJO primeiro (`movs` = os movimentos de antes); a
+    devolução volta como varejo.
     """
     q = int(q or 0)
     if q <= 0:
@@ -362,10 +429,12 @@ def linhas_de_baixa(p, q, motivo, quem, quando, local=FISICO, volta=False,
         raise ValueError(f"motivo desconhecido: {motivo!r}")
     lote = _id("L")
     base = {"lote": lote, "quando": quando, "produto_id": p["id"],
-            "custo_unit": f'{numero(p.get("custo")):.2f}', "quem": quem, "obs": obs,
-            "desfaz": "", "pedido": pedido, "foto_id": foto_id}
+            "custo_unit": f'{custo_de(p):.2f}', "quem": quem, "obs": obs,
+            "desfaz": "", "pedido": pedido, "foto_id": foto_id, "origem": VAREJO}
     if motivo in PERDAS:
-        return [{**base, "id": _id("M"), "tipo": motivo, "local": local, "qtd": str(-q)}]
+        return [{**base, "id": _id("M"), "tipo": motivo, "local": local, "qtd": str(-n),
+                 "origem": o, "custo_unit": f"{custo_de(p, o):.2f}"}
+                for o, n in repartir(saldos_por_origem(movs), p["id"], local, q)]
     linhas = [{**base, "id": _id("M"), "tipo": DEVOLUCAO, "local": FISICO, "qtd": str(q)}]
     if not volta:
         linhas.append({**base, "id": _id("M"), "tipo": DESCARTE, "local": FISICO,
@@ -436,6 +505,11 @@ def painel(produtos, movs, hoje):
     de parado o que ainda TEM peça: produto zerado não está parado.
     """
     saldo = saldos(movs)
+    # Indexado por produto UMA vez: a tela redesenha o Painel a cada tecla
+    # da busca, e varrer todos os saldos para cada produto seria P × S.
+    por_pid = {}
+    for (pid, loc, o), q in saldos_por_origem(movs).items():
+        por_pid.setdefault(pid, []).append((loc, o, q))
     ult_saida = {}
     for m in movs:
         if m.get("tipo") in (VENDA, ENVIO_FULL) + PERDAS and inteiro(m.get("qtd")) < 0:
@@ -450,10 +524,18 @@ def painel(produtos, movs, hoje):
         custo = numero(p.get("custo"))
         reg = data_de(p.get("registrado_em"))
         dias = (hoje - reg).days if reg else None
+        # O VALOR é peça a peça pelo custo DA ORIGEM: 10 de varejo a R$ 35 e
+        # 10 de atacado a R$ 28 valem 630, e não 700.
+        meus = por_pid.get(p["id"], [])
+        por_o = {o: sum(q for _l, oo, q in meus if oo == o) for o in ORIGENS}
+        v_fis = sum(max(q, 0) * custo_de(p, oo) for loc, oo, q in meus if loc == FISICO)
+        v_full = sum(max(q, 0) * custo_de(p, oo) for loc, oo, q in meus if eh_full(loc))
         linhas.append({"produto": p, "fisico": fis, "full": full, "custo": custo,
+                       "varejo": por_o[VAREJO], "atacado": por_o[ATACADO],
+                       "valor_fisico": v_fis, "valor_full": v_full,
                        "por_full": {loc: saldo.get((p["id"], loc), 0) for loc in FULLS
                                     if saldo.get((p["id"], loc), 0)},
-                       "valor": max(fis, 0) * custo + max(full, 0) * custo,
+                       "valor": v_fis + v_full,
                        "dias": dias, "faixa": faixa_de_idade(dias),
                        "ultima_saida": ult_saida.get(p["id"])})
     com_peca = [l for l in linhas if l["fisico"] > 0 or l["full"] > 0]
@@ -463,8 +545,8 @@ def painel(produtos, movs, hoje):
     total = sum(l["valor"] for l in linhas)
     return {
         "linhas": linhas, "faixas": faixas, "parados": parados, "valor": total,
-        "valor_fisico": sum(max(l["fisico"], 0) * l["custo"] for l in linhas),
-        "valor_full": sum(max(l["full"], 0) * l["custo"] for l in linhas),
+        "valor_fisico": sum(l["valor_fisico"] for l in linhas),
+        "valor_full": sum(l["valor_full"] for l in linhas),
         "pecas_fisico": sum(max(l["fisico"], 0) for l in linhas),
         "pecas_full": sum(max(l["full"], 0) for l in linhas),
         "produtos": len(com_peca),
@@ -556,14 +638,27 @@ def fechamento(produtos, movs, contados, contagem_id):
             "valor": sum(l["dif"] * numero(l["produto"].get("custo")) for l in dif)}
 
 
-def linhas_de_ajuste(fech, quem, quando, contagem_id):
-    """Os movimentos que põem o físico no que foi CONTADO. Pura."""
+def linhas_de_ajuste(fech, quem, quando, contagem_id, movs=()):
+    """Os movimentos que põem o físico no que foi CONTADO. Pura.
+
+    Faltou peça: sai do VAREJO primeiro, como toda saída. Sobrou: entra como
+    varejo — não há como saber de qual compra ela era.
+    """
     lote = _id("L")
-    return [{"id": _id("M"), "lote": lote, "quando": quando, "tipo": AJUSTE_CONTAGEM,
-             "local": FISICO, "produto_id": l["produto"]["id"], "qtd": str(l["dif"]),
-             "custo_unit": f'{numero(l["produto"].get("custo")):.2f}', "quem": quem,
-             "obs": f"contagem {contagem_id}", "desfaz": ""}
-            for l in fech["linhas"] if l["dif"]]
+    saldo_o = saldos_por_origem(movs)
+    fora = []
+    for l in fech["linhas"]:
+        if not l["dif"]:
+            continue
+        p = l["produto"]
+        partes = ([(VAREJO, l["dif"])] if l["dif"] > 0
+                  else [(o, -n) for o, n in repartir(saldo_o, p["id"], FISICO, -l["dif"])])
+        fora += [{"id": _id("M"), "lote": lote, "quando": quando, "tipo": AJUSTE_CONTAGEM,
+                  "local": FISICO, "produto_id": p["id"], "qtd": str(n),
+                  "custo_unit": f"{custo_de(p, o):.2f}", "quem": quem,
+                  "obs": f"contagem {contagem_id}", "desfaz": "", "origem": o}
+                 for o, n in partes]
+    return fora
 
 
 def marcados_de(linhas):
@@ -618,6 +713,17 @@ def itens_do_bipe(produtos, codigos, codigo):
     return [], var
 
 
+def kits_com(codigos, produto_id):
+    """Os códigos gerados (kit ou quantidade) que levam este produto. Pura.
+
+    Dono, 12/11: o produto bipado sozinho sai como UNIDADE na hora; se ele
+    também é vendido em kit, a tela pergunta "É o Kit X?" — e quem não clica
+    e bipa o próximo deixa a unidade como está.
+    """
+    pid = str(produto_id)
+    return [k for k in codigos if pid in itens_do_codigo(k)]
+
+
 def codigos_da_janela(variacoes, codigos):
     """Os códigos de quantidade/kit do mesmo produto, para a janela. Pura."""
     if not variacoes:
@@ -639,7 +745,8 @@ def linhas_que_desfazem(lote, movs, quem, quando):
     return [{"id": _id("M"), "lote": novo, "quando": quando, "tipo": DESFEITO,
              "local": m.get("local") or FISICO, "produto_id": m.get("produto_id"),
              "qtd": str(-inteiro(m.get("qtd"))), "custo_unit": m.get("custo_unit", ""),
-             "quem": quem, "obs": f'desfaz {m.get("tipo")}', "desfaz": lote}
+             "quem": quem, "obs": f'desfaz {m.get("tipo")}', "desfaz": lote,
+             "origem": origem_de(m)}
             for m in movs if str(m.get("lote")) == lote and m.get("tipo") != DESFEITO]
 
 
@@ -654,6 +761,126 @@ def linha_de_codigo(codigo, tipo, nome, produto_ean, itens, quem, quando, foto_i
 
 def todos_os_codigos(produtos, codigos):
     return [p.get("ean") for p in produtos] + [k.get("codigo") for k in codigos]
+
+
+# ── SKU e o custo do Controle MS (dono, 12/11) ───────────────────────────────
+# "precisa procurar na minha planilha Controle MS, na aba 'Histórico SKU' na
+# coluna 'B' que é 'SKU' ... e trazer o preço de custo". A aba tem B SKU,
+# C PRODUTO, D QUANTIDADE, E CUSTO. "Mesmo SKU quer dizer mesmo preço de
+# custo": produtos diferentes podem dividir o SKU, e isso não é erro.
+
+ABA_SKU = "HISTÓRICO SKU"
+
+
+def normalizar_sku(t):
+    """'  ms-3500 ' → 'MS-3500'. Espaço duplo vira um. Pura."""
+    return " ".join(str(t or "").split()).upper()
+
+
+def _sem_acento(t):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", str(t or ""))
+                   if unicodedata.category(c) != "Mn").casefold().strip()
+
+
+def aba_de_sku(nomes):
+    """O nome real da aba, aceitando 'Histórico SKU' ou 'HISTORICO SKU'. Pura."""
+    alvo = _sem_acento(ABA_SKU)
+    return next((n for n in nomes if " ".join(_sem_acento(n).split()) == alvo), "")
+
+
+def _coluna_de(colunas, nome, posicao):
+    """A coluna pelo NOME do cabeçalho; sem ele, pela posição (B=1, D=3, E=4)."""
+    alvo = _sem_acento(nome)
+    for c in colunas:
+        if _sem_acento(c) == alvo:
+            return c
+    return colunas[posicao] if len(colunas) > posicao else None
+
+
+def tabela_de_sku(colunas, registros):
+    """{SKU: {"custo", "qtd", "produto"}} a partir da aba. Pura.
+
+    `registros` = as linhas como `controle_ms.ler(...).to_dict("records")`.
+    O SKU repetido fica com a ÚLTIMA linha: o histórico cresce para baixo, e
+    o custo de baixo é o mais novo. Linha sem custo que dê número é pulada.
+    """
+    c_sku = _coluna_de(colunas, "SKU", 1)
+    c_qtd = _coluna_de(colunas, "QUANTIDADE", 3)
+    c_custo = _coluna_de(colunas, "CUSTO", 4)
+    c_prod = _coluna_de(colunas, "PRODUTO", 2)
+    t = {}
+    if not c_sku or not c_custo:
+        return t
+    for r in registros:
+        sku = normalizar_sku(r.get(c_sku))
+        bruto = r.get(c_custo)
+        custo = (float(bruto) if isinstance(bruto, (int, float)) and not isinstance(bruto, bool)
+                 else numero(str(bruto or "").replace("R$", "").strip(), -1))
+        if not sku or custo is None or custo < 0 or custo != custo:
+            continue
+        qb = r.get(c_qtd) if c_qtd else 1
+        qtd = int(qb) if isinstance(qb, (int, float)) and not isinstance(qb, bool) and qb == qb else inteiro(qb, 1)
+        t[sku] = {"custo": round(custo, 2), "qtd": max(qtd, 1),
+                  "produto": str(r.get(c_prod) or "").strip() if c_prod else ""}
+    return t
+
+
+def consulta_sku(tabela, sku):
+    """O que a tela diz do SKU digitado. Pura.
+
+    Devolve {"achou", "custo", "aviso"}. O aviso existe para o SKU de PACOTE
+    (QUANTIDADE > 1): o custo da linha é do pacote, e o Studio guarda custo
+    POR PEÇA — usar ele contaria o pacote inteiro em cada unidade.
+    """
+    sku = normalizar_sku(sku)
+    if not sku:
+        return {"achou": False, "custo": None, "aviso": ""}
+    l = tabela.get(sku)
+    if not l:
+        return {"achou": False, "custo": None,
+                "aviso": f"O SKU {sku} não está na aba {ABA_SKU} do Controle MS — "
+                         "o produto entra na lista «Produtos sem SKU»."}
+    aviso = ""
+    if l["qtd"] > 1:
+        aviso = (f"Este SKU é de um pacote de {l['qtd']} ({l['produto'] or 'sem nome'}). "
+                 "Use o SKU da UNIDADE: o custo daqui é do pacote inteiro.")
+    return {"achou": True, "custo": l["custo"], "aviso": aviso}
+
+
+def sem_sku(produtos, tabela):
+    """Os produtos para a lista «Produtos sem SKU». Pura.
+
+    Entra quem não tem SKU, e quem tem um SKU que a planilha não conhece.
+    Um por produto (as variações dividem o SKU): [(produto, motivo)].
+    """
+    fora, vistos = [], set()
+    for p in ativos(produtos):
+        ch = (limpar_codigo(p.get("ean")), str(p.get("nome") or "").strip())
+        if ch in vistos:
+            continue
+        vistos.add(ch)
+        sku = normalizar_sku(p.get("sku"))
+        if not sku:
+            fora.append((p, "sem SKU"))
+        elif tabela is not None and sku not in tabela:
+            fora.append((p, f"SKU {sku} não está na planilha"))
+    return fora
+
+
+def _tabela_de_sku_sem_cache():
+    """(tabela, erro). Lê a aba do Controle MS UMA vez por TTL."""
+    import controle_ms as _cms
+    nomes, erro = _cms.abas()
+    if erro:
+        return None, erro
+    aba = aba_de_sku(nomes)
+    if not aba:
+        return None, f"A aba «{ABA_SKU}» não existe no Controle MS."
+    df, erro = _cms.ler(aba)
+    if erro:
+        return None, erro
+    return tabela_de_sku(list(df.columns), df.to_dict("records")), ""
 
 
 # ── planilha (efeito) ────────────────────────────────────────────────────────
@@ -693,7 +920,11 @@ try:
     # 20 s, e não 2 min: com várias pessoas contando, o fechamento precisa
     # ver o que o celular do outro acabou de gravar.
     contagem = _st.cache_data(ttl=20, show_spinner=False)(_contagem_sem_cache)
+    # Dez minutos, o mesmo TTL do download (`controle_ms.TTL_SEG`): sem cache
+    # o Painel abriria o .xlsx de 12 MB a cada tecla.
+    tabela_de_sku_da_planilha = _st.cache_data(ttl=600, show_spinner=False)(_tabela_de_sku_sem_cache)
 except Exception:          # fora do Streamlit (auto-teste)
+    tabela_de_sku_da_planilha = _tabela_de_sku_sem_cache
     carregar = _carregar_sem_cache
     compras = _compras_sem_cache
     contagem = _contagem_sem_cache
@@ -790,6 +1021,16 @@ def _atualizar(nome, colunas, chave, mudancas):
     a = _aba(nome, colunas)
     valores = a.get_all_values()
     cab = [str(c).strip() for c in valores[0]] if valores else colunas
+    # A COLUNA QUE A ABA AINDA NÃO TEM (12/11): o SKU nasceu depois da aba.
+    # Antes, a mudança numa coluna ausente era PULADA em silêncio — o SKU
+    # digitado na edição sumiria. Agora ela entra no fim do cabeçalho.
+    novas = [c for m in mudancas.values() for c in m if c in colunas and c not in cab]
+    if novas:
+        cab2 = cabecalho_completo(cab, [c for c in colunas if c in cab or c in novas])
+        if a.col_count < len(cab2):
+            a.add_cols(len(cab2) - a.col_count)
+        a.update(values=[cab2], range_name="A1", value_input_option="RAW")
+        cab = cab2
     i_id = cab.index(chave)
     celulas = []
     import gspread.utils as _gu
@@ -994,9 +1235,9 @@ if __name__ == "__main__":
     finally:
         globals()["_aba"] = _real_aba
     ok("_anexar: aba de cabeçalho velho ganha as colunas no fim, e a linha cai embaixo delas",
-       _abm.valores[0] == _velho + ["pedido", "foto_id"] and _abm.col_count == 13
+       _abm.valores[0] == _velho + ["pedido", "foto_id", "origem"] and _abm.col_count == 14
        and _abm.anexado[0][1] == "M1" and _abm.anexado[0][0] == "" and _abm.anexado[0][6] == "-1"
-       and _abm.anexado[0][11:] == ["ML 9", "F"])
+       and _abm.anexado[0][11:] == ["ML 9", "F", ""])
     ok("todos_os_codigos: os de produto e os gerados, para o gerador não repetir",
        todos_os_codigos([{"ean": "A"}], [{"codigo": "B"}]) == ["A", "B"])
 
@@ -1204,6 +1445,125 @@ if __name__ == "__main__":
         ok("linhas_de_baixa: motivo desconhecido é recusado", False)
     except ValueError:
         ok("linhas_de_baixa: motivo desconhecido é recusado", True)
+
+    # ── ATACADO E VAREJO (dono, 12/11) ──────────────────────────────────────
+    # 2 de varejo a R$ 35 e 5 de atacado a R$ 28. A venda de 3 tira os 2 do
+    # varejo e 1 do atacado — "quando zerar as unidades cadastradas no
+    # varejo, ele volta a debitar as unidades do atacado".
+    _pa = linhas_de_produto("789", "AT-1", "Porta 2 Relógio + Jóias", 35, [("", "")], "l", "x",
+                            sku="ms-3500", sku_atacado="MS-2800", custo_atacado="28")[0]
+    ok("linhas_de_produto: SKU normalizado e custo do atacado",
+       _pa["sku"] == "MS-3500" and _pa["sku_atacado"] == "MS-2800" and _pa["custo_atacado"] == "28.00")
+    ok("custo_de: varejo, atacado, e atacado sem custo cai no do varejo",
+       custo_de(_pa) == 35 and custo_de(_pa, ATACADO) == 28
+       and custo_de({**_pa, "custo_atacado": ""}, ATACADO) == 35)
+    _ea = (linhas_de_entrada([(_pa, 2)], "l", "x")
+           + linhas_de_entrada([(_pa, 5)], "l", "x", origem=ATACADO))
+    ok("linhas_de_entrada: a origem e o custo DELA vão na linha",
+       [(m["origem"], m["custo_unit"]) for m in _ea] == [(VAREJO, "35.00"), (ATACADO, "28.00")])
+    _sv = linhas_de_saida([(_pa, 3)], VENDA, "l", "x", movs=_ea)
+    ok("linhas_de_saida: VAREJO primeiro, depois atacado, cada um com o seu custo",
+       sorted((m["origem"], m["qtd"], m["custo_unit"]) for m in _sv)
+       == [(ATACADO, "-1", "28.00"), (VAREJO, "-2", "35.00")])
+    _so = saldos_por_origem(_ea + _sv)
+    ok("saldos_por_origem: sobra 0 de varejo e 4 de atacado; o total segue em saldos",
+       _so[(_pa["id"], FISICO, VAREJO)] == 0 and _so[(_pa["id"], FISICO, ATACADO)] == 4
+       and saldos(_ea + _sv)[(_pa["id"], FISICO)] == 4)
+    _sv2 = linhas_de_saida([(_pa, 2)], VENDA, "l", "x", movs=_ea + _sv)
+    ok("linhas_de_saida: varejo zerado, a próxima venda sai toda do atacado",
+       [(m["origem"], m["qtd"]) for m in _sv2] == [(ATACADO, "-2")])
+    _sf = linhas_de_saida([(_pa, 3)], ENVIO_FULL, "l", "x", full="full_ml1", movs=_ea)
+    _sof = saldos_por_origem(_ea + _sf)
+    ok("linhas_de_saida (Full): a peça leva a origem para o Full",
+       _sof[(_pa["id"], "full_ml1", VAREJO)] == 2 and _sof[(_pa["id"], "full_ml1", ATACADO)] == 1)
+    _sd = linhas_que_desfazem(_sv[0]["lote"], _ea + _sv, "l", "y")
+    _sod = saldos_por_origem(_ea + _sv + _sd)
+    ok("linhas_que_desfazem: o desfazer devolve cada peça à SUA origem",
+       _sod[(_pa["id"], FISICO, VAREJO)] == 2 and _sod[(_pa["id"], FISICO, ATACADO)] == 5)
+    ok("linhas_de_saida: sem estoque nenhum, sai do varejo e ele fica negativo",
+       [(m["origem"], m["qtd"]) for m in linhas_de_saida([(_pa, 1)], VENDA, "l", "x")] == [(VAREJO, "-1")])
+    _sk = linhas_de_saida([(_pa, 1), (_pa, 2)], VENDA, "l", "x", movs=_ea)
+    ok("linhas_de_saida: o mesmo produto duas vezes no lote vê o que o primeiro já tirou",
+       sorted((m["origem"], m["qtd"]) for m in _sk) == [(ATACADO, "-1"), (VAREJO, "-1"), (VAREJO, "-1")])
+    _bq = linhas_de_baixa(_pa, 3, QUEBRA, "l", "x", movs=_ea)
+    ok("linhas_de_baixa: a quebra tira do varejo primeiro, e a perda vale pelo custo de cada um",
+       sorted((m["origem"], m["qtd"], m["custo_unit"]) for m in _bq)
+       == [(ATACADO, "-1", "28.00"), (VAREJO, "-2", "35.00")]
+       and baixas_do_mes([{**m, "quando": "12/11/2026 10:00"} for m in _bq], 2026, 11)["perda"] == 98.0)
+    _aj2 = linhas_de_ajuste({"linhas": [{"produto": _pa, "dif": -3}]}, "l", "x", "C9", movs=_ea)
+    ok("linhas_de_ajuste: faltou na contagem, sai do varejo primeiro",
+       sorted((m["origem"], m["qtd"]) for m in _aj2) == [(ATACADO, "-1"), (VAREJO, "-2")])
+    import datetime as _dta
+    _pn2 = painel([_pa], _ea, _dta.date(2026, 11, 12))
+    ok("painel: o valor é peça a peça pelo custo da origem (2×35 + 5×28 = 210)",
+       _pn2["valor"] == 210 and _pn2["linhas"][0]["varejo"] == 2 and _pn2["linhas"][0]["atacado"] == 5)
+    ok("origem_de: linha antiga sem origem é varejo", origem_de({"qtd": "1"}) == VAREJO)
+
+    # ── SKU: a CADEIA REAL (passo 6 do @) ────────────────────────────────────
+    # Um .xlsx de verdade, lido por `controle_ms.ler` — o mesmo caminho da
+    # produção. O custo chega como NÚMERO do openpyxl, e uma linha com texto
+    # "R$ 12,90" mostra que os dois tipos entram. O SKU da equipe vem com
+    # minúscula e espaço sobrando, e o produto é o nome real com + e acento.
+    import io as _io
+    import openpyxl as _ox
+    import controle_ms as _cms
+    _wb = _ox.Workbook()
+    _ws = _wb.active
+    _ws.title = "Histórico SKU"
+    _ws.append(["DATA", "SKU", "PRODUTO", "QUANTIDADE", "CUSTO"])
+    _ws.append(["01/10/2026", "MS-3500", "Porta 2 Relógio + Jóias", 1, 35.0])
+    _ws.append(["02/10/2026", "MS-9000", "Kit (3) baralhos?", 3, 90])
+    _ws.append(["03/10/2026", " ms-1290 ", "Álbum  de fotos", 1, "R$ 12,90"])
+    _ws.append(["04/10/2026", "MS-3500", "Porta 2 Relógio + Jóias", 1, 36.5])
+    _ws.append(["05/10/2026", "", "linha sem SKU", 1, 10])
+    _bf = _io.BytesIO()
+    _wb.save(_bf)
+    _bytes_real = _cms._bytes_do_arquivo
+    _cms._bytes_do_arquivo = lambda: (_bf.getvalue(), "")
+    try:
+        _tab, _err = _tabela_de_sku_sem_cache()
+    finally:
+        _cms._bytes_do_arquivo = _bytes_real
+    ok("tabela_de_sku (cadeia real, .xlsx → controle_ms.ler): número e texto, SKU repetido fica com o de baixo",
+       not _err and _tab.get("MS-3500", {}).get("custo") == 36.5 and _tab["MS-1290"]["custo"] == 12.9
+       and _tab["MS-9000"]["qtd"] == 3 and "" not in _tab and len(_tab) == 3)
+    ok("consulta_sku: acha com minúscula e espaço, e traz o custo",
+       consulta_sku(_tab, "  ms-3500") == {"achou": True, "custo": 36.5, "aviso": ""})
+    _pac = consulta_sku(_tab, "MS-9000")
+    ok("consulta_sku: SKU de PACOTE avisa para usar o da unidade",
+       _pac["achou"] and "pacote de 3" in _pac["aviso"] and "UNIDADE" in _pac["aviso"])
+    _nao = consulta_sku(_tab, "MS-0001")
+    ok("consulta_sku: SKU que a planilha não tem avisa que vai para «Produtos sem SKU»",
+       not _nao["achou"] and "Produtos sem SKU" in _nao["aviso"])
+    ok("aba_de_sku: aceita com e sem acento, maiúscula ou não",
+       aba_de_sku(["X", "HISTORICO  SKU"]) == "HISTORICO  SKU" and aba_de_sku(["Histórico SKU"]) == "Histórico SKU"
+       and aba_de_sku(["SKU"]) == "")
+    _ss = sem_sku([{**_pa, "sku": ""}, {**_pa, "id": "P2", "variacao": "b", "sku": ""},
+                   {**_pa, "id": "P3", "ean": "1", "sku": "MS-0001"},
+                   {**_pa, "id": "P4", "ean": "2", "sku": "MS-3500"}], _tab)
+    ok("sem_sku: o sem SKU entra uma vez (variações dividem), o de SKU desconhecido entra, o achado não",
+       [(p["id"], m) for p, m in _ss] == [(_pa["id"], "sem SKU"), ("P3", "SKU MS-0001 não está na planilha")])
+    ok("sem_sku: sem conseguir ler a planilha, só o vazio entra (não acusa SKU que pode estar lá)",
+       [m for _p, m in sem_sku([{**_pa, "sku": "MS-0001"}, {**_pa, "ean": "9", "sku": ""}], None)] == ["sem SKU"])
+    ok("normalizar_sku: maiúscula, sem espaço sobrando, espaço duplo vira um",
+       normalizar_sku("  ms-35  00 ") == "MS-35 00" and normalizar_sku(None) == "")
+    ok("ABA_SKU: o nome da aba que o dono deu", ABA_SKU == "HISTÓRICO SKU" and aba_de_sku([ABA_SKU]) == ABA_SKU)
+    _kc = [linha_de_codigo("2000000000015", "kit", "Kit A", "", {"P1": 2, "P2": 1}, "l", "x"),
+           linha_de_codigo("2000000000022", "quantidade", "Kit com 3", "", {"P1": 3}, "l", "x"),
+           linha_de_codigo("2000000000039", "kit", "Kit B", "", {"P3": 1}, "l", "x")]
+    ok("kits_com: os kits E as quantidades que levam o produto, e só eles",
+       [k["nome"] for k in kits_com(_kc, "P1")] == ["Kit A", "Kit com 3"] and kits_com(_kc, "P9") == [])
+    # A coluna que a aba velha não tem: o SKU digitado na edição não pode sumir.
+    _velhoP = [c for c in COL_PRODUTOS if c not in ("sku", "sku_atacado", "custo_atacado")]
+    _abp = _AbaGrava([list(_velhoP), ["P1"] + [""] * (len(_velhoP) - 1)])
+    globals()["_aba"] = lambda nome, colunas: _abp
+    try:
+        _nsk = atualizar_produtos({"P1": {"sku": "MS-3500", "nome": "x"}})
+    finally:
+        globals()["_aba"] = _real_aba
+    ok("_atualizar: a coluna que a aba ainda não tem entra no fim, e o SKU é gravado nela",
+       _abp.valores[0] == _velhoP + ["sku"] and _nsk == 2
+       and {"range": "K2", "values": [["MS-3500"]]} in _abp.celulas)
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)

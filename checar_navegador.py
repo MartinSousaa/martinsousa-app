@@ -128,6 +128,14 @@ if aba == "Estoque":
     _E.gravar_contado = lambda c, pid, qt, onde, q, w: _db["ct"].append(
         {{"contagem": c, "produto_id": pid, "qtd": str(qt), "onde": onde, "quem": q}}) or 1
     _E.fechar_contagem = lambda c, q, w: [x.update(fechada_em=w) for x in _db["cg"] if x["id"] == c] and 1
+    # A aba HISTORICO SKU do Controle MS (12/11): um SKU de unidade e um de
+    # PACOTE de 3, que o cadastro tem de recusar.
+    _E.tabela_de_sku_da_planilha = lambda: ({{"MS-3500": {{"custo": 35.0, "qtd": 1, "produto": "Caneca"}},
+                                              "MS-9000": {{"custo": 90.0, "qtd": 3, "produto": "Pacote"}}}}, "")
+    st.markdown("CUSTO=" + ";".join(f'{{p["nome"]}}§{{p.get("custo")}}§{{p.get("sku", "")}}' for p in _db["p"]))
+    st.markdown("ORIG=" + ";".join(f'{{p["nome"]}}§{{o}}§{{q}}' for (pid, loc, o), q in
+                                   _E.saldos_por_origem(_db["m"]).items() for p in _db["p"]
+                                   if p["id"] == pid and q and loc == "fisico"))
     import auth as _au
     _au.eh_gestor = lambda u: True
     st.markdown("KITS=" + ";".join(k["nome"] for k in _db["c"] if k["tipo"] == "kit"))
@@ -489,6 +497,73 @@ def main():
             print(("ok    " if ok else "FALHA ") + "estoque: código desconhecido na Contagem oferece cadastrar "
                   f"e volta para a Contagem (cadastrado={'Porta 2 Relógio + Jóias (P/M):0' in _txt_d}, "
                   f"voltou={'Onde você vai contar' in _txt_d})")
+            # "É O KIT?" NA SAÍDA (dono, 12/11): o produto que também vai em
+            # kit sai como UNIDADE na hora; o botão troca pelo kit inteiro, e
+            # quem não clica e bipa o próximo deixa a unidade como está.
+            pg.get_by_text("Saída", exact=True).click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_text("Venda", exact=True).click()
+            pg.wait_for_timeout(1500)
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("5901234123457", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _un = _sal()
+            _perg = "Era um kit?" in pg.inner_text("body")
+            pg.get_by_role("button", name=_re.compile("É o Kit Embaralhador")).click()
+            pg.wait_for_timeout(2500)
+            _ek = _sal()
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("5901234123457", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.keyboard.type("2000000000015", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _fica = _sal()
+            _sumiu = "Era um kit?" not in pg.inner_text("body")
+            ok = (_perg and _un.startswith("Braço para cima:-1,Sentada:-3,Embaralhador automático:2")
+                  and _ek.startswith("Braço para cima:-1,Sentada:-4,Embaralhador automático:1")
+                  and _fica.startswith("Braço para cima:-2,Sentada:-5,Embaralhador automático:0")
+                  and _sumiu and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: a unidade sai na hora, «É o kit?» troca pelo kit, "
+                  f"e o próximo bipe deixa a unidade (pergunta={_perg}, {_un} → {_ek} → {_fica}, "
+                  f"fechou={_sumiu})")
+            # SKU E ATACADO (dono, 12/11): o custo vem da planilha pelo SKU
+            # digitado como a equipe digita (minúscula, espaço); o SKU de
+            # PACOTE é recusado; a entrada de atacado fica marcada como tal.
+            pg.get_by_text("Entrada", exact=True).click()
+            pg.wait_for_timeout(2500)
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("7891000100103", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.get_by_role("button", name="SIM, CADASTRAR").click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_label("Produto", exact=True).fill("Caneca (P) + tampa")
+            pg.get_by_label("SKU (varejo)").fill("MS-9000")
+            pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
+            pg.wait_for_timeout(3000)
+            _pacote = "pacote de 3" in pg.inner_text("body")
+            pg.get_by_label("Produto", exact=True).fill("Caneca (P) + tampa")
+            pg.get_by_label("SKU (varejo)").fill("  ms-3500 ")
+            pg.get_by_label("Quantidade entrando").fill("4")
+            pg.get_by_text("Atacado", exact=True).click()
+            pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
+            pg.wait_for_timeout(3500)
+            _btxt = pg.inner_text("body")
+            _custo = "Caneca (P) + tampa§35.00§MS-3500" in _btxt
+            _org = "Caneca (P) + tampa§atacado§4" in _btxt
+            pg.get_by_text("Painel", exact=True).nth(1).click()
+            pg.wait_for_timeout(3500)
+            _alerta = _re.search(r"PRODUTOS SEM SKU · (\d+)", pg.inner_text("body"))
+            ok = (_pacote and _custo and _org and _alerta is not None and _alerta.group(1) == "3"
+                  and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: SKU traz o custo da planilha, pacote é recusado, "
+                  f"atacado fica marcado e o Painel lista os sem SKU (pacote={_pacote}, custo={_custo}, "
+                  f"atacado={_org}, sem SKU={_alerta.group(1) if _alerta else None})")
             nav.close()
     except Exception as e:
         falhas += 1
