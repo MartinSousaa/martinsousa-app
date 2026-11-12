@@ -188,12 +188,57 @@ def _ao_bipar():
 
     Roda como callback, ANTES de a barra ser desenhada de novo — é o único
     momento em que o Streamlit deixa trocar o valor dela.
+
+    A BARRA TAMBÉM PROCURA (dono, 12/11: "em todas as opções de estoque seja
+    possível procurar o produto por qualquer informação"). Código cadastrado
+    age como bipe, igual antes. Qualquer outra coisa — nome, SKU, código do
+    fornecedor, pedaço do código de barras — vira busca, e o produto achado
+    é ESCOLHIDO com um clique (`_escolheu`), que age como o bipe dele.
     """
     ss = st.session_state
-    cod = E.limpar_codigo(ss.get("est_bipe", ""))
+    bruto = " ".join(str(ss.get("est_bipe", "")).split())
     ss["est_bipe"] = ""
+    ss.pop("est_procura", None)
+    cod = E.limpar_codigo(bruto)
     if not cod:
         return
+    try:
+        prods, _m, codigos = E.carregar()
+    except Exception:
+        prods, codigos = None, []
+    if prods is not None and not eh_codigo_cadastrado(prods, codigos, cod) and procurar(bruto):
+        # A tela vai junto: o resultado vale só onde foi procurado.
+        ss["est_procura"] = {"texto": bruto, "modo": ss.get("est_modo"),
+                             "eans": [p.get("ean") for p in buscar_produtos(prods, bruto)]}
+        return
+    _despachar(cod)
+
+
+def procurar(bruto):
+    """Este texto é BUSCA (e não um código novo para cadastrar)? Pura.
+
+    Código de barras de verdade é só número e tem 8 dígitos ou mais: esse,
+    desconhecido, continua oferecendo o cadastro. Letra, espaço, hífen ou
+    número curto é busca.
+    """
+    c = E.limpar_codigo(bruto)
+    return bool(c) and not (c.isdigit() and len(c) >= 8)
+
+
+def eh_codigo_cadastrado(prods, codigos, cod):
+    """O código é de um produto ou de um código gerado (kit, quantidade)? Pura."""
+    return bool(E.do_codigo(prods, cod) or E.codigo_gerado(codigos, cod))
+
+
+def _escolheu(ean):
+    """Clique num produto achado pela busca da barra: age como o bipe dele."""
+    st.session_state.pop("est_procura", None)
+    _despachar(E.limpar_codigo(ean))
+
+
+def _despachar(cod):
+    """O que o bipe faz, em cada tela."""
+    ss = st.session_state
     # Qualquer bipe, em qualquer modo, encerra a pergunta do kit: ela vale só
     # para a unidade que acabou de sair.
     ss.pop("est_kit_pergunta", None)
@@ -261,8 +306,33 @@ def _voltar_ao_modo():
         ss["est_modo_pendente"] = volta
 
 
+def _mostrar_procura():
+    """Os produtos achados pelo texto digitado na barra. Clique = bipe."""
+    ss = st.session_state
+    pr = ss.get("est_procura")
+    if not pr or pr.get("modo") != ss.get("est_modo"):
+        return
+    try:
+        prods = E.carregar()[0]
+    except Exception:
+        return
+    por_ean = {E.limpar_codigo(p.get("ean")): p for p in E.ativos(prods)}
+    achados = [por_ean[E.limpar_codigo(e)] for e in pr["eans"] if E.limpar_codigo(e) in por_ean]
+    if not achados:
+        st.warning(f"Nada encontrado com «{pr['texto']}» — procure por nome, SKU, código do "
+                   "fornecedor ou código de barras.")
+        return
+    st.caption(f"Achados com «{pr['texto']}» — clique no produto (age como o bipe dele):")
+    for p in achados:
+        rot = " · ".join(x for x in (str(p.get("nome") or ""), str(p.get("codigo_fornecedor") or ""),
+                                      E.normalizar_sku(p.get("sku")), E.limpar_codigo(p.get("ean"))) if x)
+        st.button(rot, key=f"est_pr_{E.limpar_codigo(p.get('ean'))}", on_click=_escolheu,
+                  args=(p.get("ean"),), use_container_width=True)
+
+
 def _mostrar_desconhecido():
     ss = st.session_state
+    _mostrar_procura()
     cod = ss.pop("est_desconhecido", None)
     if not cod:
         return
@@ -1908,15 +1978,16 @@ def _abrir_ficha(ean):
 
 
 def buscar_produtos(prods, texto, limite=8):
-    """Um produto por código de barras, achado pelo nome, variação ou código,
-    como TEXTO (o "+" e o "(" da equipe são letra). Pura."""
+    """Um produto por código de barras, achado pelo nome, variação, código do
+    fornecedor, código de barras ou SKU (varejo e atacado), como TEXTO (o "+" e o "(" da equipe são letra). Pura."""
     b = " ".join(str(texto or "").lower().split())
     if len(b) < 2:
         return []
     vistos, fora = set(), []
     for p in E.ativos(prods):
         alvo = " ".join(" ".join(str(x or "").lower() for x in (
-            p.get("nome"), p.get("variacao"), p.get("codigo_fornecedor"), p.get("ean"))).split())
+            p.get("nome"), p.get("variacao"), p.get("codigo_fornecedor"), p.get("ean"),
+            p.get("sku"), p.get("sku_atacado"))).split())
         ean = E.limpar_codigo(p.get("ean"))
         if b in alvo and ean not in vistos:
             vistos.add(ean)
@@ -1970,6 +2041,17 @@ if __name__ == "__main__":
     ok("linhas_da_entrada_nova: quantidade zero não grava linha",
        [l["origem"] for l in linhas_da_entrada_nova(prods[0], 0, 4, "l", "x")] == [E.ATACADO]
        and linhas_da_entrada_nova(prods[0], 0, 0, "l", "x") == [])
+    ok("procurar: código de barras de 8+ dígitos não é busca (oferece cadastro)",
+       not procurar("7891234567895") and not procurar(" 7891 2345 ") and not procurar(""))
+    ok("procurar: nome, SKU, código do fornecedor e número curto são busca",
+       procurar("caneca (p) + tampa") and procurar("MS-3500") and procurar("MBLN-06") and procurar("4567"))
+    _cods = [E.linha_de_codigo("2000000000015", "quantidade", "Kit", prods[0]["ean"], {prods[0]["id"]: 2}, "l", "x")]
+    ok("eh_codigo_cadastrado: produto e código gerado contam, o resto não",
+       eh_codigo_cadastrado(prods, _cods, "7891234567895") and eh_codigo_cadastrado(prods, _cods, "2000000000015")
+       and not eh_codigo_cadastrado(prods, _cods, "MS-3500"))
+    _ps = [dict(prods[0], sku="MS-3500", sku_atacado="MS-2800")]
+    ok("buscar_produtos: acha pelo SKU de varejo e pelo de atacado, sem diferença de caixa",
+       buscar_produtos(_ps, "ms-3500") == _ps and buscar_produtos(_ps, "MS-2800") == _ps)
     ok("rotulo_manual: quantidade, nome, a marca de manual e a observação limpa",
        rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + base · Sentada · saída manual · ML 123"
        and rotulo_manual(prods[1], 1).endswith("saída manual"))
