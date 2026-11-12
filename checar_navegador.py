@@ -564,6 +564,34 @@ def main():
             print(("ok    " if ok else "FALHA ") + f"estoque: SKU traz o custo da planilha, pacote é recusado, "
                   f"atacado fica marcado e o Painel lista os sem SKU (pacote={_pacote}, custo={_custo}, "
                   f"atacado={_org}, sem SKU={_alerta.group(1) if _alerta else None})")
+            # SAÍDA MANUAL (dono, 12/11): o produto que saiu sem bipe é lançado
+            # depois pelo nome — o pior nome da equipe, com + e ( ) —, sai a
+            # quantidade digitada e, passando do estoque, fica NEGATIVO.
+            pg.get_by_text("Saída", exact=True).click()
+            pg.wait_for_timeout(2500)
+            pg.get_by_text("✍️ Saída manual").click()
+            pg.wait_for_timeout(800)
+            pg.locator(".st-key-est_busca_sai input").fill("caneca (p) + tampa")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.locator(".st-key-est_sm_obs input").fill("ML 2000012345678 · saiu em 10/11")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(1500)
+            pg.locator("[class*=st-key-est_sm_q_] input").first.fill("6")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(1500)
+            _antes_m = _sal()
+            pg.get_by_role("button", name="Dar saída").first.click()
+            pg.wait_for_timeout(2500)
+            _depois_m = _sal()
+            _btxt = pg.inner_text("body")
+            _visto = "saída manual · ML 2000012345678" in _btxt
+            ok = ("Caneca (P) + tampa:4" in _antes_m and "Caneca (P) + tampa:-2" in _depois_m
+                  and _visto and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: saída manual pelo nome (com + e parênteses) "
+                  f"sai a quantidade e deixa negativo, sem travar ({_antes_m} → {_depois_m}, "
+                  f"observação na tela={_visto}, recargas={len(navegou) - 1})")
             nav.close()
     except Exception as e:
         falhas += 1

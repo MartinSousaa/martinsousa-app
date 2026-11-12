@@ -5492,6 +5492,13 @@ MUTACOES = [
         None,
         ["python3", "checar_tela.py"],
     ),
+    (
+        'a saida manual pelo nome volta a nao existir (12/11)',
+        "estoque_tela.py",
+        [("            _saida_manual(prods, saldo, quem)\n", "")],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 

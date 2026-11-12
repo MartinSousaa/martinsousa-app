@@ -937,6 +937,60 @@ def _lateral_saida(movs, por_id, quem):
                 .replace(",", "."))
 
 
+def rotulo_manual(p, q, obs=""):
+    """O texto que fica no movimento da saída manual. Pura.
+
+    "manual" fica escrito para o histórico separar o que foi bipado do que
+    foi lançado depois, e a observação (pedido, data real) vai junto."""
+    obs = " ".join(str(obs or "").split())
+    return f"{int(q)}× {E.nome_completo(p)} · saída manual" + (f" · {obs}" if obs else "")
+
+
+def _saiu_manual(pid, quem):
+    """Botão «Dar saída» da busca manual: sai a quantidade digitada daquele modelo."""
+    ss = st.session_state
+    try:
+        q = int(ss.get(f"est_sm_q_{pid}", 1) or 0)
+        if q <= 0:
+            _avisar("Digite quantas peças saíram (1 ou mais).", True)
+            return
+        prods, _m, _c = E.carregar()
+        p = next((x for x in prods if x["id"] == pid), None)
+        if p is None:
+            _avisar("Esse produto não está mais no cadastro.", True)
+            return
+        ss.pop("est_kit_pergunta", None)
+        if _baixar([(p, q)], _destino(), quem, rotulo_manual(p, q, ss.get("est_sm_obs"))):
+            ss["est_busca_sai"] = ""
+    except Exception as e:
+        _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
+
+
+def _saida_manual(prods, saldo, quem):
+    """Saída sem bipe (dono, 12/11): o produto que saiu antes de ter cadastro,
+    ou que não dá para bipar, é lançado depois pelo nome. Usa o mesmo destino
+    escolhido acima (Venda ou Full) e o mesmo `_baixar` do bipe — e, como no
+    bipe, sem estoque ele fica negativo em vez de travar."""
+    with st.expander("✍️ Saída manual — produto sem bipe, buscar pelo nome"):
+        txt = st.text_input("Nome ou código", key="est_busca_sai", placeholder="Embaralhador, MBLN-06…")
+        st.text_input("Observação (pedido, data em que saiu de verdade)", key="est_sm_obs",
+                      placeholder="ML · 2000012345678 · saiu em 10/11")
+        achados = buscar_produtos(prods, txt)
+        if txt and not achados:
+            st.caption("Nenhum produto com esse nome. Cadastre primeiro: bipe ou digite o código "
+                       "de barras na barra acima, e volte aqui.")
+        for p0 in achados:
+            for v in E.do_codigo(prods, p0.get("ean")) or [p0]:
+                c1, c2, c3 = st.columns([3, 1, 1.2])
+                c1.markdown(f"{_esc(E.nome_completo(v))} · em estoque: "
+                            f"{saldo.get((v['id'], E.FISICO), 0)}")
+                c2.number_input("qtd", min_value=1, step=1, value=1, key=f"est_sm_q_{v['id']}",
+                                label_visibility="collapsed")
+                c3.button("Dar saída", key=f"est_sm_b_{v['id']}", on_click=_saiu_manual,
+                          args=(v["id"], quem), use_container_width=True)
+        st.caption("Sai na hora em que você clica. A data real vai na observação.")
+
+
 def _saida(quem):
     ss = st.session_state
     st.segmented_control("Saída para", list(DESTINOS), default="🛒 Venda", key="est_dest")
@@ -969,6 +1023,7 @@ def _saida(quem):
         else:
             st.caption("Cada bipe é 1 unidade e sai na hora. Código com mais de um modelo abre a "
                        "janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")
+            _saida_manual(prods, saldo, quem)
     with lateral:
         _lateral_saida(movs, por_id, quem)
 
@@ -1822,6 +1877,9 @@ if __name__ == "__main__":
                                 "11/11/2026 14:02")
     ent = E.linhas_de_entrada([(prods[0], 6), (prods[1], 2)], "leo", "11/11/2026 14:03")
     por_id = {p["id"]: p for p in prods}
+    ok("rotulo_manual: quantidade, nome, a marca de manual e a observação limpa",
+       rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + base · Sentada · saída manual · ML 123"
+       and rotulo_manual(prods[1], 1).endswith("saída manual"))
     cab = cabecalho_html(prods, E.saldos(ent), "7891234567895")
     ok("cabecalho_html: nome escapado, total do estoque, custo em reais",
        "&lt;resina&gt;" in cab and "em estoque: 8" in cab and "R$ 18,40" in cab
