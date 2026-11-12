@@ -1028,37 +1028,155 @@ def _janela(variacoes, saldo, codigos, por_id, quem):
         st.button("Fechar", key="est_fecha_jan", on_click=_fechar_janela)
 
 
-def _lateral_saida(movs, por_id, quem):
-    st.markdown("**Últimos 5 bipados · clique para corrigir**")
+# ── O LAYOUT DA SAÍDA (dono, 12/11, aprovado no mockup) ──────────────────────
+# Quadro roxo à esquerda: o bipe da vez, grande — foto, nome, código de
+# barras, fornecedor, SKU, quanto saiu, quanto fica e o custo considerado,
+# com «editar» e «excluir». À direita, os 5 anteriores. A saída manual vai
+# embaixo de tudo.
+
+def resumo_do_lote(lt, por_id, saldo):
+    """O que a tela mostra de um bipe. Pura.
+
+    {nome, p (o produto da foto), ean, forn, sku, q, origens, custo, fica,
+     destino, hora, desfeito, kit}
+    """
+    fis = [m for m in lt["linhas"] if m.get("local") == E.FISICO]
+    pids = list(dict.fromkeys(m.get("produto_id") for m in fis))
+    p = por_id.get(pids[0], {}) if pids else {}
+    q = sum(-E.inteiro(m["qtd"]) for m in fis)
+    valor = sum(-E.inteiro(m["qtd"]) * E.numero(m.get("custo_unit")) for m in fis)
+    full = next((m.get("local") for m in lt["linhas"] if E.eh_full(m.get("local"))), "")
+    kit = len(pids) > 1
+    return {"nome": rotulo_do_lote(fis, por_id), "p": p,
+            "ean": "" if kit else E.limpar_codigo(p.get("ean")),
+            "forn": "" if kit else str(p.get("codigo_fornecedor") or ""),
+            "sku": "" if kit else E.normalizar_sku(p.get("sku")),
+            "q": q, "origens": sorted({E.origem_de(m) for m in fis}),
+            "custo": (valor / q) if q and not kit else valor,
+            "fica": None if kit else saldo.get((p.get("id"), E.FISICO), 0),
+            "destino": (E.NOME_LOCAL.get(full, "Full") if full else "Venda"),
+            "hora": str(lt.get("quando") or "")[-5:], "desfeito": lt["desfeito"], "kit": kit}
+
+
+def _barras_html(ean):
+    try:
+        return E.svg_ean13(ean, modulo=2, altura=44) if len(ean) == 13 and ean.isdigit() else ""
+    except Exception:
+        return ""
+
+
+def bipe_atual_html(r):
+    """O quadro roxo do bipe da vez. Pura. Sem linha em branco: o HTML passa
+    pelo markdown do Streamlit."""
+    cinza = "#9AA3AE"
+    chip = "".join(f'<span style="display:inline-block;padding:3px 10px;border-radius:999px;'
+                   f'background:#1f3a5a;color:#7cb8ff;font-size:12px;font-weight:700;'
+                   f'margin-left:6px">{_esc(o)}</span>' for o in r["origens"])
+    lin = []
+    if r["ean"]:
+        lin.append(f'Código de barras <b style="color:#E8EAED">{_esc(r["ean"])}</b>')
+    if r["forn"] or r["sku"]:
+        lin.append(" · ".join(x for x in (
+            f'Fornecedor <b style="color:#E8EAED">{_esc(r["forn"])}</b>' if r["forn"] else "",
+            f'SKU <b style="color:#E8EAED">{_esc(r["sku"])}</b>' if r["sku"] else
+            '<span style="color:#f0c060">sem SKU</span>') if x) + chip)
+    lin.append(f'Saiu <b style="color:#E8EAED">{r["q"]}</b>'
+               + (f' · fica no físico <b style="color:#E8EAED">{r["fica"]}</b>' if r["fica"] is not None else ""))
+    rot_c = "custo do kit" if r["kit"] else "custo considerado"
+    import gdrive
+    url = gdrive.url_thumbnail(r["p"].get("foto_id"), 600) if r["p"].get("foto_id") else None
+    # Python 3.11: sem barra invertida dentro da f-string — pré-calculado.
+    barras = _barras_html(r["ean"]).replace("<svg ", "<svg style='max-width:100%;height:auto' ", 1)
+    # A foto ocupa 38% do quadro, sempre quadrada: lado fixo em pixel
+    # espremia o texto em coluna estreita (visto no navegador, 12/11).
+    foto = (f'<img src="{_esc(url)}" style="width:100%;aspect-ratio:1/1;object-fit:cover;'
+            f'border-radius:16px">' if url else
+            '<div style="width:100%;aspect-ratio:1/1;border-radius:16px;background:#444;display:flex;'
+            'align-items:center;justify-content:center;color:#9AA3AE;font-size:13px">sem foto</div>')
+    return ('<div style="border:2px solid #a78bfa;border-radius:20px;padding:20px;background:#2f2f2f;'
+            'color:#E8EAED">'
+            f'<div style="font-size:12px;letter-spacing:.14em;font-weight:800;color:#a78bfa;'
+            f'margin-bottom:12px">✓ SAIU AGORA · {_esc(r["hora"])} · {_esc(r["destino"]).upper()}</div>'
+            '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">'
+            f'<div style="flex:0 0 38%;min-width:150px">{foto}</div>'
+            f'<div style="flex:1;min-width:200px;overflow-wrap:anywhere"><div style="font-size:26px;'
+            f'font-weight:800;line-height:1.15">{_esc(r["nome"])}</div>'
+            + "".join(f'<div style="font-size:15px;color:{cinza};margin-top:7px">{x}</div>' for x in lin)
+            + f'<div style="margin-top:12px;font-size:21px;font-weight:800;color:#4cc38a">'
+              f'{rot_c}: {_rs(r["custo"])}</div>'
+            + (f'<div style="margin-top:10px;max-width:100%;overflow:hidden">{barras}</div>'
+               if barras else "")
+            + '</div></div></div>')
+
+
+def linha_bipada_html(r):
+    """Uma linha da lista dos 5 anteriores. Pura."""
+    nome = f"<s>{_esc(r['nome'])}</s>" if r["desfeito"] else _esc(r["nome"])
+    sub = " · ".join(x for x in (r["hora"], r["ean"], f"SKU {r['sku']}" if r["sku"] else "",
+                                 "kit" if r["kit"] else "", "excluído" if r["desfeito"] else "") if x)
+    return (f'<div style="display:flex;align-items:center;gap:12px;padding:8px 0;'
+            f'opacity:{0.45 if r["desfeito"] else 1}">{foto_html(r["p"].get("foto_id"), 56)}'
+            f'<div style="flex:1"><div style="font-size:16px;font-weight:800">{nome}</div>'
+            f'<div style="font-size:12px;color:#9AA3AE;margin-top:2px">{_esc(sub)}</div></div>'
+            f'<div style="font-size:20px;font-weight:800;color:#f08a84">−{r["q"]}</div></div>')
+
+
+def _alternar_edicao(lote):
+    ss = st.session_state
+    ss["est_sai_ed"] = None if ss.get("est_sai_ed") == lote else lote
+
+
+def _edicao_do_bipe(lote, quem):
+    """Os controles do «editar»: trocar pelo código certo, ou mudar a quantidade."""
+    st.button("🔁 Trocar pelo código certo", key=f"est_tr_{lote}", on_click=_corrigir,
+              args=(lote,), use_container_width=True)
+    c1, c2 = st.columns([1, 1.3])
+    c1.number_input("vezes", min_value=0, step=1, value=1, key=f"est_mq_{lote}",
+                    help="Quantas vezes este bipe saiu. 0 = exclui.")
+    c2.button("Salvar quantidade", key=f"est_sq_{lote}", on_click=_mudar_qtd,
+              args=(lote, quem), use_container_width=True)
+
+
+def _botoes_do_bipe(lote, quem, chave):
+    """✎ editar e ✖ excluir, lado a lado."""
+    b1, b2 = st.columns(2)
+    b1.button("✎ editar", key=f"est_ed_b_{chave}_{lote}", on_click=_alternar_edicao,
+              args=(lote,), use_container_width=True)
+    b2.button("✖ excluir", key=f"est_desf_s_{chave}_{lote}", on_click=_desfazer,
+              args=(lote, quem), use_container_width=True)
+    ss = st.session_state
+    if ss.get("est_sai_ed") == lote or ss.get("est_corrigir") == lote:
+        _edicao_do_bipe(lote, quem)
+
+
+def _lotes_de_quem(movs, quem, n=6):
     # SÓ OS BIPES DE QUEM ESTÁ NA TELA: com duas pessoas empacotando, uma
     # não deve corrigir o bipe da outra sem perceber.
-    lotes = E.ultimos_lotes([m for m in movs if m.get("quem") == quem or m.get("tipo") == E.DESFEITO],
-                            (E.VENDA, E.ENVIO_FULL), 5)
-    if not lotes:
-        st.caption("Nada saiu ainda.")
-    for lt in lotes:
-        fis = [m for m in lt["linhas"] if m.get("local") == E.FISICO]
-        nomes = rotulo_do_lote(fis, por_id)
-        q = sum(-E.inteiro(m["qtd"]) for m in fis)
-        _f = next((m.get("local") for m in lt["linhas"] if E.eh_full(m.get("local"))), "")
-        para = f" → {E.NOME_LOCAL.get(_f, 'Full')}" if _f else ""
-        hora = str(lt.get("quando") or "")[-5:]
-        rot = f"{hora} · {nomes} −{q}{para}" + (" · desfeito" if lt["desfeito"] else "")
-        if lt["desfeito"]:
-            st.caption("~~" + rot + "~~")
-            continue
-        with st.expander(rot, expanded=st.session_state.get("est_corrigir") == lt["lote"]):
-            p = por_id.get(fis[0]["produto_id"], {}) if fis else {}
-            st.markdown(foto_html(p.get("foto_id"), 48), unsafe_allow_html=True)
-            st.button("🔁 Trocar pelo código certo", key=f"est_tr_{lt['lote']}",
-                      on_click=_corrigir, args=(lt["lote"],), use_container_width=True)
-            c1, c2 = st.columns([1, 1.3])
-            c1.number_input("vezes", min_value=0, step=1, value=1, key=f"est_mq_{lt['lote']}",
-                            help="Quantas vezes este bipe saiu. 0 = desfaz.")
-            c2.button("Salvar", key=f"est_sq_{lt['lote']}", on_click=_mudar_qtd,
-                      args=(lt["lote"], quem), use_container_width=True)
-            st.button("↶ desfazer", key=f"est_desf_s_{lt['lote']}", on_click=_desfazer,
-                      args=(lt["lote"], quem), use_container_width=True)
+    return E.ultimos_lotes([m for m in movs if m.get("quem") == quem or m.get("tipo") == E.DESFEITO],
+                           (E.VENDA, E.ENVIO_FULL), n)
+
+
+def _bipe_atual(lotes, por_id, saldo, quem):
+    vivo = next((lt for lt in lotes if not lt["desfeito"]), None)
+    if not vivo:
+        st.caption("Bipe o produto: ele sai na hora e aparece aqui, grande.")
+        return None
+    st.markdown(bipe_atual_html(resumo_do_lote(vivo, por_id, saldo)), unsafe_allow_html=True)
+    _botoes_do_bipe(vivo["lote"], quem, "a")
+    return vivo["lote"]
+
+
+def _lateral_saida(lotes, atual, movs, por_id, saldo, quem):
+    st.markdown('<div style="font-size:12px;letter-spacing:.14em;font-weight:800;color:#9AA3AE">'
+                'ÚLTIMOS 5 BIPADOS</div>', unsafe_allow_html=True)
+    resto = [lt for lt in lotes if lt["lote"] != atual][:5]
+    if not resto:
+        st.caption("Nada saiu antes deste.")
+    for lt in resto:
+        r = resumo_do_lote(lt, por_id, saldo)
+        st.markdown(linha_bipada_html(r), unsafe_allow_html=True)
+        if not lt["desfeito"]:
+            _botoes_do_bipe(lt["lote"], quem, "l")
     sess = set(st.session_state.get("est_sessao", []))
     desf = E.lotes_desfeitos(movs)
     das = [m for m in movs if str(m.get("lote")) in sess and str(m.get("lote")) not in desf
@@ -1144,7 +1262,9 @@ def _saida(quem):
     _barra(saida=True)
     por_id = {p["id"]: p for p in prods}
     saldo = E.saldos(movs)
-    principal, lateral = st.columns([2.2, 1])
+    lotes = _lotes_de_quem(movs, quem)
+    principal, lateral = st.columns([1.15, 1])
+    atual = None
     with principal:
         jan = ss.get("est_janela")
         variacoes = E.do_codigo(prods, jan) if jan else []
@@ -1152,12 +1272,13 @@ def _saida(quem):
             _janela(variacoes, saldo, codigos, por_id, quem)
         elif ss.get("est_kit_pergunta") and ss.get("est_kit_pergunta", {}).get("lote") not in E.lotes_desfeitos(movs):
             _pergunta_kit(codigos, por_id, quem, movs)
-        else:
-            st.caption("Cada bipe é 1 unidade e sai na hora. Código com mais de um modelo abre a "
-                       "janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")
-            _saida_manual(prods, saldo, quem)
+        atual = _bipe_atual(lotes, por_id, saldo, quem)
     with lateral:
-        _lateral_saida(movs, por_id, quem)
+        with st.container(border=True):
+            _lateral_saida(lotes, atual, movs, por_id, saldo, quem)
+    st.caption("Cada bipe é 1 unidade e sai na hora. Código com mais de um modelo abre a "
+               "janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")
+    _saida_manual(prods, saldo, quem)
 
 
 # ── QUEBRA · DESCARTE · DOAÇÃO · DEVOLUÇÃO (Parte 3) ────────────────────────
@@ -2039,6 +2160,17 @@ if __name__ == "__main__":
     ok("quadro_da_foto: quadrado, com a foto ou o aviso de sem foto",
        "aspect-ratio:1/1" in quadro_da_foto("") and "sem foto" in quadro_da_foto("")
        and "data:image/jpeg;base64,QUJD" in quadro_da_foto("QUJD"))
+    _sv = E.linhas_de_saida([(prods[1], 2)], E.VENDA, "leo", "12/11/2026 15:47", movs=ent)
+    _lt = E.ultimos_lotes(ent + _sv, E.VENDA)[0]
+    _r = resumo_do_lote(_lt, por_id, E.saldos(ent + _sv))
+    ok("resumo_do_lote: nome, código, quanto saiu, quanto fica e o custo por peça (cadeia real)",
+       _r["nome"] == E.nome_completo(prods[1]) and _r["ean"] == "7891234567895" and _r["q"] == 2
+       and _r["fica"] == 0 and abs(_r["custo"] - 18.4) < 0.01 and _r["hora"] == "15:47")
+    _hb = bipe_atual_html(_r)
+    ok("bipe_atual_html: quadro roxo com nome escapado, custo considerado e sem linha em branco",
+       "#a78bfa" in _hb and "&lt;resina&gt;" in _hb and "custo considerado: R$ 18,40" in _hb
+       and "\n" not in _hb)
+    ok("linha_bipada_html: excluído sai riscado", "<s>" in linha_bipada_html(dict(_r, desfeito=True)))
     ok("rotulo_manual: quantidade, nome, a marca de manual e a observação limpa",
        rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + base · Sentada · saída manual · ML 123"
        and rotulo_manual(prods[1], 1).endswith("saída manual"))
