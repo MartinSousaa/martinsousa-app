@@ -147,24 +147,18 @@ def desvios(previsto, saidas, tot, entrou):
     return sorted(fora, key=lambda x: (ordem[x[3]], -(x[2] - x[1])))
 
 
-def lucro(r_mes, lpv, compromissos=None):
+def lucro(r_mes, lpv):
     """(bruto, líquido, aguardando) do mês na BASE DE VENDAS. Pura.
 
-    Mês fechado: líquido = margem de contribuição − LPV × vendas, a conta da
-    Home. MÊS EM ANDAMENTO (dono, 12/11): margem − os compromissos que JÁ
-    VENCERAM (`lpv_mensal.compromissos_ate`). O LPV do mês corrente é o custo
-    do mês INTEIRO dividido pelas vendas de poucos dias, e descontava o mês
-    todo antes de ele acontecer. Sem LPV nem compromissos, o líquido é None.
-    `aguardando` conta as linhas sem custo ou sem SKU.
+    Líquido = margem de contribuição − LPV × vendas, a conta da Home. Sem
+    LPV, o líquido é None. `aguardando` conta as linhas sem custo ou sem
+    SKU — o número existe, mas ainda pode mudar.
     """
     if not r_mes or not r_mes.get("linhas"):
         return None, None, 0
     bruto = round(r_mes["lb"], 2)
-    if compromissos is not None:
-        liq = round(r_mes.get("mc", 0.0) - float(compromissos["total"]), 2)
-    else:
-        liq = (round(r_mes.get("mc", 0.0) - float(lpv) * r_mes["vendas"], 2)
-               if lpv else None)
+    liq = (round(r_mes.get("mc", 0.0) - float(lpv) * r_mes["vendas"], 2)
+           if lpv else None)
     return bruto, liq, int(r_mes.get("sem_custo", 0)) + int(r_mes.get("sem_sku", 0))
 
 
@@ -241,7 +235,7 @@ def _variacao(atual, antes, gasto=False):
             + ' <span style="color:#6b737c">vs mês anterior</span>')
 
 
-def html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas, lpv, parcial, compromissos=None):
+def html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas, lpv, parcial):
     """O layout A aprovado (05/11): placar, para onde foi o dinheiro e onde o
     gasto fugiu do previsto."""
     import visao_faturamento as _vf
@@ -254,7 +248,7 @@ def html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas, lpv, parcial, c
     msg_sem = ("sem extrato de entrada" if entrou is None
                else "nenhuma entrada de venda lida")
     res = None if sem_ext else round(entrou - saiu, 2)
-    bruto, liq, aguard = lucro(d.get("base_mes"), lpv, compromissos)
+    bruto, liq, aguard = lucro(d.get("base_mes"), lpv)
 
     def kp(a, b, c, cor="#E8EAED"):
         return (f'<div style="{V};padding:14px"><div style="font-size:11px;color:{SEC};'
@@ -270,12 +264,6 @@ def html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas, lpv, parcial, c
         liq_sub = _chip(f"⏳ {aguard} linha(s) aguardando informação", True, AMB)
     elif liq is None:
         liq_sub = f'<span style="color:{SEC}">falta o LPV do mês</span>'
-    elif compromissos is not None:
-        _sd = compromissos.get("sem_dia") or []
-        liq_sub = (f'<span style="color:{SEC}">margem − compromissos vencidos até o dia '
-                   f'{compromissos["corte"]} ({_dinheiro(compromissos["total"])})</span>'
-                   + (f'<div style="color:{AMB};margin-top:3px">sem dia de débito, entram '
-                      f'proporcionais: {_esc_txt(", ".join(_sd))}</div>' if _sd else ""))
     else:
         liq_sub = f'<span style="color:{SEC}">margem − LPV × vendas</span>'
     kpis = ('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">'
@@ -391,22 +379,6 @@ def html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas, lpv, parcial, c
             f'{tab}</div></div>')
 
 
-def _esc_txt(t):
-    import html
-    return html.escape(str(t or ""))
-
-
-def _compromissos_do_corrente(ano, mes, hoje=None):
-    """(compromissos vencidos até hoje, erro) — SÓ no mês em andamento.
-    (None, "") nos meses fechados: lá o LPV × vendas já é o mês inteiro."""
-    import placar_core as _pc
-    hoje = hoje or _pc.agora_br()
-    if (int(ano), int(mes)) != (hoje.year, hoje.month):
-        return None, ""
-    import lpv_mensal as _lm
-    return _lm.compromissos_ate(int(ano), int(mes), hoje.day)
-
-
 def mostrar(ano, mes, mes_txt, valores, fontes, lpv):
     """Desenha o painel do mês. `valores`/`fontes` são os de `visao_geral.resumo`."""
     try:
@@ -421,15 +393,8 @@ def mostrar(ano, mes, mes_txt, valores, fontes, lpv):
     tem_extrato = bool(d["contas"])
     entrou = d["entradas"][0] if tem_extrato else None
     parcial = "P" in (fontes.get(int(mes)) or set())
-    comp, erro_comp = _compromissos_do_corrente(ano, mes)
-    if erro_comp:
-        # Não volta calado à conta do mês inteiro: diz que o líquido de agora
-        # está descontando o mês todo, e por quê.
-        st.warning("O lucro líquido deste mês está descontando o custo do MÊS INTEIRO: não "
-                   f"consegui ler as datas de pagamento ({erro_comp}).")
     st.markdown(html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas,
-                            lpv.get(int(mes)), parcial, comp),
-                unsafe_allow_html=True)
+                            lpv.get(int(mes)), parcial), unsafe_allow_html=True)
     if tem_extrato:
         st.caption("Entradas lidas dos extratos de: " + " · ".join(d["contas"]))
     for e in d["erros"]:
@@ -521,11 +486,6 @@ if __name__ == "__main__":
        _ll == round(110.0 - 20.0 * _rm["vendas"], 2))
     ok("linha sem custo conta como 'aguardando informação'", _ag == 1)
     ok("sem LPV, o líquido não vira número", lucro(_rm, None)[1] is None)
-    _cp = {"total": 30.0, "corte": 12, "sem_dia": ["Contador"], "partes": {}}
-    ok("mês em andamento: margem − compromissos vencidos, e não LPV × vendas",
-       lucro(_rm, 20.0, _cp)[1] == round(110.0 - 30.0, 2))
-    from datetime import datetime as _dt_c
-    ok("mês fechado não troca de conta", _compromissos_do_corrente(2026, 10, _dt_c(2026, 11, 12)) == (None, ""))
     ok("mês sem venda na base não inventa lucro", lucro(None, 20.0) == (None, None, 0))
 
     # A TELA DESENHA: verde, vermelho e sem extrato.
@@ -533,11 +493,6 @@ if __name__ == "__main__":
           "tem_ant": True, "previsto": {"CHEQUES": 55000.0}, "base_mes": _rm,
           "contas": ["inter-1"]}
     _h = html_painel("OUT", 2026, 268400.0, sum(_s.values()), 200000.0, _d, _s, 20.0, False)
-    # Sem linha aguardando, que tomaria o rodapé do cartão.
-    _d_ok = {**_d, "base_mes": {**_rm, "sem_custo": 0, "sem_sku": 0}}
-    _hc = html_painel("NOV", 2026, 1.0, 2.0, None, _d_ok, _s, 20.0, False, _cp)
-    ok("o cartão diz até que dia e nomeia o item sem dia",
-       "vencidos até o dia 12" in _hc and "Contador" in _hc)
     ok("mês verde mostra o que sobrou", "🟢" in _h and "sobraram" in _h)
     _h2 = html_painel("OUT", 2026, 80000.0, sum(_s.values()), None, _d, _s, 20.0, False)
     ok("mês vermelho mostra o que faltou", "🔴" in _h2 and "faltaram" in _h2)
