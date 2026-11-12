@@ -5499,6 +5499,21 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'o lucro liquido do mes em andamento volta a descontar o mes inteiro (12/11)',
+        "visao_financeira.py",
+        [("    if compromissos is not None:\n        liq = round(r_mes.get(\"mc\", 0.0) - float(compromissos[\"total\"]), 2)\n    else:\n",
+          "    if True:\n")],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
+        'o compromisso volta a contar antes do dia de debito (12/11)',
+        "lpv_mensal.py",
+        [("        elif d <= corte:\n", "        elif True:\n")],
+        None,
+        ["python3", "lpv_mensal.py"],
+    ),
 ]
 
 
