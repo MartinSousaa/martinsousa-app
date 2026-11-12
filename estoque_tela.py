@@ -219,7 +219,8 @@ def _ao_bipar():
 
 def _limpar_ficha():
     ss = st.session_state
-    for k in [k for k in ss.keys() if str(k).startswith(("est_q_", "est_n_", "est_cq_"))]:
+    for k in [k for k in ss.keys() if str(k).startswith(("est_q_", "est_n_", "est_cq_", "est_cad_s",
+                                                         "est_cad_c", "est_ed_"))]:
         del ss[k]
     for k in ("est_lido", "est_cadastrar", "est_sem_codigo", "est_nova_var",
               "est_imprimir"):
@@ -447,18 +448,18 @@ def _nova_variacao(variacoes, quem):
 def _editar_produto(variacoes, quem):
     with st.expander("✎ Editar produto (nome, código do fornecedor, SKU, custo, foto)"):
         p0 = variacoes[0]
+        # A chave leva o código: dois produtos abertos em seguida não dividem
+        # o que foi digitado em um.
+        sku, custo, sku_at, custo_at = _campos_sku(
+            f"est_ed_{E.limpar_codigo(p0.get('ean'))}_",
+            {"sku": str(p0.get("sku") or ""),
+             "custo": f'{E.numero(p0.get("custo")):.2f}'.replace(".", ","),
+             "sku_at": str(p0.get("sku_atacado") or ""),
+             "custo_at": (f'{E.numero(p0.get("custo_atacado")):.2f}'.replace(".", ",")
+                          if str(p0.get("custo_atacado") or "").strip() else "")})
         with st.form("est_form_edit"):
             nome = st.text_input("Produto", value=str(p0.get("nome") or ""))
             forn = st.text_input("Código do fornecedor", value=str(p0.get("codigo_fornecedor") or ""))
-            e1, e2 = st.columns(2)
-            sku = e1.text_input("SKU (varejo)", value=str(p0.get("sku") or ""))
-            custo = e2.text_input("Preço de custo (R$) — o da planilha vence, se o SKU estiver lá",
-                                  value=f'{E.numero(p0.get("custo")):.2f}'.replace(".", ","))
-            e3, e4 = st.columns(2)
-            sku_at = e3.text_input("SKU atacado", value=str(p0.get("sku_atacado") or ""))
-            custo_at = e4.text_input("Custo atacado (R$)",
-                                     value=(f'{E.numero(p0.get("custo_atacado")):.2f}'.replace(".", ",")
-                                            if str(p0.get("custo_atacado") or "").strip() else ""))
             alvo = st.selectbox("Trocar a foto de", [E.nome_completo(v) for v in variacoes])
             foto = st.file_uploader("Nova foto (opcional)", type=None, key="est_edit_foto")
             enviar = st.form_submit_button("Salvar alterações")
@@ -575,6 +576,67 @@ def _tabela_sku():
         return None, str(e)[:140]
 
 
+def situacao_sku(sku, tabela, erro_planilha=""):
+    """O que a tela diz ENQUANTO o SKU é digitado (dono, 12/11). Pura.
+
+    (tipo, mensagem, custo em texto ou None). tipo: "" (vazio), "ok",
+    "erro" (pacote ou não encontrado) ou "aviso" (planilha ilegível).
+    O custo achado volta escrito como a equipe digita ("35,00"), para
+    preencher o campo de custo sozinho.
+    """
+    n = E.normalizar_sku(sku)
+    if not n:
+        return "", "", None
+    if tabela is None:
+        return ("aviso", f"Não consegui ler o Controle MS agora ({erro_planilha or 'sem resposta'}). "
+                         "Digite o custo à mão.", None)
+    c = E.consulta_sku(tabela, n)
+    if c["achou"] and c["aviso"]:
+        return "erro", c["aviso"], None
+    if c["achou"]:
+        prod = str((tabela.get(n) or {}).get("produto") or "").strip()
+        txt = f'{c["custo"]:.2f}'.replace(".", ",")
+        return ("ok", f"✓ {n} achado na planilha" + (f" ({prod})" if prod else "")
+                + f" · custo R$ {txt}", txt)
+    return ("erro", f"❌ SKU {n} não foi encontrado na aba {E.ABA_SKU} do Controle MS. "
+                    "Confira o SKU, ou digite o custo — o produto vai para «Produtos sem SKU».", None)
+
+
+def _ao_mudar_sku(chave_sku, chave_custo):
+    """Digitou o SKU: achou na planilha, o custo se preenche sozinho."""
+    ss = st.session_state
+    tab, err = _tabela_sku()
+    _t, _m, custo = situacao_sku(ss.get(chave_sku, ""), tab, err)
+    if custo is not None:
+        ss[chave_custo] = custo
+
+
+def _campos_sku(prefixo, inicial=None):
+    """SKU varejo, custo varejo, SKU atacado e custo atacado, FORA do
+    formulário: dentro dele nada acontece até salvar, e a busca na planilha
+    tem de responder na hora. O mesmo bloco no cadastro e na edição — a
+    mesma capacidade nos dois irmãos. Devolve (sku, custo, sku_at, custo_at)."""
+    ss = st.session_state
+    for k, v in (inicial or {}).items():
+        ss.setdefault(prefixo + k, v)
+    vals = []
+    for rot, k, rot_c, kc in (("SKU (varejo)", "sku", "Custo varejo (R$)", "custo"),
+                              ("SKU atacado", "sku_at", "Custo atacado (R$)", "custo_at")):
+        c1, c2 = st.columns(2)
+        c1.text_input(rot, key=prefixo + k, placeholder="MS-3500" if k == "sku" else "MS-2800",
+                      on_change=_ao_mudar_sku, args=(prefixo + k, prefixo + kc),
+                      help="Digite e aperte Enter: o Studio busca o custo na aba "
+                           "HISTÓRICO SKU do Controle MS.")
+        c2.text_input(rot_c, key=prefixo + kc, placeholder="só se o SKU não estiver na planilha")
+        sku = ss.get(prefixo + k, "")
+        if E.normalizar_sku(sku):
+            tab, err = _tabela_sku()
+            tipo, msg, _c = situacao_sku(sku, tab, err)
+            {"ok": st.success, "erro": st.error, "aviso": st.warning}.get(tipo, st.caption)(msg)
+        vals += [sku, ss.get(prefixo + kc, "")]
+    return tuple(vals)
+
+
 def _custos_do_formulario(sku, custo, sku_at, custo_at):
     """(mudanças, erro, avisos) do SKU de varejo e do de atacado. Efeito: lê a planilha."""
     if not E.normalizar_sku(sku) and not str(custo or "").strip():
@@ -617,6 +679,7 @@ def _cadastro(quem):
               else f"NÃO CADASTRADO · {cod}")
     st.markdown(f'<div style="font-size:11px;color:#f0c060;font-weight:800;letter-spacing:.12em">'
                 f'{_esc(titulo)}</div>', unsafe_allow_html=True)
+    sku, custo, sku_at, custo_at = _campos_sku("est_cad_")
     with st.form("est_form_cad"):
         c1, c2 = st.columns([1, 2])
         with c1:
@@ -624,14 +687,6 @@ def _cadastro(quem):
         with c2:
             forn = st.text_input("Código do fornecedor", placeholder="TRES-B131")
             nome = st.text_input("Produto", placeholder="Mini Yoga · conjunto")
-        c5, c3 = st.columns(2)
-        sku = c5.text_input("SKU (varejo)", placeholder="MS-3500",
-                            help="O custo vem da aba HISTÓRICO SKU do Controle MS. Sem SKU, "
-                                 "o produto entra na lista «Produtos sem SKU».")
-        custo = c3.text_input("Preço de custo (R$) — só se o SKU não estiver na planilha", placeholder="12,90")
-        c6, c7 = st.columns(2)
-        sku_at = c6.text_input("SKU atacado (se houver)", placeholder="MS-2800")
-        custo_at = c7.text_input("Custo atacado (R$) — só se o SKU atacado não estiver na planilha")
         c4, c8 = st.columns(2)
         qtd = c4.number_input("Quantidade entrando", min_value=0, step=1, value=0)
         origem = c8.radio("Esta compra é", ["Varejo", "Atacado"], horizontal=True, key="est_cad_origem")
@@ -1877,6 +1932,17 @@ if __name__ == "__main__":
                                 "11/11/2026 14:02")
     ent = E.linhas_de_entrada([(prods[0], 6), (prods[1], 2)], "leo", "11/11/2026 14:03")
     por_id = {p["id"]: p for p in prods}
+    _tb = {"MS-3500": {"custo": 35.0, "qtd": 1, "produto": "Caneca (P) + tampa"},
+           "MS-9000": {"custo": 90.0, "qtd": 3, "produto": "Pacote"}}
+    ok("situacao_sku: achou — diz o produto e devolve o custo como a equipe digita",
+       situacao_sku("  ms-3500 ", _tb) == ("ok", "✓ MS-3500 achado na planilha (Caneca (P) + tampa) · custo R$ 35,00", "35,00"))
+    ok("situacao_sku: não achou — diz que não foi encontrado e não inventa custo",
+       situacao_sku("MS-1", _tb)[0] == "erro" and "não foi encontrado" in situacao_sku("MS-1", _tb)[1]
+       and situacao_sku("MS-1", _tb)[2] is None)
+    ok("situacao_sku: pacote é recusado sem custo", situacao_sku("ms-9000", _tb)[0] == "erro"
+       and "pacote" in situacao_sku("ms-9000", _tb)[1] and situacao_sku("ms-9000", _tb)[2] is None)
+    ok("situacao_sku: planilha ilegível manda digitar, vazio fica calado",
+       situacao_sku("MS-3500", None, "403")[0] == "aviso" and situacao_sku("  ", _tb) == ("", "", None))
     ok("rotulo_manual: quantidade, nome, a marca de manual e a observação limpa",
        rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + base · Sentada · saída manual · ML 123"
        and rotulo_manual(prods[1], 1).endswith("saída manual"))

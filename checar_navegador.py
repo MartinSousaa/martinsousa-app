@@ -487,7 +487,7 @@ def main():
             pg.get_by_role("button", name="➕ Cadastrar este código").click()
             pg.wait_for_timeout(2500)
             pg.get_by_label("Produto", exact=True).fill("Porta 2 Relógio + Jóias (P/M)")
-            pg.get_by_label("Preço de custo (R$)").fill("31,50")
+            pg.get_by_label("Custo varejo (R$)").fill("31,50")
             pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
             pg.wait_for_timeout(3500)
             _txt_d = pg.inner_text("body")
@@ -542,7 +542,20 @@ def main():
             pg.get_by_role("button", name="SIM, CADASTRAR").click()
             pg.wait_for_timeout(2500)
             pg.get_by_label("Produto", exact=True).fill("Caneca (P) + tampa")
+            # NA HORA (dono, 12/11): digitou o SKU e apertou Enter, o custo se
+            # preenche e a tela diz se achou — antes de salvar.
+            pg.get_by_label("SKU (varejo)").fill("XX-404")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _nao_achou = "SKU XX-404 não foi encontrado" in pg.inner_text("body")
+            pg.get_by_label("SKU (varejo)").fill("  ms-3500 ")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _ao_vivo = ("MS-3500 achado na planilha" in pg.inner_text("body")
+                        and pg.get_by_label("Custo varejo (R$)").input_value() == "35,00")
             pg.get_by_label("SKU (varejo)").fill("MS-9000")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
             pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
             pg.wait_for_timeout(3000)
             _pacote = "pacote de 3" in pg.inner_text("body")
@@ -559,10 +572,11 @@ def main():
             pg.wait_for_timeout(3500)
             _alerta = _re.search(r"PRODUTOS SEM SKU · (\d+)", pg.inner_text("body"))
             ok = (_pacote and _custo and _org and _alerta is not None and _alerta.group(1) == "3"
-                  and len(navegou) == 1)
+                  and _nao_achou and _ao_vivo and len(navegou) == 1)
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: SKU traz o custo da planilha, pacote é recusado, "
-                  f"atacado fica marcado e o Painel lista os sem SKU (pacote={_pacote}, custo={_custo}, "
+                  f"atacado fica marcado e o Painel lista os sem SKU (na hora: achou={_ao_vivo}, "
+                  f"não achou={_nao_achou}, pacote={_pacote}, custo={_custo}, "
                   f"atacado={_org}, sem SKU={_alerta.group(1) if _alerta else None})")
             # SAÍDA MANUAL (dono, 12/11): o produto que saiu sem bipe é lançado
             # depois pelo nome — o pior nome da equipe, com + e ( ) —, sai a
