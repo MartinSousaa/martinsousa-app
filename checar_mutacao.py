@@ -5448,6 +5448,50 @@ MUTACOES = [
         None,
         ["python3", "mp_tela.py"],
     ),
+    (
+        'a assinatura da Shopee volta a esquecer o token e a loja (12/11)',
+        "shopee_api.py",
+        [('    base = f"{partner_id}{caminho}{ts}{access_token}{shop_id}"', '    base = f"{partner_id}{caminho}{ts}"')],
+        None,
+        ["python3", "shopee_api.py"],
+    ),
+    (
+        'a volta do Mercado Livre volta a ser tomada como da Shopee (12/11)',
+        "shopee_api.py",
+        [('        return bool(str(params.get("code", "")).strip()\n                    and str(params.get("shop_id", "")).strip())',
+          '        return bool(str(params.get("code", "")).strip())')],
+        None,
+        ["python3", "shopee_api.py"],
+    ),
+    (
+        'a lista de pedidos da Shopee volta a ignorar o cursor (12/11)',
+        "shopee_api.py",
+        [('            if not r.get("more"):\n                break\n        else:', '            break\n        else:')],
+        None,
+        ["python3", "shopee_api.py"],
+    ),
+    (
+        'o erro da Shopee com HTTP 200 volta a passar como sucesso (12/11)',
+        "shopee_api.py",
+        [("    erro = erro_da_resposta(dado)\n    if erro:\n        return (None, erro)\n", "")],
+        None,
+        ["python3", "shopee_api.py"],
+    ),
+    (
+        'a ponte Shopee x SKU volta a contar pedido cancelado (12/11)',
+        "shopee_api.py",
+        [('        if str(it.get("status", "")).upper() in ("CANCELLED", "IN_CANCEL", "UNPAID"):\n            continue\n', "")],
+        None,
+        ["python3", "shopee_api.py"],
+    ),
+    (
+        'a tela da Shopee volta a calar o cupom que falhou (12/11)',
+        "shopee_tela.py",
+        [('        if r.get("erro"):\n            saida.append(f"**{nome}** · {tipo}: {r[\'erro\']}")',
+          '        if False:\n            pass')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
 ]
 
 

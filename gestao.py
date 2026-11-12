@@ -353,6 +353,8 @@ SUBTELAS_OPERACIONAL = {
     "🔎 Análise de Gargalos": lambda u: _abrir_tela("gargalos_tela", u),
     # Dono, 28/10: as promoções do ML nas quatro contas, por produto.
     "🏷️ Promoções ML": lambda u: _abrir_tela("promocoes_ml", u),
+    # Dono, 12/11: nome na Shopee × SKU, ads e promoções das duas lojas.
+    "🛍️ Shopee": lambda u: _abrir_tela("shopee_tela", u),
 }
 
 

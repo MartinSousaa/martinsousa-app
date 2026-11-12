@@ -5266,6 +5266,72 @@ def _mp_a_liberar(conta):
             _Falso.metric = _g[2]
 
 
+
+def _shopee_na_tela(conta):
+    """12/11: Operacional › Shopee. A leitura das duas lojas já está na sessão
+    (o botão é que vai à rede), feita pela cadeia real (`shopee_tela.ler_todas`
+    → `shopee_api`) com respostas na forma das páginas oficiais. Só a ida à
+    rede e a credencial são trocadas. O nome é o pior que a equipe já gravou."""
+    from datetime import datetime as _dt_sp, timedelta as _td_sp, timezone as _tz_sp
+    import shopee_api as _spa
+    import shopee_tela as _spt
+    import auth as _auth_sp
+    _g = (_spt.st, _auth_sp.eh_dono, _spa.configurado, getattr(_Falso, "metric", None))
+    _txt, _tabelas, _metricas = [], [], []
+    _agora = _dt_sp(2026, 11, 12, 13, 0, tzinfo=_tz_sp(_td_sp(hours=-3)))
+
+    def _ida(metodo, caminho, params, corpo=None):
+        if caminho.endswith("get_order_list"):
+            return ({"error": "", "response": {"more": False, "next_cursor": "",
+                                               "order_list": [{"order_sn": "A1"}]}}, "")
+        if caminho.endswith("get_order_detail"):
+            return ({"error": "", "response": {"order_list": [{
+                "order_sn": "A1", "order_status": "COMPLETED", "create_time": 1700000000,
+                "item_list": [{"item_name": "Porta 2 Relógio + Jóias", "item_sku": "pr-2 ",
+                               "model_name": "", "model_sku": "", "model_quantity_purchased": 1}]}]}}, "")
+        if caminho.endswith("daily_performance"):
+            return ({"error": "", "response": [{"date": params["start_date"], "expense": 10.0,
+                                                "broad_gmv": 45.0, "broad_order": 1, "clicks": 7}]}, "")
+        if caminho.endswith("get_discount_list"):
+            return ({"error": "", "response": {"more": False, "discount_list": []}}, "")
+        return (None, "Shopee: error_auth — Invalid access_token")
+    try:
+        f = instalar()
+        for _k in ("markdown", "error", "warning", "caption", "info"):
+            setattr(f, _k, (lambda k: lambda t, *a, **kw: _txt.append(f"{k}:{t}"))(_k))
+        f.dataframe = lambda d, *a, **k: _tabelas.append(d)
+        _Falso.metric = lambda self, rot, val, *a, **k: _metricas.append((rot, val))
+        _spt.st = f
+        _auth_sp.eh_dono = lambda u: True
+        _spa.configurado = lambda: True
+        _lidas = _spt.ler_todas(30, _agora, lambda l: ((None, "Shopee 2 (LG) ainda não foi autorizada")
+                                                       if l == "shp2" else (("1", "k", "t", "77"), "")), _ida)
+        f.session_state["shp_dados"] = {"lidas": _lidas, "estoque": {"PR-2"}, "quando": "12/11 13:00"}
+        _spt.pagina("MartinSousa")
+        _j = " ".join(_txt)
+        _ponte = [t for t in _tabelas if t and "Nome na Shopee" in t[0]]
+        conta("Shopee: o nome da plataforma aparece ao lado do SKU, e o SKU casa com o estoque",
+              _ponte and _ponte[0][0]["Nome na Shopee"] == "Porta 2 Relógio + Jóias"
+              and _ponte[0][0]["SKU"] == "PR-2" and _ponte[0][0]["No estoque"] == "✅ sim",
+              str(_ponte)[:300])
+        conta("Shopee: o gasto de ads aparece (30 dias = uma janela)", ("Ads — gasto", "R$ 10,00") in _metricas, str(_metricas))
+        conta("Shopee: o cupom que falhou e a loja sem autorização são ditos",
+              "cupons: Shopee: error_auth" in _j and "ainda não foi autorizada" in _j, _j[:300])
+    except (_Rerun, _Parou):
+        conta("Shopee: a tela monta", True, "")
+    except Exception as e:
+        conta("Shopee: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _spt.st, _auth_sp.eh_dono, _spa.configurado = _g[0], _g[1], _g[2]
+        if _g[3] is None:
+            try:
+                del _Falso.metric
+            except AttributeError:
+                pass
+        else:
+            _Falso.metric = _g[3]
+
+
 def _promocoes_ml(conta):
     """28/10: Operacional › Promoções ML. A leitura das quatro contas já está
     na sessão (o botão é que vai à rede) e a faixa do desconto do vendedor é
@@ -5429,6 +5495,7 @@ def main():
     _custos_do_studio(conta)
     _promocoes_ml(conta)
     _mp_a_liberar(conta)
+    _shopee_na_tela(conta)
     _ranking_abre_panorama(conta)
     _celular(conta)
     _rastreio_etiquetas(conta)
