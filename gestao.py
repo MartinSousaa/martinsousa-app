@@ -310,6 +310,8 @@ SUBTELAS = {
     "💸 Custos do Studio": lambda u: _abrir_tela("custos_studio", u),
     # Dono, 30/10: salário pelo ponto (dia 30) e metas (5º dia útil).
     "🧮 Apuração do mês": lambda u: _abrir_tela("folha_tela", u),
+    # Dono, 12/11: o dinheiro a liberar no Mercado Pago das quatro contas.
+    "💰 A liberar (MP)": lambda u: _abrir_tela("mp_tela", u),
 }
 
 

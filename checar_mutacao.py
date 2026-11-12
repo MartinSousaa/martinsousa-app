@@ -5420,6 +5420,34 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'o dinheiro a liberar volta a ignorar a devolucao (12/11)',
+        "mp_api.py",
+        [("    return (max(liq - dev, 0.0), dev > 0)", "    return (max(liq, 0.0), dev > 0)")],
+        None,
+        ["python3", "mp_api.py"],
+    ),
+    (
+        'o dinheiro ja liberado volta a contar como a liberar (12/11)',
+        "mp_api.py",
+        [("        if situacao == LIBERADO:\n            continue\n", "")],
+        None,
+        ["python3", "mp_api.py"],
+    ),
+    (
+        'a busca do Mercado Pago volta a parar na primeira pagina (12/11)',
+        "mp_api.py",
+        [("        if not res or len(todos) >= total:", "        if True:")],
+        None,
+        ["python3", "mp_api.py"],
+    ),
+    (
+        'a tela do Mercado Pago volta a calar o numero incompleto (12/11)',
+        "mp_tela.py",
+        [("    if v.get(\"incompleto\"):\n        return f\"⚠️ INCOMPLETO", "    if False:\n        return f\"⚠️ INCOMPLETO")],
+        None,
+        ["python3", "mp_tela.py"],
+    ),
 ]
 
 

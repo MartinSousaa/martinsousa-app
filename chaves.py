@@ -40,6 +40,10 @@ PARA_QUE = {
     "MS_CLIENT_SECRET": "entrar no OneDrive da empresa (Controle MS)",
     "ML_CLIENT_ID": "ligar as contas do Mercado Livre (promoções)",
     "ML_CLIENT_SECRET": "ligar as contas do Mercado Livre (promoções)",
+    **{f"MP_TOKEN_ML{n}": f"ler o dinheiro a liberar do Mercado Pago da ML{n}"
+       for n in range(1, 5)},
+    "SHOPEE_PARTNER_ID": "ligar as lojas da Shopee (vendas, ads e promoções)",
+    "SHOPEE_PARTNER_KEY": "ligar as lojas da Shopee (vendas, ads e promoções)",
 }
 
 
