@@ -1029,6 +1029,23 @@ try:
 except Exception:
     pass  # o Mercado Livre nunca pode impedir o Studio de abrir
 
+# ── Volta da autorizacao da Shopee (12/11) ───────────────────────────────────
+# A Shopee volta na raiz com `?code=…&shop_id=…`; o `shop_id` e o que separa
+# esta volta da do ML. O `code` vence em 10 minutos e vale uma vez.
+try:
+    import shopee_api as _shp_cb
+    _loja_shp, _sid_shp, _erro_shp = _shp_cb.processar_callback(st.query_params)
+    if _loja_shp:
+        st.success(f"Shopee: **{_shp_cb.NOME_DA_LOJA[_loja_shp]}** ligada a loja "
+                   f"**{_sid_shp}**. Confira se e a loja certa. O token passa a se "
+                   "renovar sozinho.")
+        st.query_params.clear()
+    elif _erro_shp:
+        st.error(f"Shopee: {_erro_shp}")
+        st.query_params.clear()
+except Exception:
+    pass  # a Shopee nunca pode impedir o Studio de abrir
+
 usuario_logado = auth.verificar_login()
 
 # Comeca a contar esta passada. Toda ida a rede — Trello, planilha, RHiD — se

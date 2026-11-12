@@ -141,13 +141,18 @@ def cabecalho_html(variacoes, saldo, codigo):
     n = len(variacoes)
     var_txt = f" · {n} variações" if n > 1 or str(p.get("variacao") or "").strip() else ""
     custo = f'{E.numero(p.get("custo")):,.2f}'.replace(",", "X").replace(".", ",").replace("X", ".")
+    sku = E.normalizar_sku(p.get("sku"))
+    sku_txt = (f' · SKU {_esc(sku)}' if sku else ' · <span style="color:#f0c060">sem SKU</span>')
+    if E.normalizar_sku(p.get("sku_atacado")):
+        sku_txt += (f' · atacado {_esc(E.normalizar_sku(p.get("sku_atacado")))} '
+                    f'{_rs(E.custo_de(p, E.ATACADO))}')
     return (f'<div style="display:flex;gap:14px;align-items:center;margin:4px 0 10px">'
             f'{foto_html(p.get("foto_id"), 88)}<div>'
             f'<div style="font-size:11px;color:#4CC38A;font-weight:800;letter-spacing:.12em">'
             f'✓ JÁ CADASTRADO · {_esc(codigo)}</div>'
             f'<div style="font-size:20px;font-weight:800">{_esc(p.get("nome"))}</div>'
             f'<div style="font-size:13px;color:#9AA3AE">{_esc(p.get("codigo_fornecedor") or "—")}'
-            f' · custo R$ {custo}{var_txt} · em estoque: {total}</div>'
+            f' · custo R$ {custo}{sku_txt}{var_txt} · em estoque: {total}</div>'
             f'<div style="font-size:13px;color:#9AA3AE">registrado em '
             f'{_esc(str(p.get("registrado_em") or "")[:10])} · '
             f'<span style="color:#f0c060">a idade conta daqui</span></div></div></div>')
@@ -189,6 +194,9 @@ def _ao_bipar():
     ss["est_bipe"] = ""
     if not cod:
         return
+    # Qualquer bipe, em qualquer modo, encerra a pergunta do kit: ela vale só
+    # para a unidade que acabou de sair.
+    ss.pop("est_kit_pergunta", None)
     if ss.get("est_modo") == "⬆ Saída":
         _bipe_na_saida(cod)
         return
@@ -211,7 +219,8 @@ def _ao_bipar():
 
 def _limpar_ficha():
     ss = st.session_state
-    for k in [k for k in ss.keys() if str(k).startswith(("est_q_", "est_n_", "est_cq_"))]:
+    for k in [k for k in ss.keys() if str(k).startswith(("est_q_", "est_n_", "est_cq_", "est_cad_s",
+                                                         "est_cad_c", "est_ed_"))]:
         del ss[k]
     for k in ("est_lido", "est_cadastrar", "est_sem_codigo", "est_nova_var",
               "est_imprimir"):
@@ -276,6 +285,10 @@ def _local_da_entrada():
     return next((k for k, v in E.FULLS.items() if v == nome), E.FISICO)
 
 
+def _origem_da_entrada():
+    return E.ATACADO if st.session_state.get("est_origem_entra") == "Atacado" else E.VAREJO
+
+
 def _confirmar_entrada(variacoes, quem):
     ss = st.session_state
     try:
@@ -286,14 +299,16 @@ def _confirmar_entrada(variacoes, quem):
             if novo and novo != str(v.get("variacao") or "").strip():
                 renomes[v["id"]] = {"variacao": novo}
         local = _local_da_entrada()
-        linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local)
+        origem = _origem_da_entrada()
+        linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local, origem=origem)
         if not linhas and not renomes:
             _avisar("Nada para gravar: todas as quantidades estão em zero.", True)
             return
         E.atualizar_produtos(renomes)
         E.gravar_movimentos(linhas)
         total = sum(q for _v, q in itens)
-        _avisar(f"✓ Entrada gravada no {E.NOME_LOCAL[local]}: {total} peça(s) de {variacoes[0].get('nome')}."
+        _avisar(f"✓ Entrada gravada no {E.NOME_LOCAL[local]}: {total} peça(s) de {variacoes[0].get('nome')}"
+                f" · {origem}."
                 if linhas else "✓ Nomes das variações atualizados.")
         _limpar_ficha()
     except Exception as e:
@@ -369,8 +384,10 @@ def _ficha(variacoes, saldo, codigos, por_id, quem):
     st.segmented_control("Onde está entrando", ["Físico"] + list(E.FULLS.values()), default="Físico",
                          key="est_onde_entra",
                          help="Produto que JÁ está no Full e não dá para bipar: escolha o Full e digite a quantidade.")
+    st.segmented_control("Esta compra é", ["Varejo", "Atacado"], default="Varejo", key="est_origem_entra",
+                         help="Cada uma tem o seu SKU e o seu custo. Na saída, o varejo sai primeiro.")
     total = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) for v in variacoes)
-    valor = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) * E.numero(v.get("custo"))
+    valor = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) * E.custo_de(v, _origem_da_entrada())
                 for v in variacoes)
     c1, c2, c3 = st.columns([3, 1.4, 1.2])
     c1.markdown(f"total entrando: **{total} peça(s) · R\\$ "
@@ -415,9 +432,12 @@ def _nova_variacao(variacoes, quem):
             if sem_nome:
                 E.atualizar_produtos({p0["id"]: {"variacao": str(nome_antigo).strip()}})
             novas = E.linhas_de_produto(p0.get("ean"), p0.get("codigo_fornecedor"), p0.get("nome"),
-                                        E.numero(p0.get("custo")), [(nome, foto_id)], quem, _quando())
+                                        E.numero(p0.get("custo")), [(nome, foto_id)], quem, _quando(),
+                                        sku=p0.get("sku", ""), sku_atacado=p0.get("sku_atacado", ""),
+                                        custo_atacado=p0.get("custo_atacado", ""))
             E.gravar_produtos(novas)
-            E.gravar_movimentos(E.linhas_de_entrada([(novas[0], int(qtd))], quem, _quando()))
+            E.gravar_movimentos(E.linhas_de_entrada([(novas[0], int(qtd))], quem, _quando(),
+                                                    origem=_origem_da_entrada()))
             _avisar(f"✓ Variação «{str(nome).strip()}» criada" + (f", com {int(qtd)} peça(s)." if qtd else "."))
             st.session_state.pop("est_nova_var", None)
             st.rerun()
@@ -426,20 +446,32 @@ def _nova_variacao(variacoes, quem):
 
 
 def _editar_produto(variacoes, quem):
-    with st.expander("✎ Editar produto (nome, código do fornecedor, custo, foto)"):
+    with st.expander("✎ Editar produto (nome, código do fornecedor, SKU, custo, foto)"):
         p0 = variacoes[0]
+        # A chave leva o código: dois produtos abertos em seguida não dividem
+        # o que foi digitado em um.
+        sku, custo, sku_at, custo_at = _campos_sku(
+            f"est_ed_{E.limpar_codigo(p0.get('ean'))}_",
+            {"sku": str(p0.get("sku") or ""),
+             "custo": f'{E.numero(p0.get("custo")):.2f}'.replace(".", ","),
+             "sku_at": str(p0.get("sku_atacado") or ""),
+             "custo_at": (f'{E.numero(p0.get("custo_atacado")):.2f}'.replace(".", ",")
+                          if str(p0.get("custo_atacado") or "").strip() else "")})
         with st.form("est_form_edit"):
             nome = st.text_input("Produto", value=str(p0.get("nome") or ""))
             forn = st.text_input("Código do fornecedor", value=str(p0.get("codigo_fornecedor") or ""))
-            custo = st.text_input("Preço de custo (R$)", value=f'{E.numero(p0.get("custo")):.2f}'.replace(".", ","))
             alvo = st.selectbox("Trocar a foto de", [E.nome_completo(v) for v in variacoes])
             foto = st.file_uploader("Nova foto (opcional)", type=None, key="est_edit_foto")
             enviar = st.form_submit_button("Salvar alterações")
         if not enviar:
             return
+        custos, erro_c, avisos_c = _custos_do_formulario(sku, custo, sku_at, custo_at)
+        if erro_c:
+            st.error(erro_c)
+            return
         try:
-            mud = {v["id"]: {"nome": nome.strip(), "codigo_fornecedor": forn.strip(),
-                             "custo": f"{E.numero(custo):.2f}"} for v in variacoes}
+            mud = {v["id"]: {"nome": nome.strip(), "codigo_fornecedor": forn.strip(), **custos}
+                   for v in variacoes}
             if foto is not None:
                 foto_id, erro = E.salvar_foto(foto.getvalue(), E.limpar_codigo(p0.get("ean")))
                 if erro:
@@ -448,7 +480,8 @@ def _editar_produto(variacoes, quem):
                     v = variacoes[[E.nome_completo(x) for x in variacoes].index(alvo)]
                     mud[v["id"]]["foto_id"] = foto_id
             E.atualizar_produtos(mud)
-            _avisar("✓ Produto atualizado. O custo novo vale para as próximas entradas.")
+            _avisar("✓ Produto atualizado. O custo novo vale para as próximas entradas."
+                    + "".join(f" · {a}" for a in avisos_c))
             st.rerun()
         except Exception as e:
             st.error(f"Não gravei — a planilha respondeu: {e}")
@@ -506,6 +539,125 @@ def _variacoes_de_quantidade(variacoes, codigos, por_id, quem):
             st.error(f"Não gravei — a planilha respondeu: {e}")
 
 
+def resolver_custo(sku, digitado, tabela, erro_planilha=""):
+    """O custo que o cadastro grava, a partir do SKU e do que foi digitado. Pura.
+
+    Devolve (custo ou None, erro, info). Dono, 12/11: o SKU acha o custo na
+    aba HISTÓRICO SKU. Achou: vale o da planilha ("mesmo SKU quer dizer
+    mesmo preço de custo"). SKU de PACOTE não entra: o custo dele é do pacote
+    inteiro. Não achou, ou sem SKU: vale o digitado, e o produto vai para a
+    lista «Produtos sem SKU».
+    """
+    c = E.consulta_sku(tabela or {}, sku)
+    sem_planilha = (f" (não consegui ler o Controle MS: {erro_planilha})" if erro_planilha else "")
+    if c["achou"] and c["aviso"]:
+        return None, c["aviso"], ""
+    if c["achou"]:
+        dig = E.numero(digitado, -1)
+        nota = (f" — o digitado ({_rs(dig)}) foi trocado pelo da planilha" if dig >= 0 and
+                str(digitado).strip() and abs(dig - c["custo"]) > 0.004 else "")
+        return c["custo"], "", f"custo da planilha pelo SKU: {_rs(c['custo'])}{nota}"
+    if not str(digitado or "").strip():
+        motivo = ("o SKU não está na planilha" if E.normalizar_sku(sku) else "o produto está sem SKU")
+        return None, f"Falta o preço de custo — {motivo}{sem_planilha}.", ""
+    dig = E.numero(digitado, -1)
+    if dig < 0:
+        return None, "O preço de custo precisa ser um número.", ""
+    info = ("sem SKU — o produto entra na lista «Produtos sem SKU»" if not E.normalizar_sku(sku)
+            else c["aviso"] + sem_planilha)
+    return dig, "", info
+
+
+def _tabela_sku():
+    """(tabela, erro) da planilha, pelo cache de 10 min. Nunca levanta."""
+    try:
+        return E.tabela_de_sku_da_planilha()
+    except Exception as e:
+        return None, str(e)[:140]
+
+
+def situacao_sku(sku, tabela, erro_planilha=""):
+    """O que a tela diz ENQUANTO o SKU é digitado (dono, 12/11). Pura.
+
+    (tipo, mensagem, custo em texto ou None). tipo: "" (vazio), "ok",
+    "erro" (pacote ou não encontrado) ou "aviso" (planilha ilegível).
+    O custo achado volta escrito como a equipe digita ("35,00"), para
+    preencher o campo de custo sozinho.
+    """
+    n = E.normalizar_sku(sku)
+    if not n:
+        return "", "", None
+    if tabela is None:
+        return ("aviso", f"Não consegui ler o Controle MS agora ({erro_planilha or 'sem resposta'}). "
+                         "Digite o custo à mão.", None)
+    c = E.consulta_sku(tabela, n)
+    if c["achou"] and c["aviso"]:
+        return "erro", c["aviso"], None
+    if c["achou"]:
+        prod = str((tabela.get(n) or {}).get("produto") or "").strip()
+        txt = f'{c["custo"]:.2f}'.replace(".", ",")
+        return ("ok", f"✓ {n} achado na planilha" + (f" ({prod})" if prod else "")
+                + f" · custo R$ {txt}", txt)
+    return ("erro", f"❌ SKU {n} não foi encontrado na aba {E.ABA_SKU} do Controle MS. "
+                    "Confira o SKU, ou digite o custo — o produto vai para «Produtos sem SKU».", None)
+
+
+def _ao_mudar_sku(chave_sku, chave_custo):
+    """Digitou o SKU: achou na planilha, o custo se preenche sozinho."""
+    ss = st.session_state
+    tab, err = _tabela_sku()
+    _t, _m, custo = situacao_sku(ss.get(chave_sku, ""), tab, err)
+    if custo is not None:
+        ss[chave_custo] = custo
+
+
+def _campos_sku(prefixo, inicial=None):
+    """SKU varejo, custo varejo, SKU atacado e custo atacado, FORA do
+    formulário: dentro dele nada acontece até salvar, e a busca na planilha
+    tem de responder na hora. O mesmo bloco no cadastro e na edição — a
+    mesma capacidade nos dois irmãos. Devolve (sku, custo, sku_at, custo_at)."""
+    ss = st.session_state
+    for k, v in (inicial or {}).items():
+        ss.setdefault(prefixo + k, v)
+    vals = []
+    for rot, k, rot_c, kc in (("SKU (varejo)", "sku", "Custo varejo (R$)", "custo"),
+                              ("SKU atacado", "sku_at", "Custo atacado (R$)", "custo_at")):
+        c1, c2 = st.columns(2)
+        c1.text_input(rot, key=prefixo + k, placeholder="MS-3500" if k == "sku" else "MS-2800",
+                      on_change=_ao_mudar_sku, args=(prefixo + k, prefixo + kc),
+                      help="Digite e aperte Enter: o Studio busca o custo na aba "
+                           "HISTÓRICO SKU do Controle MS.")
+        c2.text_input(rot_c, key=prefixo + kc, placeholder="só se o SKU não estiver na planilha")
+        sku = ss.get(prefixo + k, "")
+        if E.normalizar_sku(sku):
+            tab, err = _tabela_sku()
+            tipo, msg, _c = situacao_sku(sku, tab, err)
+            {"ok": st.success, "erro": st.error, "aviso": st.warning}.get(tipo, st.caption)(msg)
+        vals += [sku, ss.get(prefixo + kc, "")]
+    return tuple(vals)
+
+
+def _custos_do_formulario(sku, custo, sku_at, custo_at):
+    """(mudanças, erro, avisos) do SKU de varejo e do de atacado. Efeito: lê a planilha."""
+    if not E.normalizar_sku(sku) and not str(custo or "").strip():
+        return None, "Falta o SKU ou o preço de custo.", []
+    tab, err = _tabela_sku()
+    cv, e1, i1 = resolver_custo(sku, custo, tab, err)
+    if e1:
+        return None, e1, []
+    avisos = [i1] if i1 else []
+    ca = ""
+    if E.normalizar_sku(sku_at) or str(custo_at or "").strip():
+        ca, e2, i2 = resolver_custo(sku_at, custo_at, tab, err)
+        if e2:
+            return None, "Atacado: " + e2, []
+        if i2:
+            avisos.append("Atacado: " + i2)
+    return ({"sku": E.normalizar_sku(sku), "custo": f"{cv:.2f}",
+             "sku_atacado": E.normalizar_sku(sku_at),
+             "custo_atacado": f"{ca:.2f}" if ca != "" else ""}, "", avisos)
+
+
 def _pergunta(cod):
     st.markdown(
         f'<div style="padding:14px;border-radius:12px;background:#4a3a1a;margin:6px 0 10px">'
@@ -527,6 +679,7 @@ def _cadastro(quem):
               else f"NÃO CADASTRADO · {cod}")
     st.markdown(f'<div style="font-size:11px;color:#f0c060;font-weight:800;letter-spacing:.12em">'
                 f'{_esc(titulo)}</div>', unsafe_allow_html=True)
+    sku, custo, sku_at, custo_at = _campos_sku("est_cad_")
     with st.form("est_form_cad"):
         c1, c2 = st.columns([1, 2])
         with c1:
@@ -534,9 +687,9 @@ def _cadastro(quem):
         with c2:
             forn = st.text_input("Código do fornecedor", placeholder="TRES-B131")
             nome = st.text_input("Produto", placeholder="Mini Yoga · conjunto")
-        c3, c4 = st.columns(2)
-        custo = c3.text_input("Preço de custo (R$)", placeholder="12,90")
+        c4, c8 = st.columns(2)
         qtd = c4.number_input("Quantidade entrando", min_value=0, step=1, value=0)
+        origem = c8.radio("Esta compra é", ["Varejo", "Atacado"], horizontal=True, key="est_cad_origem")
         tem_var = st.checkbox("Tem variações com este mesmo código (posição, cor…)",
                               help="Marcado: escreva o nome desta primeira. Depois bipe o mesmo "
                                    "código de novo para cada variação.")
@@ -545,14 +698,17 @@ def _cadastro(quem):
     st.button("Cancelar", key="est_cancelar", on_click=_voltar)
     if not enviar:
         return
-    faltando = [r for r, v in (("o nome do produto", nome), ("o preço de custo", custo)) if not str(v).strip()]
+    faltando = [r for r, v in (("o nome do produto", nome),) if not str(v).strip()]
     if tem_var and not str(var).strip():
         faltando.append("o nome da variação")
-    if E.numero(custo, -1) < 0:
-        faltando.append("um preço de custo que seja número")
     if faltando:
         st.error("Falta " + ", ".join(faltando) + ".")
         return
+    custos, erro_c, avisos_c = _custos_do_formulario(sku, custo, sku_at, custo_at)
+    if erro_c:
+        st.error(erro_c)
+        return
+    org = E.ATACADO if origem == "Atacado" else E.VAREJO
     try:
         prods, _m, cods = E.carregar()
         if sem_codigo:
@@ -565,12 +721,15 @@ def _cadastro(quem):
             foto_id, erro = E.salvar_foto(foto.getvalue(), cod)
             if erro:
                 st.warning(f"O produto foi salvo sem foto: {erro}")
-        novas = E.linhas_de_produto(cod, forn, nome, E.numero(custo),
-                                    [(var if tem_var else "", foto_id)], quem, _quando())
+        novas = E.linhas_de_produto(cod, forn, nome, E.numero(custos["custo"]),
+                                    [(var if tem_var else "", foto_id)], quem, _quando(),
+                                    sku=custos["sku"], sku_atacado=custos["sku_atacado"],
+                                    custo_atacado=custos["custo_atacado"])
         E.gravar_produtos(novas)
-        E.gravar_movimentos(E.linhas_de_entrada([(novas[0], int(qtd))], quem, _quando()))
+        E.gravar_movimentos(E.linhas_de_entrada([(novas[0], int(qtd))], quem, _quando(), origem=org))
         _limpar_ficha()
-        _avisar(f"✓ «{nome.strip()}» cadastrado" + (f" com {int(qtd)} peça(s)." if qtd else "."))
+        _avisar(f"✓ «{nome.strip()}» cadastrado" + (f" com {int(qtd)} peça(s) de {org}." if qtd else ".")
+                + "".join(f" · {a}" for a in avisos_c))
         if sem_codigo:
             ss["est_etiqueta_nova"] = (cod, nome.strip())
         _voltar_ao_modo()
@@ -603,7 +762,7 @@ def _baixar(itens, destino, quem, rotulo, full=None):
         if not full:
             _avisar("Escolha PARA QUAL Full está indo, antes de bipar.", True)
             return None
-    linhas = E.linhas_de_saida(itens, destino, quem, _quando(), obs=rotulo, full=full or "")
+    linhas = E.linhas_de_saida(itens, destino, quem, _quando(), obs=rotulo, full=full or "", movs=movs)
     if not linhas:
         return None
     E.gravar_movimentos(linhas)
@@ -633,6 +792,8 @@ def _bipe_na_saida(cod):
     """Um bipe na Saída. Callback: roda antes de a tela ser desenhada."""
     ss = st.session_state
     quem = ss.get("est_quem", "")
+    # O PRÓXIMO BIPE FECHA A PERGUNTA DO KIT: não clicou, a unidade fica.
+    ss.pop("est_kit_pergunta", None)
     try:
         prods, movs, codigos = E.carregar()
         itens, variacoes = E.itens_do_bipe(prods, codigos, cod)
@@ -648,8 +809,10 @@ def _bipe_na_saida(cod):
         if corr:
             desf = E.linhas_que_desfazem(corr, movs, quem, _quando())
             E.gravar_movimentos(desf)
-        _baixar(itens, _destino(), quem, rotulo + (" (no lugar do bipe errado)" if corr else ""))
+        lote = _baixar(itens, _destino(), quem, rotulo + (" (no lugar do bipe errado)" if corr else ""))
         ss.pop("est_janela", None)
+        if lote and not k:
+            _perguntar_kit(lote, itens[0][0]["id"], codigos)
     except Exception as e:
         _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
 
@@ -663,10 +826,54 @@ def _saiu_modelo(pid, quem):
         corr = ss.pop("est_corrigir", None)
         if corr:
             E.gravar_movimentos(E.linhas_que_desfazem(corr, movs, quem, _quando()))
-        _baixar([(p, 1)], _destino(), quem, E.nome_completo(p))
+        ss.pop("est_kit_pergunta", None)
+        lote = _baixar([(p, 1)], _destino(), quem, E.nome_completo(p))
         ss.pop("est_janela", None)
+        if lote:
+            _perguntar_kit(lote, pid, _c)
     except Exception as e:
         _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
+
+
+def _perguntar_kit(lote, pid, codigos):
+    ks = E.kits_com(codigos, pid)
+    if ks:
+        st.session_state["est_kit_pergunta"] = {"lote": lote, "codigos": [k["codigo"] for k in ks]}
+
+
+def _era_kit(codigo, quem):
+    """Clique em "É o Kit X?": a unidade volta e o kit inteiro sai no lugar."""
+    ss = st.session_state
+    perg = ss.pop("est_kit_pergunta", None)
+    if not perg:
+        return
+    try:
+        prods, movs, codigos = E.carregar()
+        k = E.codigo_gerado(codigos, codigo)
+        itens, _v = E.itens_do_bipe(prods, codigos, codigo)
+        if not k or not itens:
+            _avisar("Esse kit não existe mais — a unidade ficou como saiu.", True)
+            return
+        E.gravar_movimentos(E.linhas_que_desfazem(perg["lote"], movs, quem, _quando()))
+        _baixar(itens, _destino(), quem, f'{k.get("nome")} (no lugar da unidade)')
+    except Exception as e:
+        _avisar(f"Não troquei pelo kit — a planilha respondeu: {e}", True)
+
+
+def _pergunta_kit(codigos, por_id, quem, movs):
+    perg = st.session_state.get("est_kit_pergunta")
+    if not perg or perg["lote"] in E.lotes_desfeitos(movs):
+        return
+    ks = [k for k in codigos if k.get("codigo") in perg["codigos"]]
+    if not ks:
+        return
+    with st.container(border=True):
+        st.markdown("**Saiu 1 unidade. Era um kit?** — se não for, é só bipar o próximo.")
+        for k in ks:
+            c1, c2 = st.columns([3, 1.6])
+            c1.markdown(f'**{_esc(k.get("nome"))}**  \n{_esc(receita_txt(k, por_id))}')
+            c2.button(f"É o {k.get('nome')}?", key=f"est_ek_{k['codigo']}", type="primary",
+                      use_container_width=True, on_click=_era_kit, args=(k["codigo"], quem))
 
 
 def _fechar_janela():
@@ -785,6 +992,60 @@ def _lateral_saida(movs, por_id, quem):
                 .replace(",", "."))
 
 
+def rotulo_manual(p, q, obs=""):
+    """O texto que fica no movimento da saída manual. Pura.
+
+    "manual" fica escrito para o histórico separar o que foi bipado do que
+    foi lançado depois, e a observação (pedido, data real) vai junto."""
+    obs = " ".join(str(obs or "").split())
+    return f"{int(q)}× {E.nome_completo(p)} · saída manual" + (f" · {obs}" if obs else "")
+
+
+def _saiu_manual(pid, quem):
+    """Botão «Dar saída» da busca manual: sai a quantidade digitada daquele modelo."""
+    ss = st.session_state
+    try:
+        q = int(ss.get(f"est_sm_q_{pid}", 1) or 0)
+        if q <= 0:
+            _avisar("Digite quantas peças saíram (1 ou mais).", True)
+            return
+        prods, _m, _c = E.carregar()
+        p = next((x for x in prods if x["id"] == pid), None)
+        if p is None:
+            _avisar("Esse produto não está mais no cadastro.", True)
+            return
+        ss.pop("est_kit_pergunta", None)
+        if _baixar([(p, q)], _destino(), quem, rotulo_manual(p, q, ss.get("est_sm_obs"))):
+            ss["est_busca_sai"] = ""
+    except Exception as e:
+        _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
+
+
+def _saida_manual(prods, saldo, quem):
+    """Saída sem bipe (dono, 12/11): o produto que saiu antes de ter cadastro,
+    ou que não dá para bipar, é lançado depois pelo nome. Usa o mesmo destino
+    escolhido acima (Venda ou Full) e o mesmo `_baixar` do bipe — e, como no
+    bipe, sem estoque ele fica negativo em vez de travar."""
+    with st.expander("✍️ Saída manual — produto sem bipe, buscar pelo nome"):
+        txt = st.text_input("Nome ou código", key="est_busca_sai", placeholder="Embaralhador, MBLN-06…")
+        st.text_input("Observação (pedido, data em que saiu de verdade)", key="est_sm_obs",
+                      placeholder="ML · 2000012345678 · saiu em 10/11")
+        achados = buscar_produtos(prods, txt)
+        if txt and not achados:
+            st.caption("Nenhum produto com esse nome. Cadastre primeiro: bipe ou digite o código "
+                       "de barras na barra acima, e volte aqui.")
+        for p0 in achados:
+            for v in E.do_codigo(prods, p0.get("ean")) or [p0]:
+                c1, c2, c3 = st.columns([3, 1, 1.2])
+                c1.markdown(f"{_esc(E.nome_completo(v))} · em estoque: "
+                            f"{saldo.get((v['id'], E.FISICO), 0)}")
+                c2.number_input("qtd", min_value=1, step=1, value=1, key=f"est_sm_q_{v['id']}",
+                                label_visibility="collapsed")
+                c3.button("Dar saída", key=f"est_sm_b_{v['id']}", on_click=_saiu_manual,
+                          args=(v["id"], quem), use_container_width=True)
+        st.caption("Sai na hora em que você clica. A data real vai na observação.")
+
+
 def _saida(quem):
     ss = st.session_state
     st.segmented_control("Saída para", list(DESTINOS), default="🛒 Venda", key="est_dest")
@@ -812,9 +1073,12 @@ def _saida(quem):
         variacoes = E.do_codigo(prods, jan) if jan else []
         if variacoes:
             _janela(variacoes, saldo, codigos, por_id, quem)
+        elif ss.get("est_kit_pergunta") and ss.get("est_kit_pergunta", {}).get("lote") not in E.lotes_desfeitos(movs):
+            _pergunta_kit(codigos, por_id, quem, movs)
         else:
             st.caption("Cada bipe é 1 unidade e sai na hora. Código com mais de um modelo abre a "
                        "janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")
+            _saida_manual(prods, saldo, quem)
     with lateral:
         _lateral_saida(movs, por_id, quem)
 
@@ -864,8 +1128,9 @@ def _gravar_baixa(p, motivo, quem, q, volta, local, obs, pedido, foto):
         foto_id, erro = E.salvar_foto(foto.getvalue(), f"baixa_{E.limpar_codigo(p.get('ean'))}")
         if erro:
             st.warning(f"Gravei sem a foto: {erro}")
+    _p, movs, _c = E.carregar()
     linhas = E.linhas_de_baixa(p, q, motivo, quem, _quando(), local=local, volta=volta,
-                               obs=obs, pedido=pedido, foto_id=foto_id)
+                               obs=obs, pedido=pedido, foto_id=foto_id, movs=movs)
     E.gravar_movimentos(linhas)
     return linhas
 
@@ -1202,6 +1467,29 @@ def _marcar(pid, quem):
         _avisar(f"Não gravei — a planilha respondeu: {e}", True)
 
 
+def sem_sku_html(lista):
+    """A lista «Produtos sem SKU», para pôr o SKU depois (dono, 12/11). Pura."""
+    if not lista:
+        return ""
+    itens = "".join(f'<div style="font-size:13px;margin-top:4px"><b>{_esc(E.nome_completo(p))}</b> '
+                    f'<span style="color:#9AA3AE">· {_esc(p.get("codigo_fornecedor") or p.get("ean"))}'
+                    f' · {_esc(m)}</span></div>' for p, m in lista)
+    return (f'<div style="padding:12px 14px;border-radius:12px;background:#4a3a1a;margin:8px 0">'
+            f'<div style="color:#f0c060;font-weight:800">⚠️ PRODUTOS SEM SKU · {len(lista)}</div>'
+            f'<div style="color:#E8EAED;font-size:12px">sem o SKU, o custo não vem do Controle MS. '
+            f'Bipe o produto na Entrada → ✎ Editar produto.</div>{itens}</div>')
+
+
+def _alerta_sem_sku(prods):
+    tab, erro = _tabela_sku()
+    lista = E.sem_sku(prods, tab)
+    if lista:
+        st.markdown(sem_sku_html(lista), unsafe_allow_html=True)
+    if erro:
+        st.caption(f"Não consegui ler a aba {E.ABA_SKU} do Controle MS ({erro}): a lista acima só "
+                   "mostra quem está SEM SKU, e não confere se o SKU existe na planilha.")
+
+
 def tabela_produtos(linhas, busca=""):
     """As linhas da tabela, filtradas pela busca como TEXTO (passo 13). Pura.
 
@@ -1213,7 +1501,8 @@ def tabela_produtos(linhas, busca=""):
     for l in linhas:
         p = l["produto"]
         alvo = " ".join(str(x or "").lower() for x in (p.get("nome"), p.get("variacao"),
-                                                       p.get("codigo_fornecedor"), p.get("ean")))
+                                                       p.get("codigo_fornecedor"), p.get("ean"),
+                                                       p.get("sku"), p.get("sku_atacado")))
         if b and b not in " ".join(alvo.split()) and E.limpar_codigo(b) != E.limpar_codigo(p.get("ean")):
             continue
         fora.append(l)
@@ -1267,6 +1556,7 @@ def _painel(quem):
                          args=(p["id"], quem), use_container_width=True)
         st.caption("Entra sozinho quando vende sem estoque ou um kit trava. Sai sozinho quando a "
                    "mercadoria dá entrada.")
+    _alerta_sem_sku(prods)
     st.markdown("**Todos os produtos**")
     busca = st.text_input("Buscar", key="est_busca", placeholder="🔎 nome, código ou bipe",
                           label_visibility="collapsed")
@@ -1275,7 +1565,9 @@ def _painel(quem):
         "foto": gdrive.url_thumbnail(l["produto"].get("foto_id"), 120) if l["produto"].get("foto_id") else "",
         "Produto": E.nome_completo(l["produto"]),
         "Código": l["produto"].get("codigo_fornecedor") or l["produto"].get("ean"),
+        "SKU": E.normalizar_sku(l["produto"].get("sku")) or "—",
         "Físico": l["fisico"], "Full": l["full"],
+        "Varejo · atacado": f'{l.get("varejo", 0)} · {l.get("atacado", 0)}',
         "Full por conta": " · ".join(f'{E.FULLS[k].replace("Full ", "")} {q}'
                                      for k, q in l.get("por_full", {}).items()) or "—",
         "Custo": _rs(l["custo"]), "Valor": _r0(l["valor"]),
@@ -1411,7 +1703,7 @@ def _ajustar(cid, quem):
         prods, movs, _c = E.carregar()
         _cs, contados = E.contagem()
         fech = E.fechamento(prods, movs, contados, cid)
-        E.gravar_movimentos(E.linhas_de_ajuste(fech, quem, _quando(), cid))
+        E.gravar_movimentos(E.linhas_de_ajuste(fech, quem, _quando(), cid, movs=movs))
         E.fechar_contagem(cid, quem, _quando())
         _avisar(f"✓ Contagem fechada: {fech['diferenca']} produto(s) ajustado(s), "
                 f"{fech['bateu']} bateram.")
@@ -1640,6 +1932,20 @@ if __name__ == "__main__":
                                 "11/11/2026 14:02")
     ent = E.linhas_de_entrada([(prods[0], 6), (prods[1], 2)], "leo", "11/11/2026 14:03")
     por_id = {p["id"]: p for p in prods}
+    _tb = {"MS-3500": {"custo": 35.0, "qtd": 1, "produto": "Caneca (P) + tampa"},
+           "MS-9000": {"custo": 90.0, "qtd": 3, "produto": "Pacote"}}
+    ok("situacao_sku: achou — diz o produto e devolve o custo como a equipe digita",
+       situacao_sku("  ms-3500 ", _tb) == ("ok", "✓ MS-3500 achado na planilha (Caneca (P) + tampa) · custo R$ 35,00", "35,00"))
+    ok("situacao_sku: não achou — diz que não foi encontrado e não inventa custo",
+       situacao_sku("MS-1", _tb)[0] == "erro" and "não foi encontrado" in situacao_sku("MS-1", _tb)[1]
+       and situacao_sku("MS-1", _tb)[2] is None)
+    ok("situacao_sku: pacote é recusado sem custo", situacao_sku("ms-9000", _tb)[0] == "erro"
+       and "pacote" in situacao_sku("ms-9000", _tb)[1] and situacao_sku("ms-9000", _tb)[2] is None)
+    ok("situacao_sku: planilha ilegível manda digitar, vazio fica calado",
+       situacao_sku("MS-3500", None, "403")[0] == "aviso" and situacao_sku("  ", _tb) == ("", "", None))
+    ok("rotulo_manual: quantidade, nome, a marca de manual e a observação limpa",
+       rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + base · Sentada · saída manual · ML 123"
+       and rotulo_manual(prods[1], 1).endswith("saída manual"))
     cab = cabecalho_html(prods, E.saldos(ent), "7891234567895")
     ok("cabecalho_html: nome escapado, total do estoque, custo em reais",
        "&lt;resina&gt;" in cab and "em estoque: 8" in cab and "R$ 18,40" in cab
@@ -1718,5 +2024,32 @@ if __name__ == "__main__":
     ok("_por_conta_txt: soma cada Full entre os produtos", _por_conta_txt(_pnf) == " · ML1 4 · Shopee 1 2")
     ok("janela_html: nome escapado e o aviso de vários modelos",
        "&lt;resina&gt;" in janela_html(prods, {}) and "MAIS DE UM MODELO" in janela_html(prods, {}))
+    # SKU (dono, 12/11). A tabela vem de `E.tabela_de_sku`, a mesma função
+    # que lê a planilha — e não de um dicionário escrito à mão (passo 6).
+    _tb = E.tabela_de_sku(["DATA", "SKU", "PRODUTO", "QUANTIDADE", "CUSTO"],
+                          [{"SKU": "MS-3500", "PRODUTO": "Porta 2 Relógio + Jóias", "QUANTIDADE": 1, "CUSTO": 35.0},
+                           {"SKU": "MS-9000", "PRODUTO": "Kit (3)", "QUANTIDADE": 3, "CUSTO": 90.0}])
+    _r1 = resolver_custo(" ms-3500", "", _tb)
+    ok("resolver_custo: SKU achado traz o custo da planilha", _r1[0] == 35.0 and not _r1[1] and "35,00" in _r1[2])
+    _r2 = resolver_custo("MS-3500", "30", _tb)
+    ok("resolver_custo: o da planilha vence o digitado, e diz", _r2[0] == 35.0 and "trocado" in _r2[2])
+    _r3 = resolver_custo("MS-9000", "30", _tb)
+    ok("resolver_custo: SKU de pacote é recusado", _r3[0] is None and "pacote de 3" in _r3[1])
+    _r4 = resolver_custo("MS-0001", "", _tb)
+    ok("resolver_custo: SKU desconhecido sem custo digitado pede o custo", _r4[0] is None and "não está na planilha" in _r4[1])
+    _r5 = resolver_custo("", "12,90", _tb)
+    ok("resolver_custo: sem SKU, vale o digitado e avisa da lista", _r5[0] == 12.9 and "Produtos sem SKU" in _r5[2])
+    _r6 = resolver_custo("MS-3500", "", None, "sem permissão")
+    ok("resolver_custo: planilha ilegível diz por quê", _r6[0] is None and "sem permissão" in _r6[1])
+    ok("resolver_custo: custo que não é número é recusado", resolver_custo("", "abc", _tb)[0] is None)
+    _sh = sem_sku_html([({"nome": "Porta <2> + Jóias", "ean": "9"}, "sem SKU")])
+    ok("sem_sku_html: conta, escapa o nome e diz onde pôr o SKU",
+       "PRODUTOS SEM SKU · 1" in _sh and "&lt;2&gt;" in _sh and "Editar produto" in _sh and sem_sku_html([]) == "")
+    _cs = cabecalho_html([{**prods[0], "sku": "ms-3500", "sku_atacado": "MS-2800", "custo_atacado": "28"}], {}, "1")
+    ok("cabecalho_html: mostra o SKU, o do atacado e o custo dele; sem SKU avisa",
+       "SKU MS-3500" in _cs and "atacado MS-2800 R$ 28,00" in _cs and "sem SKU" in cabecalho_html(prods, {}, "1"))
+    ok("tabela_produtos: busca pelo SKU também",
+       len(tabela_produtos([{"produto": {**prods[0], "sku": "MS-3500"}, "valor": 1}], "ms-3500")) == 1)
+
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)

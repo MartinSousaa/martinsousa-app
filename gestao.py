@@ -310,6 +310,8 @@ SUBTELAS = {
     "💸 Custos do Studio": lambda u: _abrir_tela("custos_studio", u),
     # Dono, 30/10: salário pelo ponto (dia 30) e metas (5º dia útil).
     "🧮 Apuração do mês": lambda u: _abrir_tela("folha_tela", u),
+    # Dono, 12/11: o dinheiro a liberar no Mercado Pago das quatro contas.
+    "💰 A liberar (MP)": lambda u: _abrir_tela("mp_tela", u),
 }
 
 
@@ -351,6 +353,8 @@ SUBTELAS_OPERACIONAL = {
     "🔎 Análise de Gargalos": lambda u: _abrir_tela("gargalos_tela", u),
     # Dono, 28/10: as promoções do ML nas quatro contas, por produto.
     "🏷️ Promoções ML": lambda u: _abrir_tela("promocoes_ml", u),
+    # Dono, 12/11: nome na Shopee × SKU, ads e promoções das duas lojas.
+    "🛍️ Shopee": lambda u: _abrir_tela("shopee_tela", u),
 }
 
 

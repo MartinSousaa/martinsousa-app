@@ -507,6 +507,36 @@ def _secao_rastreio_etiquetas():
         st.caption(f"Mais {len(achados) - 5} cartões com esse nome — escreva mais do nome para afunilar.")
 
 
+def _secao_shopee():
+    """Shopee: autorizar as duas lojas (dono, 12/11). Só leitura: pedidos,
+    ads e promoções, na tela Operacional › Shopee."""
+    import shopee_api as _sp
+    st.markdown("#### 🛍️ Shopee — autorização das duas lojas")
+    with st.expander("Abrir autorização", expanded=False):
+        if not _sp.configurado():
+            st.warning(f"Ainda não dá para ligar: {_sp.FALTA_CREDENCIAL}.")
+            return
+        st.info("A Shopee autoriza a loja que está **logada no navegador**. Antes de "
+                "cada link, entre na loja certa no seller.shopee.com.br (saia da "
+                "anterior). Gere o link de UMA loja por vez.")
+        _ests = _sp.estados()
+        for _loja in _sp.LOJAS:
+            _est = _ests[_loja]
+            _rot = f"**{_sp.NOME_DA_LOJA[_loja]}**"
+            if _est.get("situacao") == "autorizada":
+                st.success(f"{_rot} · ligada à loja **{_est.get('shop_id') or '?'}** · "
+                           f"atualizado em {_est.get('atualizado_em') or '?'} · renova sozinho")
+            else:
+                st.markdown(f"{_rot} · {_est.get('situacao', 'não autorizada')}")
+            if st.button(f"Gerar link de autorização — {_sp.NOME_DA_LOJA[_loja]}",
+                         key=f"shp_autorizar_{_loja}"):
+                _url, _erro = _sp.url_de_autorizacao(_loja)
+                if _erro:
+                    st.error(_erro)
+                else:
+                    st.markdown(f"[Abrir a autorização da Shopee — {_sp.NOME_DA_LOJA[_loja]}]({_url})")
+
+
 def _secao_mercado_livre():
     """Mercado Livre: autorizar ML1 a ML4 e conferir a leitura dos convites
     de promoção (dono, 20/10). Só leitura nesta versão."""
@@ -1199,6 +1229,8 @@ def pagina_admin(usuario_logado):
     _secao_rastreio_etiquetas()
     st.markdown("---")
     _secao_mercado_livre()
+    st.markdown("---")
+    _secao_shopee()
     st.markdown("---")
     _secao_controle_ms()
     st.markdown("---")
