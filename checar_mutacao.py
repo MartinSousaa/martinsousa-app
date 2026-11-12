@@ -5254,7 +5254,7 @@ MUTACOES = [
     (
         'o envio ao Full volta a so tirar do fisico, sem somar no Full (11/11)',
         "estoque.py",
-        [("        if destino == ENVIO_FULL:\n            fora.append(", "        if False:\n            fora.append(")],
+        [("            if destino == ENVIO_FULL:\n                fora.append(", "            if False:\n                fora.append(")],
         None,
         ["python3", "estoque.py"],
     ),
@@ -5359,8 +5359,8 @@ MUTACOES = [
     (
         'a entrada volta a cair sempre no fisico, mesmo escolhendo o Full (11/11)',
         "estoque_tela.py",
-        [('        linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local)',
-          '        linhas = E.linhas_de_entrada(itens, quem, _quando())')],
+        [('        linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local, origem=origem)',
+          '        linhas = E.linhas_de_entrada(itens, quem, _quando(), origem=origem)')],
         None,
         ["python3", "checar_navegador.py"],
     ),
