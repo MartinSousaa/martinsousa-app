@@ -545,7 +545,7 @@ def resolver_custo(sku, digitado, tabela, erro_planilha=""):
     """O custo que o cadastro grava, a partir do SKU e do que foi digitado. Pura.
 
     Devolve (custo ou None, erro, info). Dono, 12/11: o SKU acha o custo na
-    aba HISTÓRICO SKU. Achou: vale o da planilha ("mesmo SKU quer dizer
+    aba PREÇO DE CUSTO. Achou: vale o da planilha ("mesmo SKU quer dizer
     mesmo preço de custo"). SKU de PACOTE não entra: o custo dele é do pacote
     inteiro. Não achou, ou sem SKU: vale o digitado, e o produto vai para a
     lista «Produtos sem SKU».
@@ -628,7 +628,7 @@ def _campos_sku(prefixo, inicial=None):
         cols[2 * i].text_input(rot, key=prefixo + k, placeholder="MS-3500" if k == "sku" else "MS-2800",
                                on_change=_ao_mudar_sku, args=(prefixo + k, prefixo + kc),
                                help="Digite e aperte Enter: o Studio busca o custo na aba "
-                                    "HISTÓRICO SKU do Controle MS.")
+                                    "PREÇO DE CUSTO do Controle MS.")
         cols[2 * i + 1].text_input(rot_c, key=prefixo + kc, placeholder="se não estiver na planilha")
     vals = []
     for rot, k, rot_c, kc in campos:

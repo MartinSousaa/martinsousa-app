@@ -769,7 +769,8 @@ def todos_os_codigos(produtos, codigos):
 # C PRODUTO, D QUANTIDADE, E CUSTO. "Mesmo SKU quer dizer mesmo preço de
 # custo": produtos diferentes podem dividir o SKU, e isso não é erro.
 
-ABA_SKU = "HISTÓRICO SKU"
+# Dono, 12/11 (15:13): a aba certa é «PREÇO DE CUSTO.» — e não HISTÓRICO SKU.
+ABA_SKU = "PREÇO DE CUSTO"
 
 
 def normalizar_sku(t):
@@ -784,9 +785,12 @@ def _sem_acento(t):
 
 
 def aba_de_sku(nomes):
-    """O nome real da aba, aceitando 'Histórico SKU' ou 'HISTORICO SKU'. Pura."""
-    alvo = _sem_acento(ABA_SKU)
-    return next((n for n in nomes if " ".join(_sem_acento(n).split()) == alvo), "")
+    """O nome real da aba, sem olhar acento, caixa, espaço duplo nem o ponto
+    do fim ('PREÇO DE CUSTO.' é como a aba se chama de verdade). Pura."""
+    def _n(t):
+        return " ".join(_sem_acento(t).split()).rstrip(" .")
+    alvo = _n(ABA_SKU)
+    return next((n for n in nomes if _n(n) == alvo), "")
 
 
 def _coluna_de(colunas, nome, posicao):
@@ -821,6 +825,11 @@ def tabela_de_sku(colunas, registros):
             continue
         qb = r.get(c_qtd) if c_qtd else 1
         qtd = int(qb) if isinstance(qb, (int, float)) and not isinstance(qb, bool) and qb == qb else inteiro(qb, 1)
+        # O mesmo SKU aparece em produto de UMA peça e em PACOTE (MS-3500:
+        # embaralhador, 1; discos, 55). A linha de uma peça vence: o pacote
+        # não pode esconder o custo da unidade.
+        if sku in t and t[sku]["qtd"] == 1 and qtd > 1:
+            continue
         t[sku] = {"custo": round(custo, 2), "qtd": max(qtd, 1),
                   "produto": str(r.get(c_prod) or "").strip() if c_prod else ""}
     return t
@@ -1509,7 +1518,7 @@ if __name__ == "__main__":
     import controle_ms as _cms
     _wb = _ox.Workbook()
     _ws = _wb.active
-    _ws.title = "Histórico SKU"
+    _ws.title = "PREÇO DE CUSTO."
     _ws.append(["DATA", "SKU", "PRODUTO", "QUANTIDADE", "CUSTO"])
     _ws.append(["01/10/2026", "MS-3500", "Porta 2 Relógio + Jóias", 1, 35.0])
     _ws.append(["02/10/2026", "MS-9000", "Kit (3) baralhos?", 3, 90])
@@ -1536,7 +1545,7 @@ if __name__ == "__main__":
     ok("consulta_sku: SKU que a planilha não tem avisa que vai para «Produtos sem SKU»",
        not _nao["achou"] and "Produtos sem SKU" in _nao["aviso"])
     ok("aba_de_sku: aceita com e sem acento, maiúscula ou não",
-       aba_de_sku(["X", "HISTORICO  SKU"]) == "HISTORICO  SKU" and aba_de_sku(["Histórico SKU"]) == "Histórico SKU"
+       aba_de_sku(["X", "PRECO  DE CUSTO"]) == "PRECO  DE CUSTO" and aba_de_sku(["HISTÓRICO SKU", "PREÇO DE CUSTO."]) == "PREÇO DE CUSTO."
        and aba_de_sku(["SKU"]) == "")
     _ss = sem_sku([{**_pa, "sku": ""}, {**_pa, "id": "P2", "variacao": "b", "sku": ""},
                    {**_pa, "id": "P3", "ean": "1", "sku": "MS-0001"},
@@ -1547,7 +1556,13 @@ if __name__ == "__main__":
        [m for _p, m in sem_sku([{**_pa, "sku": "MS-0001"}, {**_pa, "ean": "9", "sku": ""}], None)] == ["sem SKU"])
     ok("normalizar_sku: maiúscula, sem espaço sobrando, espaço duplo vira um",
        normalizar_sku("  ms-35  00 ") == "MS-35 00" and normalizar_sku(None) == "")
-    ok("ABA_SKU: o nome da aba que o dono deu", ABA_SKU == "HISTÓRICO SKU" and aba_de_sku([ABA_SKU]) == ABA_SKU)
+    _dup = tabela_de_sku(["A", "SKU", "PRODUTO", "QUANTIDADE", "CUSTO"],
+                         [{"SKU": "MS-3500", "PRODUTO": "EMBARALHADOR", "QUANTIDADE": 1, "CUSTO": 35.0},
+                          {"SKU": "MS-3500", "PRODUTO": "DISCOS 35MM", "QUANTIDADE": 55, "CUSTO": 35.0}])
+    ok("tabela_de_sku: SKU de uma peça e de pacote — a linha de uma peça vence",
+       _dup["MS-3500"]["qtd"] == 1 and consulta_sku(_dup, "ms-3500")["aviso"] == "")
+    ok("ABA_SKU: o nome da aba que o dono deu", ABA_SKU == "PREÇO DE CUSTO" and aba_de_sku([ABA_SKU]) == ABA_SKU
+       and aba_de_sku(["HISTÓRICO SKU"]) == "")
     _kc = [linha_de_codigo("2000000000015", "kit", "Kit A", "", {"P1": 2, "P2": 1}, "l", "x"),
            linha_de_codigo("2000000000022", "quantidade", "Kit com 3", "", {"P1": 3}, "l", "x"),
            linha_de_codigo("2000000000039", "kit", "Kit B", "", {"P3": 1}, "l", "x")]
