@@ -5495,7 +5495,11 @@ MUTACOES = [
     (
         'a saida manual pelo nome volta a nao existir (12/11)',
         "estoque_tela.py",
-        [("            _saida_manual(prods, saldo, quem)\n", "")],
+        # O trecho certo é a chamada EMBAIXO de tudo, na vista do bipe (o layout
+        # de 12/11 a tirou da coluna da esquerda).
+        [('"janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")\n'
+          '    _saida_manual(prods, saldo, quem)\n',
+          '"janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")\n')],
         None,
         ["python3", "checar_navegador.py"],
     ),
