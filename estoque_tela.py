@@ -220,7 +220,9 @@ def _ao_bipar():
 def _limpar_ficha():
     ss = st.session_state
     for k in [k for k in ss.keys() if str(k).startswith(("est_q_", "est_n_", "est_cq_", "est_cad_s",
-                                                         "est_cad_c", "est_ed_"))]:
+                                                         "est_cad_c", "est_ed_", "est_cad_forn",
+                                                         "est_cad_n", "est_cad_q", "est_cad_t",
+                                                         "est_cad_v"))]:
         del ss[k]
     for k in ("est_lido", "est_cadastrar", "est_sem_codigo", "est_nova_var",
               "est_imprimir"):
@@ -543,7 +545,7 @@ def resolver_custo(sku, digitado, tabela, erro_planilha=""):
     """O custo que o cadastro grava, a partir do SKU e do que foi digitado. Pura.
 
     Devolve (custo ou None, erro, info). Dono, 12/11: o SKU acha o custo na
-    aba HISTÓRICO SKU. Achou: vale o da planilha ("mesmo SKU quer dizer
+    aba PREÇO DE CUSTO. Achou: vale o da planilha ("mesmo SKU quer dizer
     mesmo preço de custo"). SKU de PACOTE não entra: o custo dele é do pacote
     inteiro. Não achou, ou sem SKU: vale o digitado, e o produto vai para a
     lista «Produtos sem SKU».
@@ -612,22 +614,24 @@ def _ao_mudar_sku(chave_sku, chave_custo):
 
 
 def _campos_sku(prefixo, inicial=None):
-    """SKU varejo, custo varejo, SKU atacado e custo atacado, FORA do
-    formulário: dentro dele nada acontece até salvar, e a busca na planilha
-    tem de responder na hora. O mesmo bloco no cadastro e na edição — a
-    mesma capacidade nos dois irmãos. Devolve (sku, custo, sku_at, custo_at)."""
+    """SKU varejo, custo varejo, SKU atacado e custo atacado, NUMA LINHA e
+    FORA de `st.form`: dentro de um form nada acontece até salvar, e a busca
+    na planilha tem de responder na hora. O mesmo bloco no cadastro e na
+    edição — a mesma capacidade nos dois irmãos. (sku, custo, sku_at, custo_at)."""
     ss = st.session_state
     for k, v in (inicial or {}).items():
         ss.setdefault(prefixo + k, v)
+    campos = (("SKU (varejo)", "sku", "Custo varejo (R$)", "custo"),
+              ("SKU atacado", "sku_at", "Custo atacado (R$)", "custo_at"))
+    cols = st.columns(4)
+    for i, (rot, k, rot_c, kc) in enumerate(campos):
+        cols[2 * i].text_input(rot, key=prefixo + k, placeholder="MS-3500" if k == "sku" else "MS-2800",
+                               on_change=_ao_mudar_sku, args=(prefixo + k, prefixo + kc),
+                               help="Digite e aperte Enter: o Studio busca o custo na aba "
+                                    "PREÇO DE CUSTO do Controle MS.")
+        cols[2 * i + 1].text_input(rot_c, key=prefixo + kc, placeholder="se não estiver na planilha")
     vals = []
-    for rot, k, rot_c, kc in (("SKU (varejo)", "sku", "Custo varejo (R$)", "custo"),
-                              ("SKU atacado", "sku_at", "Custo atacado (R$)", "custo_at")):
-        c1, c2 = st.columns(2)
-        c1.text_input(rot, key=prefixo + k, placeholder="MS-3500" if k == "sku" else "MS-2800",
-                      on_change=_ao_mudar_sku, args=(prefixo + k, prefixo + kc),
-                      help="Digite e aperte Enter: o Studio busca o custo na aba "
-                           "HISTÓRICO SKU do Controle MS.")
-        c2.text_input(rot_c, key=prefixo + kc, placeholder="só se o SKU não estiver na planilha")
+    for rot, k, rot_c, kc in campos:
         sku = ss.get(prefixo + k, "")
         if E.normalizar_sku(sku):
             tab, err = _tabela_sku()
@@ -635,6 +639,16 @@ def _campos_sku(prefixo, inicial=None):
             {"ok": st.success, "erro": st.error, "aviso": st.warning}.get(tipo, st.caption)(msg)
         vals += [sku, ss.get(prefixo + kc, "")]
     return tuple(vals)
+
+
+def linhas_da_entrada_nova(p, q_varejo, q_atacado, quem, quando):
+    """A entrada do cadastro, com as peças de varejo e as de atacado no MESMO
+    lote: um «desfazer» desfaz as duas. Pura."""
+    lin = (E.linhas_de_entrada([(p, int(q_varejo or 0))], quem, quando, origem=E.VAREJO)
+           + E.linhas_de_entrada([(p, int(q_atacado or 0))], quem, quando, origem=E.ATACADO))
+    for l in lin:
+        l["lote"] = lin[0]["lote"]
+    return lin
 
 
 def _custos_do_formulario(sku, custo, sku_at, custo_at):
@@ -679,22 +693,26 @@ def _cadastro(quem):
               else f"NÃO CADASTRADO · {cod}")
     st.markdown(f'<div style="font-size:11px;color:#f0c060;font-weight:800;letter-spacing:.12em">'
                 f'{_esc(titulo)}</div>', unsafe_allow_html=True)
-    sku, custo, sku_at, custo_at = _campos_sku("est_cad_")
-    with st.form("est_form_cad"):
+    # UM QUADRO SÓ, sem `st.form` (dono, 12/11): o SKU busca o custo na
+    # hora, e isso não acontece dentro de um form.
+    with st.container(border=True):
         c1, c2 = st.columns([1, 2])
-        with c1:
-            foto = st.file_uploader("Foto do produto", type=None, key="est_cad_foto")
-        with c2:
-            forn = st.text_input("Código do fornecedor", placeholder="TRES-B131")
-            nome = st.text_input("Produto", placeholder="Mini Yoga · conjunto")
-        c4, c8 = st.columns(2)
-        qtd = c4.number_input("Quantidade entrando", min_value=0, step=1, value=0)
-        origem = c8.radio("Esta compra é", ["Varejo", "Atacado"], horizontal=True, key="est_cad_origem")
-        tem_var = st.checkbox("Tem variações com este mesmo código (posição, cor…)",
+        forn = c1.text_input("Código do fornecedor", placeholder="TRES-B131", key="est_cad_forn")
+        nome = c2.text_input("Produto", placeholder="Mini Yoga · conjunto", key="est_cad_nome")
+        sku, custo, sku_at, custo_at = _campos_sku("est_cad_")
+        c4, c5, c6 = st.columns([1, 1, 2])
+        q_var = c4.number_input("Qtd varejo", min_value=0, step=1, value=0, key="est_cad_qv",
+                                help="Peças desta entrada que vieram da compra de VAREJO.")
+        q_at = c5.number_input("Qtd atacado", min_value=0, step=1, value=0, key="est_cad_qa",
+                               help="Peças desta entrada que vieram da compra de ATACADO.")
+        foto = c6.file_uploader("Foto do produto", type=None, key="est_cad_foto")
+        c7, c8 = st.columns([1, 2])
+        tem_var = c7.checkbox("Tem variações com este código", key="est_cad_tv",
                               help="Marcado: escreva o nome desta primeira. Depois bipe o mesmo "
                                    "código de novo para cada variação.")
-        var = st.text_input("Nome desta variação (se marcou acima)", placeholder="Braço para cima")
-        enviar = st.form_submit_button("CADASTRAR E DAR ENTRADA", type="primary")
+        var = c8.text_input("Nome desta variação", placeholder="Braço para cima", key="est_cad_var",
+                            label_visibility="collapsed")
+        enviar = st.button("CADASTRAR E DAR ENTRADA", type="primary", key="est_cad_ok")
     st.button("Cancelar", key="est_cancelar", on_click=_voltar)
     if not enviar:
         return
@@ -708,7 +726,6 @@ def _cadastro(quem):
     if erro_c:
         st.error(erro_c)
         return
-    org = E.ATACADO if origem == "Atacado" else E.VAREJO
     try:
         prods, _m, cods = E.carregar()
         if sem_codigo:
@@ -726,9 +743,12 @@ def _cadastro(quem):
                                     sku=custos["sku"], sku_atacado=custos["sku_atacado"],
                                     custo_atacado=custos["custo_atacado"])
         E.gravar_produtos(novas)
-        E.gravar_movimentos(E.linhas_de_entrada([(novas[0], int(qtd))], quem, _quando(), origem=org))
+        entrada = linhas_da_entrada_nova(novas[0], q_var, q_at, quem, _quando())
+        if entrada:
+            E.gravar_movimentos(entrada)
         _limpar_ficha()
-        _avisar(f"✓ «{nome.strip()}» cadastrado" + (f" com {int(qtd)} peça(s) de {org}." if qtd else ".")
+        _pecas = " e ".join(f"{int(q)} de {o}" for q, o in ((q_var, E.VAREJO), (q_at, E.ATACADO)) if q)
+        _avisar(f"✓ «{nome.strip()}» cadastrado" + (f" com {_pecas}." if _pecas else ".")
                 + "".join(f" · {a}" for a in avisos_c))
         if sem_codigo:
             ss["est_etiqueta_nova"] = (cod, nome.strip())
@@ -1943,6 +1963,13 @@ if __name__ == "__main__":
        and "pacote" in situacao_sku("ms-9000", _tb)[1] and situacao_sku("ms-9000", _tb)[2] is None)
     ok("situacao_sku: planilha ilegível manda digitar, vazio fica calado",
        situacao_sku("MS-3500", None, "403")[0] == "aviso" and situacao_sku("  ", _tb) == ("", "", None))
+    _en = linhas_da_entrada_nova(prods[0], 2, 3, "leo", "x")
+    ok("linhas_da_entrada_nova: varejo e atacado no mesmo lote, cada um com a sua origem",
+       sorted((l["origem"], l["qtd"]) for l in _en) == [(E.ATACADO, "3"), (E.VAREJO, "2")]
+       and len({l["lote"] for l in _en}) == 1)
+    ok("linhas_da_entrada_nova: quantidade zero não grava linha",
+       [l["origem"] for l in linhas_da_entrada_nova(prods[0], 0, 4, "l", "x")] == [E.ATACADO]
+       and linhas_da_entrada_nova(prods[0], 0, 0, "l", "x") == [])
     ok("rotulo_manual: quantidade, nome, a marca de manual e a observação limpa",
        rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + base · Sentada · saída manual · ML 123"
        and rotulo_manual(prods[1], 1).endswith("saída manual"))
