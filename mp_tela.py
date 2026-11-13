@@ -72,8 +72,9 @@ def pagina(usuario_logado=None):
         return
     st.markdown("### 💰 A liberar — Mercado Pago")
     dados = st.session_state.get("mp_dados")
-    if st.button("🔄 Ler o Mercado Pago das 4 contas" if not dados else "🔄 Ler de novo",
-                 key="mp_ler"):
+    # Rótulo FIXO (13/11): o botão é desenhado antes da leitura, e o «Ler de
+    # novo» só aparecia uma passada depois. O «Lido em» diz se já leu.
+    if st.button("🔄 Ler o Mercado Pago das 4 contas", key="mp_ler"):
         with st.spinner("Lendo os pagamentos das quatro contas…"):
             lidas = mp_api.ler_todas()
         st.session_state["mp_dados"] = dados = {
@@ -89,7 +90,10 @@ def pagina(usuario_logado=None):
     c1, c2, c3 = st.columns(3)
     c1.metric("A liberar (4 contas)", moeda(total))
     c2.metric("Nos próximos 7 dias", moeda(proximos(lidas, hoje, 7)))
-    c3.metric("Retido (data passou, não liberou)", moeda(retido))
+    c3.metric("Retido (devolução em aberto)", moeda(retido),
+              help="O Mercado Livre segura o valor enquanto a devolução aberta pelo comprador "
+                   "não termina: volta para o comprador ou é liberado para nós. Pela conta do "
+                   "Studio: a data de liberação já passou e o Mercado Pago ainda não liberou.")
     st.caption(f"Lido em {dados['quando']}.")
     for a in avisos(lidas):
         st.warning(a)
