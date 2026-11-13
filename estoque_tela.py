@@ -354,15 +354,28 @@ def _origem_da_entrada():
     return E.ATACADO if st.session_state.get("est_origem_entra") == "Atacado" else E.VAREJO
 
 
+def renomeacoes(variacoes, digitados):
+    """{id: {"variacao": nome}} só das variações cujo nome a pessoa MUDOU. Pura.
+
+    O campo MOSTRA o nome capitalizado (dono, 13/11). Comparar o que está no
+    campo com o gravado cru renomeava a variação na planilha a cada
+    CONFIRMAR, sem ninguém ter mexido no nome (o @ pegou: «Braço para cima»
+    virou «Braço para Cima»). Renomear é o texto diferente do que a tela
+    mostrou."""
+    out = {}
+    for v in variacoes:
+        mostrado = E.capitalizar(str(v.get("variacao") or "").strip())
+        novo = str(digitados.get(v["id"]) if digitados.get(v["id"]) is not None else mostrado).strip()
+        if novo and novo != mostrado:
+            out[v["id"]] = {"variacao": novo}
+    return out
+
+
 def _confirmar_entrada(variacoes, quem):
     ss = st.session_state
     try:
         itens = [(v, int(ss.get(f"est_q_{v['id']}", 0) or 0)) for v in variacoes]
-        renomes = {}
-        for v in variacoes:
-            novo = str(ss.get(f"est_n_{v['id']}", v.get("variacao") or "")).strip()
-            if novo and novo != str(v.get("variacao") or "").strip():
-                renomes[v["id"]] = {"variacao": novo}
+        renomes = renomeacoes(variacoes, {v["id"]: ss.get(f"est_n_{v['id']}") for v in variacoes})
         local = _local_da_entrada()
         origem = _origem_da_entrada()
         linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local, origem=origem)
@@ -2664,6 +2677,10 @@ if __name__ == "__main__":
        "#4cc38a" in _fe and "JÁ CADASTRADO" in _fe and "Relógio + Jóias" in _fe
        and "físico <b style=\"color:#E8EAED\">6</b> · 2 variações" in _fe and "\n" not in _fe
        and "PR-2" in _fe)
+    ok("renomeacoes: o nome como a tela mostra NÃO renomeia; texto mudado renomeia; vazio não apaga",
+       renomeacoes(prods, {prods[0]["id"]: "Braço para Cima", prods[1]["id"]: None}) == {}
+       and renomeacoes(prods, {prods[0]["id"]: "Braço erguido"}) == {prods[0]["id"]: {"variacao": "Braço erguido"}}
+       and renomeacoes(prods, {prods[0]["id"]: "  "}) == {})
     # ✎ EDITAR A ENTRADA (dono, 13/11): «eram 2 e entraram 3». Lote real,
     # com varejo e atacado e um Full, como a tela grava.
     _lc = (E.linhas_de_entrada([(prods[0], 1), (prods[1], 2)], "MartinSousa", "13/11/2026 16:19")
