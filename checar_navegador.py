@@ -304,7 +304,7 @@ def main():
             pg.get_by_role("button", name="CONFIRMAR ENTRADA").click()
             pg.wait_for_timeout(2500)
             _depois = _sal()
-            pg.get_by_role("button", name="↶ desfazer").first.click()
+            pg.get_by_role("button", name="✖ excluir").first.click()
             pg.wait_for_timeout(2500)
             _desf = _sal()
             ok = (_depois == "Braço para cima:6,Sentada:2,Embaralhador automático:0"
