@@ -357,7 +357,7 @@ def main():
             pg.get_by_label("Nome ou código").fill("embaralhador")
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)
-            pg.get_by_role("button", name=_re.compile("Embaralhador automático")).click()
+            pg.get_by_role("button", name=_re.compile("Embaralhador automático", _re.I)).click()
             pg.wait_for_timeout(2500)
             pg.get_by_text("Full Shopee 2", exact=True).click()
             pg.wait_for_timeout(1500)
