@@ -57,6 +57,42 @@ def linhas_por_conta(lidas):
              "Situação": situacao(v)} for c, v in lidas.items()]
 
 
+# A ÚLTIMA LEITURA É DO PROCESSO, e não da sessão (dono, 13/11): a Visão
+# Geral mostra o «a liberar» sem ir à rede, e quem leu aqui ou lá alimenta as
+# duas telas. Some no deploy — e a tela diz «ainda não lido». Dicionário do
+# MÓDULO (vive o processo inteiro, como em `bling_api`), e não
+# `st.cache_resource`: o duplo do `checar_tela` não guarda cache.
+_GUARDADA = {}
+
+
+def _guardada():
+    return _GUARDADA
+
+
+def ultima_leitura():
+    """{"lidas", "hoje", "quando"} da última leitura de qualquer pessoa, ou None."""
+    return _guardada().get("dados")
+
+
+def ler_e_guardar(ler=None, agora=None):
+    """Vai ao Mercado Pago (as 4 contas) e guarda para todas as telas."""
+    import placar_core as _pc
+    lidas = (ler or mp_api.ler_todas)()
+    agora = agora or _pc.agora_br()
+    dados = {"lidas": lidas, "hoje": agora.date().isoformat(),
+             "quando": agora.strftime("%d/%m %H:%M")}
+    _guardada()["dados"] = dados
+    return dados
+
+
+def totais(dados):
+    """(a liberar, próximos 7 dias, retido) da leitura. A MESMA conta nas duas telas."""
+    lidas = dados["lidas"]
+    return (sum(v.get("a_liberar", 0) for v in lidas.values()),
+            proximos(lidas, dados["hoje"], 7),
+            sum(v.get("retido", 0) for v in lidas.values()))
+
+
 def proximos(lidas, hoje, dias):
     """Soma do que cai de hoje até `dias` à frente, nas quatro contas."""
     from datetime import date, timedelta
@@ -66,30 +102,25 @@ def proximos(lidas, hoje, dias):
 
 def pagina(usuario_logado=None):
     import auth
-    import placar_core as _pc
     if not auth.eh_dono(usuario_logado):
         st.error("Acesso restrito ao dono do Studio.")
         return
     st.markdown("### 💰 A liberar — Mercado Pago")
-    dados = st.session_state.get("mp_dados")
+    dados = ultima_leitura()
     # Rótulo FIXO (13/11): o botão é desenhado antes da leitura, e o «Ler de
     # novo» só aparecia uma passada depois. O «Lido em» diz se já leu.
     if st.button("🔄 Ler o Mercado Pago das 4 contas", key="mp_ler"):
         with st.spinner("Lendo os pagamentos das quatro contas…"):
-            lidas = mp_api.ler_todas()
-        st.session_state["mp_dados"] = dados = {
-            "lidas": lidas, "hoje": _pc.agora_br().date().isoformat(),
-            "quando": _pc.agora_br().strftime("%d/%m %H:%M")}
+            dados = ler_e_guardar()
     if not dados:
         st.caption("Lê as vendas aprovadas dos últimos e dos próximos "
                    f"{mp_api.JANELA_DIAS} dias e soma o que ainda não foi liberado.")
         return
     lidas, hoje = dados["lidas"], dados["hoje"]
-    total = sum(v.get("a_liberar", 0) for v in lidas.values())
-    retido = sum(v.get("retido", 0) for v in lidas.values())
+    total, prox7, retido = totais(dados)
     c1, c2, c3 = st.columns(3)
     c1.metric("A liberar (4 contas)", moeda(total))
-    c2.metric("Nos próximos 7 dias", moeda(proximos(lidas, hoje, 7)))
+    c2.metric("Nos próximos 7 dias", moeda(prox7))
     c3.metric("Retido (devolução em aberto)", moeda(retido),
               help="O Mercado Livre segura o valor enquanto a devolução aberta pelo comprador "
                    "não termina: volta para o comprador ou é liberado para nós. Pela conta do "
@@ -149,5 +180,16 @@ if __name__ == "__main__":
     ok("todo contador de classificar tem frase própria",
        all(len(avisos({"ml1": {k: 1}})) == 1 for k in _cont)
        and set(_cont) <= set(mp_api.classificar([], AGORA)))
+    # A leitura guardada pela cadeia real: quem lê aqui alimenta a Visão Geral.
+    _guardada().clear()
+    ok("antes de ler, não há leitura guardada", ultima_leitura() is None)
+    _d = ler_e_guardar(lambda: lidas, datetime(2026, 11, 12, 13, 0))
+    ok("ler_e_guardar guarda para todas as telas, com o dia e a hora",
+       ultima_leitura() is _d and _d["hoje"] == "2026-11-12" and _d["quando"] == "12/11 13:00")
+    ok("totais: a liberar, próximos 7 dias e retido, a mesma conta da tela",
+       totais(_d) == (sum(v.get("a_liberar", 0) for v in lidas.values()),
+                      proximos(lidas, "2026-11-12", 7),
+                      sum(v.get("retido", 0) for v in lidas.values())))
+    _guardada().clear()
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
