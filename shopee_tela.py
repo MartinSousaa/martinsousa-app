@@ -128,8 +128,7 @@ def pagina(usuario_logado=None):
                    "Depois, autorize as duas lojas em Gestão › Registros › Shopee.")
         return
     dados = st.session_state.get("shp_dados")
-    if st.button(f"🔄 Ler as duas lojas (últimos {DIAS_PADRAO} dias)" if not dados
-                 else "🔄 Ler de novo", key="shp_ler"):
+    if st.button(f"🔄 Ler as duas lojas (últimos {DIAS_PADRAO} dias)", key="shp_ler"):
         with st.spinner("Lendo pedidos, ads e promoções das duas lojas…"):
             lidas = ler_todas()
             estoque = skus_do_estoque()
