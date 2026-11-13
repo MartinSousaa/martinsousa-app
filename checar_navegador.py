@@ -486,17 +486,20 @@ def main():
             pg.wait_for_timeout(2500)
             pg.get_by_role("button", name="➕ Cadastrar este código").click()
             pg.wait_for_timeout(2500)
+            # Widget com default E valor escrito pelo código (13/11): o aviso
+            # amarelo empurrava o cadastro e o clique de salvar se perdia.
+            _aviso_w = "created with a default value" in pg.inner_text("body")
             pg.get_by_label("Produto", exact=True).fill("Porta 2 Relógio + Jóias (P/M)")
             pg.get_by_label("Custo varejo (R$)").fill("31,50")
             pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
             pg.wait_for_timeout(3500)
             _txt_d = pg.inner_text("body")
             ok = ("Porta 2 Relógio + Jóias (P/M):0" in _txt_d and "Onde você vai contar" in _txt_d
-                  and len(navegou) == 1)
+                  and not _aviso_w and len(navegou) == 1)
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + "estoque: código desconhecido na Contagem oferece cadastrar "
                   f"e volta para a Contagem (cadastrado={'Porta 2 Relógio + Jóias (P/M):0' in _txt_d}, "
-                  f"voltou={'Onde você vai contar' in _txt_d})")
+                  f"voltou={'Onde você vai contar' in _txt_d}, aviso_do_widget={_aviso_w})" + ("" if ok else " DEBUG:" + _txt_d[-900:].replace("\n", " | ")))
             # "É O KIT?" NA SAÍDA (dono, 12/11): o produto que também vai em
             # kit sai como UNIDADE na hora; o botão troca pelo kit inteiro, e
             # quem não clica e bipa o próximo deixa a unidade como está.
@@ -608,6 +611,49 @@ def main():
             print(("ok    " if ok else "FALHA ") + f"estoque: saída manual pelo nome (com + e parênteses) "
                   f"sai a quantidade e deixa negativo, sem travar ({_antes_m} → {_depois_m}, "
                   f"observação na tela={_visto}, recargas={len(navegou) - 1})")
+            # A BARRA TAMBÉM PROCURA (dono, 12/11): o SKU digitado como a equipe
+            # digita acha o produto, e o clique nele age como o bipe.
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("  ms-3500 ", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _achou_b = pg.get_by_role("button", name=_re.compile("MS-3500")).count()
+            pg.get_by_role("button", name=_re.compile("MS-3500")).first.click()
+            pg.wait_for_timeout(2500)
+            _depois_b = _sal()
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("nada disso existe", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _nada = "Nada encontrado com «nada disso existe»" in pg.inner_text("body")
+            ok = (_achou_b == 1 and "Caneca (P) + tampa:-3" in _depois_b and _nada and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: a barra procura pelo SKU e o clique age como o "
+                  f"bipe; o que não existe é dito (achou={_achou_b}, {_depois_b[-30:]}, nada={_nada})")
+            # PRODUTOS SEM EAN (dono, 12/11): a lista acha pela palavra, desenha
+            # o código grande, e o código lido da tela sai como um bipe.
+            pg.get_by_role("button", name=_re.compile("Produtos sem EAN")).click()
+            pg.wait_for_timeout(2000)
+            _vazio = "Nenhum produto sem EAN" in pg.inner_text("body")
+            pg.get_by_text("Mostrar também os com EAN de fábrica").click()
+            pg.wait_for_timeout(1500)
+            pg.locator(".st-key-est_sem_ean_busca input").fill("embaralhador")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _lista = pg.inner_text("body")
+            _um = "1 de" in _lista and pg.locator("mark").count() >= 1 and pg.locator("svg").count() >= 1
+            _antes_e = _sal()
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("5901234123457", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            _depois_e = _sal()
+            _n0 = int(_re.search(r"Embaralhador automático:(-?\d+)", _antes_e).group(1))
+            _n1 = int(_re.search(r"Embaralhador automático:(-?\d+)", _depois_e).group(1))
+            ok = _vazio and _um and _n1 == _n0 - 1 and len(navegou) == 1
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: Produtos sem EAN acha pela palavra, desenha o código "
+                  f"e o código lido sai como bipe (vazio={_vazio}, achou={_um}, {_n0} → {_n1})")
             nav.close()
     except Exception as e:
         falhas += 1

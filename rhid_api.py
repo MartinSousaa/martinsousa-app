@@ -806,6 +806,13 @@ if __name__ == "__main__":
     # A CADEIA de verdade: a apuração na forma que a RHiD manda (colunaMix em
     # NÚMERO HHMM, `_extrair_hhmm`) → get_registros_diarios → as janelas que a
     # ociosidade usa. O dia de hoje é o do relógio do container, em Brasília.
+    # O FUSO do teste é um em que AGORA são 15h (13/11): com o de Brasília, das
+    # 22h às 3h a cadeia se pulava sozinha e a guarda sumia — a mutação ficava
+    # verde de madrugada. Todo leitor usa `_pc.FUSO`, então a troca alcança a
+    # cadeia inteira; volta no `finally`.
+    _fuso_real = _pc.FUSO
+    _h_fz = (15 - datetime.now(_tz.utc).hour) % 24
+    _pc.FUSO = _tz(timedelta(hours=_h_fz - 24 if _h_fz > 12 else _h_fz))
     _hj = datetime.now(_pc.FUSO)
     _ini = (_hj - timedelta(hours=3)).replace(second=0, microsecond=0)
     _fut = _hj + timedelta(hours=2)
@@ -837,8 +844,10 @@ if __name__ == "__main__":
                and _jn[0][1] >= _hj - timedelta(seconds=5))
         finally:
             globals()["get_apuracao"] = _orig
+            _pc.FUSO = _fuso_real
     else:
-        print("PULADO a cadeia: perto da meia-noite o 'hoje' do teste vira outro dia")
+        _pc.FUSO = _fuso_real
+        ok("a cadeia da saída futura rodou (o fuso do teste põe agora às 15h)", False)
 
     # explorar_endpoints (admin): cada caminho volta com o status, e o que
     # recusa (404) ou devolve texto não derruba a varredura dos outros.

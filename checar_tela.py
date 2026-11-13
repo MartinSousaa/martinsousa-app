@@ -5138,6 +5138,13 @@ def _meu_desempenho(conta):
         # Sem cartão rodando e dentro do expediente batido: ociosidade agora.
         _txt.clear()
         _cards[:] = []
+        # Fuso do teste em que AGORA são 15h (13/11): com o de Brasília, de
+        # madrugada o aviso não tinha expediente para aparecer e a guarda
+        # passava por `hour < 1` — a mutação do fuso ficava verde.
+        _fuso_md = _pc_md.FUSO
+        _hz = (15 - __import__("datetime").datetime.now(__import__("datetime").timezone.utc).hour) % 24
+        _pc_md.FUSO = __import__("datetime").timezone(
+            __import__("datetime").timedelta(hours=_hz - 24 if _hz > 12 else _hz))
         _agora = _pc_md.agora_br()
         _bat_md.mapa = lambda *a, **k: {"beatriz51": {_agora.date(): {
             "entrada": (_agora.replace(second=0, microsecond=0)
@@ -5149,11 +5156,12 @@ def _meu_desempenho(conta):
         _md.pagina("Beatriz")
         _j2 = " ".join(_txt)
         conta("Meu desempenho: no expediente e sem cartão rodando, a ociosidade avisa",
-              "Ociosidade detectada e sendo contabilizada" in _j2
-              or _agora.hour < 1, _j2[:200])
+              "Ociosidade detectada e sendo contabilizada" in _j2, _j2[:200])
     except Exception as e:
         conta("Meu desempenho: a tela monta", False, f"{type(e).__name__}: {e}")
     finally:
+        if "_fuso_md" in locals():
+            _pc_md.FUSO = _fuso_md
         (_md.st, _md.resumo_do_mes, _pc_md._buscar_board, _bat_md.mapa,
          _pc_md.username_do_login, _m) = _g
         _pc_md.MEMBROS_ATIVOS.clear()

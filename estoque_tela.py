@@ -188,12 +188,57 @@ def _ao_bipar():
 
     Roda como callback, ANTES de a barra ser desenhada de novo — é o único
     momento em que o Streamlit deixa trocar o valor dela.
+
+    A BARRA TAMBÉM PROCURA (dono, 12/11: "em todas as opções de estoque seja
+    possível procurar o produto por qualquer informação"). Código cadastrado
+    age como bipe, igual antes. Qualquer outra coisa — nome, SKU, código do
+    fornecedor, pedaço do código de barras — vira busca, e o produto achado
+    é ESCOLHIDO com um clique (`_escolheu`), que age como o bipe dele.
     """
     ss = st.session_state
-    cod = E.limpar_codigo(ss.get("est_bipe", ""))
+    bruto = " ".join(str(ss.get("est_bipe", "")).split())
     ss["est_bipe"] = ""
+    ss.pop("est_procura", None)
+    cod = E.limpar_codigo(bruto)
     if not cod:
         return
+    try:
+        prods, _m, codigos = E.carregar()
+    except Exception:
+        prods, codigos = None, []
+    if prods is not None and not eh_codigo_cadastrado(prods, codigos, cod) and procurar(bruto):
+        # A tela vai junto: o resultado vale só onde foi procurado.
+        ss["est_procura"] = {"texto": bruto, "modo": ss.get("est_modo"),
+                             "eans": [p.get("ean") for p in buscar_produtos(prods, bruto)]}
+        return
+    _despachar(cod)
+
+
+def procurar(bruto):
+    """Este texto é BUSCA (e não um código novo para cadastrar)? Pura.
+
+    Código de barras de verdade é só número e tem 8 dígitos ou mais: esse,
+    desconhecido, continua oferecendo o cadastro. Letra, espaço, hífen ou
+    número curto é busca.
+    """
+    c = E.limpar_codigo(bruto)
+    return bool(c) and not (c.isdigit() and len(c) >= 8)
+
+
+def eh_codigo_cadastrado(prods, codigos, cod):
+    """O código é de um produto ou de um código gerado (kit, quantidade)? Pura."""
+    return bool(E.do_codigo(prods, cod) or E.codigo_gerado(codigos, cod))
+
+
+def _escolheu(ean):
+    """Clique num produto achado pela busca da barra: age como o bipe dele."""
+    st.session_state.pop("est_procura", None)
+    _despachar(E.limpar_codigo(ean))
+
+
+def _despachar(cod):
+    """O que o bipe faz, em cada tela."""
+    ss = st.session_state
     # Qualquer bipe, em qualquer modo, encerra a pergunta do kit: ela vale só
     # para a unidade que acabou de sair.
     ss.pop("est_kit_pergunta", None)
@@ -261,8 +306,33 @@ def _voltar_ao_modo():
         ss["est_modo_pendente"] = volta
 
 
+def _mostrar_procura():
+    """Os produtos achados pelo texto digitado na barra. Clique = bipe."""
+    ss = st.session_state
+    pr = ss.get("est_procura")
+    if not pr or pr.get("modo") != ss.get("est_modo"):
+        return
+    try:
+        prods = E.carregar()[0]
+    except Exception:
+        return
+    por_ean = {E.limpar_codigo(p.get("ean")): p for p in E.ativos(prods)}
+    achados = [por_ean[E.limpar_codigo(e)] for e in pr["eans"] if E.limpar_codigo(e) in por_ean]
+    if not achados:
+        st.warning(f"Nada encontrado com «{pr['texto']}» — procure por nome, SKU, código do "
+                   "fornecedor ou código de barras.")
+        return
+    st.caption(f"Achados com «{pr['texto']}» — clique no produto (age como o bipe dele):")
+    for p in achados:
+        rot = " · ".join(x for x in (str(p.get("nome") or ""), str(p.get("codigo_fornecedor") or ""),
+                                      E.normalizar_sku(p.get("sku")), E.limpar_codigo(p.get("ean"))) if x)
+        st.button(rot, key=f"est_pr_{E.limpar_codigo(p.get('ean'))}", on_click=_escolheu,
+                  args=(p.get("ean"),), use_container_width=True)
+
+
 def _mostrar_desconhecido():
     ss = st.session_state
+    _mostrar_procura()
     cod = ss.pop("est_desconhecido", None)
     if not cod:
         return
@@ -1241,6 +1311,99 @@ def _saida_manual(prods, saldo, quem):
         st.caption("Sai na hora em que você clica. A data real vai na observação.")
 
 
+# ── PRODUTOS SEM EAN (dono, 12/11, layout aprovado) ─────────────────────────
+# O produto que veio sem código de barras de fábrica ganhou um código do
+# Studio (20…). Sem etiqueta na peça, a colaboradora acha o produto pelo nome
+# e escaneia o código NA TELA — e a saída acontece como um bipe.
+
+VISTAS_SAIDA = ("📦 Bipe da vez", "🏷️ Produtos sem EAN", "✍️ Saída manual")
+MAX_SEM_EAN = 30
+
+
+def eh_codigo_do_studio(ean):
+    """O código foi gerado pelo Studio (sem EAN de fábrica)? Pura."""
+    c = E.limpar_codigo(ean)
+    return c.startswith(E.PREFIXO_INTERNO) and len(c) == 13 and c.isdigit()
+
+
+def lista_sem_ean(prods, saldo, busca="", todos=False):
+    """Um produto por código, em ordem alfabética, filtrado pela palavra como
+    TEXTO (nome, variação, SKU, código do fornecedor ou código). Pura.
+
+    [{p, ean, nome, modelos, sku, custo, estoque}]
+    """
+    b = " ".join(str(busca or "").lower().split())
+    por = {}
+    for p in E.ativos(prods):
+        ean = E.limpar_codigo(p.get("ean"))
+        if not ean or (not todos and not eh_codigo_do_studio(ean)):
+            continue
+        d = por.setdefault(ean, {"p": p, "ean": ean, "nome": str(p.get("nome") or ""), "modelos": 0,
+                                 "sku": E.normalizar_sku(p.get("sku")), "custo": E.numero(p.get("custo")),
+                                 "estoque": 0, "alvo": ""})
+        d["modelos"] += 1
+        d["estoque"] += saldo.get((p["id"], E.FISICO), 0)
+        d["alvo"] += " " + " ".join(str(x or "").lower() for x in (
+            p.get("nome"), p.get("variacao"), p.get("sku"), p.get("sku_atacado"),
+            p.get("codigo_fornecedor"), ean))
+    fora = [d for d in por.values() if not b or b in " ".join(d["alvo"].split())]
+    return sorted(fora, key=lambda d: E._sem_acento(d["nome"]))
+
+
+def _destacar(nome, busca):
+    """O nome escapado, com a palavra buscada destacada. Pura."""
+    b = " ".join(str(busca or "").split())
+    i = nome.lower().find(b.lower()) if b else -1
+    if i < 0:
+        return _esc(nome)
+    return (_esc(nome[:i]) + '<mark style="background:#f0c06055;color:inherit;border-radius:4px">'
+            + _esc(nome[i:i + len(b)]) + "</mark>" + _esc(nome[i + len(b):]))
+
+
+def linha_sem_ean_html(d, busca=""):
+    """Uma linha: foto, nome, SKU, custo, estoque e o código GRANDE à direita. Pura."""
+    try:
+        barras = E.svg_ean13(d["ean"], modulo=3, altura=70).replace(
+            "<svg ", "<svg style='max-width:100%;height:auto' ", 1)
+    except Exception:
+        barras = f'<div style="color:#000;font-size:22px;font-family:monospace">{_esc(d["ean"])}</div>'
+    cor_q = "#f08a84" if d["estoque"] < 0 else "#E8EAED"
+    sub = f'{d["modelos"]} modelos' if d["modelos"] > 1 else ""
+    return ('<div style="display:grid;grid-template-columns:72px 1.6fr .8fr .7fr .5fr 300px;gap:14px;'
+            'align-items:center;padding:10px 0;border-bottom:1px solid #3a3f45;color:#E8EAED">'
+            f'{foto_html(d["p"].get("foto_id"), 72)}'
+            f'<div><div style="font-size:18px;font-weight:800">{_destacar(d["nome"], busca)}</div>'
+            f'<div style="font-size:12px;color:#9AA3AE">{_esc(sub)}</div></div>'
+            f'<div style="font-weight:700">{_esc(d["sku"]) or "<span style=color:#f0c060>sem SKU</span>"}</div>'
+            f'<div style="font-weight:700">{_rs(d["custo"])}</div>'
+            f'<div style="font-size:22px;font-weight:800;color:{cor_q}">{d["estoque"]}</div>'
+            f'<div style="background:#fff;border-radius:10px;padding:8px;text-align:center">{barras}</div>'
+            '</div>')
+
+
+def _sem_ean(prods, saldo):
+    st.markdown('<div style="font-size:13px;letter-spacing:.14em;font-weight:800;color:#f0c060">'
+                '🏷️ PRODUTOS SEM EAN · ESCANEIE O CÓDIGO NA TELA</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns([4, 1.2])
+    busca = c1.text_input("Buscar", key="est_sem_ean_busca", label_visibility="collapsed",
+                          placeholder="🔎 uma palavra do nome, SKU ou código do fornecedor")
+    todos = c2.toggle("Mostrar também os com EAN de fábrica", key="est_sem_ean_todos")
+    lista = lista_sem_ean(prods, saldo, busca, todos)
+    total = len(lista_sem_ean(prods, saldo, "", todos))
+    st.caption(f"Ordem alfabética · {len(lista)} de {total} produto(s)"
+               + (f" · mostrando os {MAX_SEM_EAN} primeiros — digite mais para afunilar"
+                  if len(lista) > MAX_SEM_EAN else ""))
+    if not lista:
+        st.info("Nenhum produto sem EAN com essa palavra." if busca else
+                "Nenhum produto sem EAN cadastrado. Quem não tem código entra pelo botão "
+                "«Produto sem código» na Entrada, e o Studio gera um.")
+        return
+    st.markdown("".join(linha_sem_ean_html(d, busca) for d in lista[:MAX_SEM_EAN]),
+                unsafe_allow_html=True)
+    st.caption("O leitor lê o código direto da tela: a saída acontece como um bipe e aparece "
+               "em «📦 Bipe da vez», com editar e excluir.")
+
+
 def _saida(quem):
     ss = st.session_state
     st.segmented_control("Saída para", list(DESTINOS), default="🛒 Venda", key="est_dest")
@@ -1263,11 +1426,23 @@ def _saida(quem):
     por_id = {p["id"]: p for p in prods}
     saldo = E.saldos(movs)
     lotes = _lotes_de_quem(movs, quem)
+    vista = st.segmented_control("Ver", VISTAS_SAIDA, default=VISTAS_SAIDA[0], key="est_sai_vista",
+                                 label_visibility="collapsed") or VISTAS_SAIDA[0]
+    # A janela de modelos e a pergunta do kit valem em qualquer vista: o
+    # código escaneado na tela dos sem EAN também pode ter vários modelos.
+    jan = ss.get("est_janela")
+    variacoes = E.do_codigo(prods, jan) if jan else []
+    if vista == VISTAS_SAIDA[1]:
+        if variacoes:
+            _janela(variacoes, saldo, codigos, por_id, quem)
+        _sem_ean(prods, saldo)
+        return
+    if vista == VISTAS_SAIDA[2]:
+        _saida_manual(prods, saldo, quem)
+        return
     principal, lateral = st.columns([1.15, 1])
     atual = None
     with principal:
-        jan = ss.get("est_janela")
-        variacoes = E.do_codigo(prods, jan) if jan else []
         if variacoes:
             _janela(variacoes, saldo, codigos, por_id, quem)
         elif ss.get("est_kit_pergunta") and ss.get("est_kit_pergunta", {}).get("lote") not in E.lotes_desfeitos(movs):
@@ -2015,7 +2190,13 @@ def pagina(usuario_logado=None):
     st.markdown("### 📦 Estoque")
     if st.session_state.get("est_modo_pendente"):
         st.session_state["est_modo"] = st.session_state.pop("est_modo_pendente")
-    modo = st.segmented_control("Modo", MODOS, default=MODOS[0], key="est_modo",
+    # O valor inicial vem do session_state, e NÃO de `default=` (13/11): o
+    # `_ir_cadastrar` escreve `est_modo`, e widget com default E valor escrito
+    # pelo código põe um aviso amarelo na tela uma passada só — os campos do
+    # cadastro mudam de posição, o Streamlit os recria e o clique em
+    # «CADASTRAR E DAR ENTRADA» vindo da Contagem se perdia.
+    st.session_state.setdefault("est_modo", MODOS[0])
+    modo = st.segmented_control("Modo", MODOS, key="est_modo",
                                 label_visibility="collapsed") or MODOS[0]
     if modo in EM_CONSTRUCAO:
         st.info(f"**{modo}** é a {EM_CONSTRUCAO[modo]} do Estoque: o layout está aprovado "
@@ -2086,15 +2267,16 @@ def _abrir_ficha(ean):
 
 
 def buscar_produtos(prods, texto, limite=8):
-    """Um produto por código de barras, achado pelo nome, variação ou código,
-    como TEXTO (o "+" e o "(" da equipe são letra). Pura."""
+    """Um produto por código de barras, achado pelo nome, variação, código do
+    fornecedor, código de barras ou SKU (varejo e atacado), como TEXTO (o "+" e o "(" da equipe são letra). Pura."""
     b = " ".join(str(texto or "").lower().split())
     if len(b) < 2:
         return []
     vistos, fora = set(), []
     for p in E.ativos(prods):
         alvo = " ".join(" ".join(str(x or "").lower() for x in (
-            p.get("nome"), p.get("variacao"), p.get("codigo_fornecedor"), p.get("ean"))).split())
+            p.get("nome"), p.get("variacao"), p.get("codigo_fornecedor"), p.get("ean"),
+            p.get("sku"), p.get("sku_atacado"))).split())
         ean = E.limpar_codigo(p.get("ean"))
         if b in alvo and ean not in vistos:
             vistos.add(ean)
@@ -2171,6 +2353,33 @@ if __name__ == "__main__":
        "#a78bfa" in _hb and "&lt;resina&gt;" in _hb and "custo considerado: R$ 18,40" in _hb
        and "\n" not in _hb)
     ok("linha_bipada_html: excluído sai riscado", "<s>" in linha_bipada_html(dict(_r, desfeito=True)))
+    ok("procurar: código de barras de 8+ dígitos não é busca (oferece cadastro)",
+       not procurar("7891234567895") and not procurar(" 7891 2345 ") and not procurar(""))
+    ok("procurar: nome, SKU, código do fornecedor e número curto são busca",
+       procurar("caneca (p) + tampa") and procurar("MS-3500") and procurar("MBLN-06") and procurar("4567"))
+    _cods = [E.linha_de_codigo("2000000000015", "quantidade", "Kit", prods[0]["ean"], {prods[0]["id"]: 2}, "l", "x")]
+    ok("eh_codigo_cadastrado: produto e código gerado contam, o resto não",
+       eh_codigo_cadastrado(prods, _cods, "7891234567895") and eh_codigo_cadastrado(prods, _cods, "2000000000015")
+       and not eh_codigo_cadastrado(prods, _cods, "MS-3500"))
+    _ps = [dict(prods[0], sku="MS-3500", sku_atacado="MS-2800")]
+    ok("buscar_produtos: acha pelo SKU de varejo e pelo de atacado, sem diferença de caixa",
+       buscar_produtos(_ps, "ms-3500") == _ps and buscar_produtos(_ps, "MS-2800") == _ps)
+    _int = E.linhas_de_produto(E.novo_codigo_interno([]), "", "ESTÁTUA LIVRO + base", 18.9,
+                               [("", "")], "l", "x", sku="MS-1890")
+    _int2 = E.linhas_de_produto("2000000000022", "", "Abajur (P)", 5, [("A", ""), ("B", "")], "l", "x")
+    _todos_p = prods + _int + _int2
+    _ls = lista_sem_ean(_todos_p, E.saldos(ent))
+    ok("lista_sem_ean: só os de código do Studio, em ordem alfabética, um por código",
+       [d["nome"] for d in _ls] == ["Abajur (P)", "ESTÁTUA LIVRO + base"] and _ls[0]["modelos"] == 2)
+    ok("lista_sem_ean: a palavra filtra como TEXTO (+, parênteses, acento) e pelo SKU",
+       [d["nome"] for d in lista_sem_ean(_todos_p, {}, "livro + base")] == ["ESTÁTUA LIVRO + base"]
+       and [d["nome"] for d in lista_sem_ean(_todos_p, {}, "ms-1890")] == ["ESTÁTUA LIVRO + base"]
+       and [d["nome"] for d in lista_sem_ean(_todos_p, {}, "(p)")] == ["Abajur (P)"])
+    ok("lista_sem_ean: com «todos», o de EAN de fábrica entra",
+       any(d["ean"] == "7891234567895" for d in lista_sem_ean(_todos_p, {}, "", True)))
+    _hl = linha_sem_ean_html(_ls[1], "livro")
+    ok("linha_sem_ean_html: código desenhado, palavra destacada, sem linha em branco",
+       "<svg" in _hl and "<mark" in _hl and "\n" not in _hl and "R$ 18,90" in _hl)
     ok("rotulo_manual: quantidade, nome, a marca de manual e a observação limpa",
        rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + base · Sentada · saída manual · ML 123"
        and rotulo_manual(prods[1], 1).endswith("saída manual"))

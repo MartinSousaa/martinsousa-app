@@ -5495,7 +5495,50 @@ MUTACOES = [
     (
         'a saida manual pelo nome volta a nao existir (12/11)',
         "estoque_tela.py",
-        [("            _saida_manual(prods, saldo, quem)\n", "")],
+        # O trecho certo é a chamada EMBAIXO de tudo, na vista do bipe (o layout
+        # de 12/11 a tirou da coluna da esquerda).
+        [('"janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")\n'
+          '    _saida_manual(prods, saldo, quem)\n',
+          '"janela para escolher. Código de kit ou de quantidade tira todos os itens dele.")\n')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
+    (
+        'o lucro liquido do mes em andamento volta a descontar o mes inteiro (12/11)',
+        "visao_financeira.py",
+        [("    if compromissos is not None:\n        liq = round(r_mes.get(\"mc\", 0.0) - float(compromissos[\"total\"]), 2)\n    else:\n",
+          "    if True:\n")],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
+        'o compromisso volta a contar antes do dia de debito (12/11)',
+        "lpv_mensal.py",
+        [("        elif d <= corte:\n", "        elif True:\n")],
+        None,
+        ["python3", "lpv_mensal.py"],
+    ),
+    (
+        'a barra do estoque volta a so aceitar codigo de barras (12/11)',
+        "estoque_tela.py",
+        [("    if prods is not None and not eh_codigo_cadastrado(prods, codigos, cod) and procurar(bruto):",
+          "    if False:")],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
+    (
+        'a lista de Produtos sem EAN volta a mostrar os de EAN de fabrica (12/11)',
+        "estoque_tela.py",
+        [("        if not ean or (not todos and not eh_codigo_do_studio(ean)):", "        if not ean:")],
+        None,
+        ["python3", "estoque_tela.py"],
+    ),
+    (
+        'o seletor de modo do estoque volta a ter default= e valor escrito pelo codigo (13/11)',
+        "estoque_tela.py",
+        [('    st.session_state.setdefault("est_modo", MODOS[0])\n'
+          '    modo = st.segmented_control("Modo", MODOS, key="est_modo",',
+          '    modo = st.segmented_control("Modo", MODOS, default=MODOS[0], key="est_modo",')],
         None,
         ["python3", "checar_navegador.py"],
     ),
