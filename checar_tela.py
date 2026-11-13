@@ -5244,8 +5244,8 @@ def _mp_a_liberar(conta):
         _auth_mp.eh_dono = lambda u: True
         _lidas = _mpa.ler_todas(_agora, buscar=_busca,
                                 obter_token=lambda c: ("t-" + c, "ml" if c == "ml1" else "mp", ""))
-        # A leitura é do processo (13/11): guardada pela função de verdade.
-        _mpt.ler_e_guardar(lambda: _lidas, _dt_mp(2026, 11, 12, 13, 0))
+        f.session_state["mp_dados"] = {"lidas": _lidas, "hoje": "2026-11-12",
+                                       "quando": "12/11 13:00"}
         _mpt.pagina("MartinSousa")
         _j = " ".join(_txt)
         _por_conta = [t for t in _tabelas if t and "Situação" in t[0]]
@@ -5265,7 +5265,6 @@ def _mp_a_liberar(conta):
         conta("A liberar (MP): a tela monta", False, f"{type(e).__name__}: {e}")
     finally:
         _mpt.st, _auth_mp.eh_dono = _g[0], _g[1]
-        _mpt._guardada().clear()
         if _g[2] is None:
             try:
                 del _Falso.metric
