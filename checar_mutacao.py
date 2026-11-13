@@ -5550,6 +5550,21 @@ MUTACOES = [
         None,
         ["python3", "shopee_api.py"],
     ),
+    (
+        'o painel financeiro perde o FATURAMENTO cheio do mes (13/11)',
+        "visao_financeira.py",
+        [("            + kp(\"FATURAMENTO\", _dinheiro(fat),", "            + (lambda *a: \"\")(\"FATURAMENTO\", _dinheiro(fat),")],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
+        'a Visao Geral passa a ler o Mercado Pago sozinha a cada passada (13/11)',
+        "visao_financeira.py",
+        [("    faixa = html_a_liberar(_mt.ultima_leitura(), _hj.isoformat()) if corrente else \"\"",
+          "    faixa = html_a_liberar(_mt.ler_e_guardar(), _hj.isoformat()) if corrente else \"\"")],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
 ]
 
 
