@@ -44,6 +44,8 @@ PARA_QUE = {
        for n in range(1, 5)},
     "SHOPEE_PARTNER_ID": "ligar as lojas da Shopee (vendas, ads e promoções)",
     "SHOPEE_PARTNER_KEY": "ligar as lojas da Shopee (vendas, ads e promoções)",
+    "SHOPEE_PARTNER_ID_SHP2": "ligar a Shopee 2 (LG) pelo app próprio dela",
+    "SHOPEE_PARTNER_KEY_SHP2": "ligar a Shopee 2 (LG) pelo app próprio dela",
 }
 
 

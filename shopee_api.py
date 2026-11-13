@@ -83,17 +83,32 @@ MAX_PAGINAS = 50      # por janela / por lista: passou disso, INCOMPLETO
 
 
 # ── Credenciais ───────────────────────────────────────────────────────────────
-def credenciais():
+# UM APP POR CNPJ, SE PRECISAR (dono, 12/11): o cadastro «Shopee Seller» vale
+# para as lojas do próprio vendedor, e a Shopee 2 é de outro CNPJ (LG). Cada
+# loja pode ter o seu par — SHOPEE_PARTNER_ID_SHP2 / SHOPEE_PARTNER_KEY_SHP2 —
+# e, sem ele, usa o par geral. O link, a troca do code e a renovação de UMA
+# loja usam sempre o par DELA: o code de um app não vale no outro.
+def credenciais(loja=None):
+    """(partner_id, partner_key) da loja: o par próprio, senão o geral."""
     import chaves
+    if loja:
+        suf = str(loja).strip().upper()
+        pid, chave = chaves.ler(f"SHOPEE_PARTNER_ID_{suf}"), chaves.ler(f"SHOPEE_PARTNER_KEY_{suf}")
+        if pid and chave:
+            return (pid, chave)
     return (chaves.ler("SHOPEE_PARTNER_ID"), chaves.ler("SHOPEE_PARTNER_KEY"))
 
 
-def configurado():
-    pid, chave = credenciais()
+def configurado(loja=None):
+    """Sem loja: alguma loja tem par. Com loja: aquela loja tem."""
+    if loja is None:
+        return any(configurado(l) for l in LOJAS)
+    pid, chave = credenciais(loja)
     return bool(pid and chave)
 
 
-FALTA_CREDENCIAL = "faltam SHOPEE_PARTNER_ID e SHOPEE_PARTNER_KEY nas Variáveis do Railway"
+FALTA_CREDENCIAL = ("faltam SHOPEE_PARTNER_ID e SHOPEE_PARTNER_KEY nas Variáveis do Railway "
+                    "(ou o par da loja: SHOPEE_PARTNER_ID_SHP2 / SHOPEE_PARTNER_KEY_SHP2)")
 
 
 # ── Decisões puras ────────────────────────────────────────────────────────────
@@ -272,8 +287,8 @@ def _ida(metodo, caminho, params, corpo=None):
     return (dado, "")
 
 
-def _post_publico(caminho, corpo):
-    pid, chave = credenciais()
+def _post_publico(caminho, corpo, loja=None):
+    pid, chave = credenciais(loja)
     ts = int(_t.time())
     return _ida("POST", caminho, parametros_comuns(pid, chave, caminho, ts),
                 {**corpo, "partner_id": int(pid)})
@@ -284,12 +299,12 @@ def url_de_autorizacao(loja):
     loja = str(loja).strip().lower()
     if loja not in LOJAS:
         return ("", f"loja desconhecida: {loja}")
-    if not configurado():
+    if not configurado(loja):
         return ("", FALTA_CREDENCIAL)
     est = f"{loja}.{state_novo()}"
     if not _gravar(loja, {"state_pendente": est}):
         return ("", "não consegui guardar o state na planilha")
-    return (url_montada(credenciais()[0], est), "")
+    return (url_montada(credenciais(loja)[0], est), "")
 
 
 def _guardar(loja, corpo, extra=None):
@@ -313,6 +328,8 @@ def processar_callback(params):
     loja, erro = loja_da_volta(params, gravados)
     if erro:
         return ("", "", erro)
+    if not configurado(loja):
+        return ("", "", f"{NOME_DA_LOJA[loja]}: {FALTA_CREDENCIAL}")
     shop_id = str(params.get("shop_id", "")).strip()
     outra = loja_repetida(loja, shop_id, gravados)
     if outra:
@@ -320,7 +337,7 @@ def processar_callback(params):
                         f"{NOME_DA_LOJA[outra]}. Entre na outra loja e autorize de novo.")
     corpo, erro = _post_publico("/api/v2/auth/token/get",
                                 {"code": str(params.get("code", "")).strip(),
-                                 "shop_id": int(shop_id)})
+                                 "shop_id": int(shop_id)}, loja)
     if erro:
         return ("", "", erro)
     _guardar(loja, corpo, {"shop_id": shop_id, "state_pendente": ""})
@@ -332,7 +349,7 @@ def token(loja):
     loja = str(loja).strip().lower()
     if loja not in LOJAS:
         return ("", "", f"loja desconhecida: {loja}")
-    if not configurado():
+    if not configurado(loja):
         return ("", "", FALTA_CREDENCIAL)
     d = _todas().get(loja) or {}
     if d.get("access_token") and not precisa_renovar(d.get("expira_em")):
@@ -345,7 +362,7 @@ def token(loja):
     if not rt or not sid:
         return ("", "", f"{NOME_DA_LOJA[loja]} ainda não foi autorizada")
     corpo, erro = _post_publico("/api/v2/auth/access_token/get",
-                                {"refresh_token": rt, "shop_id": int(sid)})
+                                {"refresh_token": rt, "shop_id": int(sid)}, loja)
     if erro:
         return ("", "", f"não consegui renovar o token da {NOME_DA_LOJA[loja]}: {erro}")
     return (_guardar(loja, corpo).get("access_token", ""), sid, "")
@@ -356,7 +373,7 @@ def estados():
     saida = {}
     for l in LOJAS:
         d = todas.get(l, {})
-        if not configurado():
+        if not configurado(l):
             saida[l] = {"situacao": "sem credenciais"}
         elif not d.get("refresh_token"):
             saida[l] = {"situacao": "não autorizada"}
@@ -382,7 +399,7 @@ def credencial_da_loja(loja):
     tok, sid, erro = token(loja)
     if erro:
         return (None, erro)
-    pid, chave = credenciais()
+    pid, chave = credenciais(loja)
     return ((pid, chave, tok, sid), "")
 
 
@@ -677,6 +694,35 @@ if __name__ == "__main__":
         token = _tk
     finally:
         for k, v in _env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # Um par por loja (12/11): a Shopee 2 com o próprio app; sem ele, o geral.
+    _envs = {k: os.environ.pop(k, None) for k in ("SHOPEE_PARTNER_ID", "SHOPEE_PARTNER_KEY",
+                                                   "SHOPEE_PARTNER_ID_SHP2", "SHOPEE_PARTNER_KEY_SHP2")}
+    try:
+        os.environ.update(SHOPEE_PARTNER_ID="1", SHOPEE_PARTNER_KEY="k1")
+        ok("sem par próprio, a loja usa o geral", credenciais("shp2") == ("1", "k1"))
+        os.environ.update(SHOPEE_PARTNER_ID_SHP2="2", SHOPEE_PARTNER_KEY_SHP2="k2")
+        ok("com par próprio, a Shopee 2 usa o dela e a Shopee 1 continua no geral",
+           credenciais("shp2") == ("2", "k2") and credenciais("shp1") == ("1", "k1"))
+        ok("o link de autorização da Shopee 2 sai com o partner_id dela",
+           "partner_id=2&" in url_montada(credenciais("shp2")[0], "shp2.x"))
+        os.environ.pop("SHOPEE_PARTNER_ID"); os.environ.pop("SHOPEE_PARTNER_KEY")
+        ok("só a Shopee 2 com par: ela está configurada, a Shopee 1 não",
+           configurado("shp2") and not configurado("shp1") and configurado())
+        _ch_p = []
+        _ida_g = _ida
+        _ida = lambda m, c, p, corpo=None: (_ch_p.append((c, p, corpo)), ({"error": ""}, ""))[1]
+        _post_publico("/api/v2/auth/token/get", {"code": "c", "shop_id": 9}, "shp2")
+        _ida = _ida_g
+        ok("a troca do code da Shopee 2 vai assinada com o par DELA",
+           _ch_p[0][1]["partner_id"] == 2 and _ch_p[0][2]["partner_id"] == 2
+           and _ch_p[0][1]["sign"] == assinar("k2", "2", "/api/v2/auth/token/get", _ch_p[0][1]["timestamp"]))
+    finally:
+        for k, v in _envs.items():
             if v is None:
                 os.environ.pop(k, None)
             else:
