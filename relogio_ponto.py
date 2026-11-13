@@ -2092,6 +2092,21 @@ def _secao_ajuste_ociosidade(usuario_logado=None):
             st.error(f"**Não consegui desfazer:** {_msg}")
 
 
+def _decidir_abono(linha, k, usuario_logado, aprovar):
+    """Aprovar/Recusar do pedido. Callback: roda antes da passada."""
+    import abonos as _ab
+    ss = st.session_state
+    _o = ss.get(f"{k}_o") or ""
+    if aprovar:
+        ok, msg = _ab.aprovar(linha, usuario_logado, ss.get(f"{k}_i"), ss.get(f"{k}_f"), _o)
+    elif not _o.strip():
+        ok, msg = False, "Escreva o porquê — é o que a pessoa vai ler."
+    else:
+        ok, msg = _ab.recusar(linha, usuario_logado, _o)
+    if not ok:
+        ss[f"{k}_erro"] = msg
+
+
 def _secao_abatimentos(usuario_logado: str):
     """A fila de pedidos de abatimento de ociosidade, para decidir.
 
@@ -2130,15 +2145,16 @@ def _secao_abatimentos(usuario_logado: str):
                                        "obrigatória na recusa")
         c4.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
         c5.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
-        if c4.button("✅ Aprovar", key=f"{k}_ok", use_container_width=True):
-            ok, msg = _ab.aprovar(a["linha"], usuario_logado, _i, _f, _o)
-            st.rerun() if ok else st.error(msg)
-        if c5.button("🚫 Recusar", key=f"{k}_no", use_container_width=True):
-            if not (_o or "").strip():
-                st.error("Escreva o porquê — é o que a pessoa vai ler.")
-            else:
-                ok, msg = _ab.recusar(a["linha"], usuario_logado, _o)
-                st.rerun() if ok else st.error(msg)
+        # Por callback (dono, 13/11): a decisão grava ANTES da passada, e a
+        # tela se desenha UMA vez já sem o pedido. Com `if botão: … st.rerun()`
+        # eram duas passadas inteiras por clique.
+        c4.button("✅ Aprovar", key=f"{k}_ok", use_container_width=True,
+                  on_click=_decidir_abono, args=(a["linha"], k, usuario_logado, True))
+        c5.button("🚫 Recusar", key=f"{k}_no", use_container_width=True,
+                  on_click=_decidir_abono, args=(a["linha"], k, usuario_logado, False))
+        _erro = st.session_state.pop(f"{k}_erro", None)
+        if _erro:
+            st.error(_erro)
         st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
     decididos = [a for a in _lista
@@ -2169,48 +2185,44 @@ def pagina_ponto(usuario_logado: str):
         "ociosidade por colaborador e alertar sobre sobrecarga em caso de ausência."
     )
 
-    if eh_master:
-        (tab_relatorio, tab_abat, tab_hoje, tab_registro,
-         tab_historico) = st.tabs(
-            ["📊 Relatório RHiD", "🙋 Abonos", "📡 Status Hoje",
-             "✏️ Registrar", "📋 Histórico Mensal"]
+    # UM SELETOR, e não st.tabs (dono, 13/11): o st.tabs desenha TODAS as
+    # abas a cada clique — aprovar um abono rodava o relatório da RHiD, o
+    # status de hoje e o histórico junto — e guarda a aba escolhida só no
+    # navegador: depois do clique a tela voltava para o «Relatório RHiD».
+    # O seletor guarda a escolha no servidor e só a escolhida roda.
+    abas = (["📊 Relatório RHiD", "🙋 Abonos"] if eh_master else []) + \
+        ["📡 Status Hoje", "✏️ Registrar", "📋 Histórico Mensal"]
+    if st.session_state.get("ponto_aba") not in abas:
+        st.session_state["ponto_aba"] = abas[0]
+    aba = st.segmented_control("Seção do ponto", abas, key="ponto_aba",
+                               label_visibility="collapsed") or abas[0]
+
+    if aba == "📊 Relatório RHiD":
+        st.markdown("#### 📊 Relatório de Ponto — RHiD")
+        st.caption(
+            "Dados obtidos diretamente do sistema RHiD. "
+            "Ociosidade calculada cruzando horas registradas com atividade no Trello."
         )
-    else:
-        tab_hoje, tab_registro, tab_historico = st.tabs(
-            ["📡 Status Hoje", "✏️ Registrar", "📋 Histórico Mensal"]
-        )
-
-    if eh_master:
-        with tab_relatorio:
-            st.markdown("#### 📊 Relatório de Ponto — RHiD")
-            st.caption(
-                "Dados obtidos diretamente do sistema RHiD. "
-                "Ociosidade calculada cruzando horas registradas com atividade no Trello."
-            )
-            _secao_relatorio_rhid()
-
-        with tab_abat:
-            # As duas metades da mesma coisa — hora que nao conta — na mesma
-            # tela. A parada vem primeiro: ela se lanca com o time parado
-            # esperando, e o pedido de abatimento chega quando chegar.
-            st.markdown("#### 🛑 Paradas e períodos sem expediente")
-            _secao_paradas()
-            st.markdown("---")
-            st.markdown("#### 📥 Pedidos de abatimento")
-            _secao_abatimentos(usuario_logado)
-            st.markdown("---")
-            _secao_ajuste_ociosidade(usuario_logado)
-
-    with tab_hoje:
+        _secao_relatorio_rhid()
+    elif aba == "🙋 Abonos":
+        # As duas metades da mesma coisa — hora que nao conta — na mesma
+        # tela. A parada vem primeiro: ela se lanca com o time parado
+        # esperando, e o pedido de abatimento chega quando chegar.
+        st.markdown("#### 🛑 Paradas e períodos sem expediente")
+        _secao_paradas()
+        st.markdown("---")
+        st.markdown("#### 📥 Pedidos de abatimento")
+        _secao_abatimentos(usuario_logado)
+        st.markdown("---")
+        _secao_ajuste_ociosidade(usuario_logado)
+    elif aba == "📡 Status Hoje":
         st.markdown("#### Status atual da equipe")
         st.caption(f"Atualizado em {_pc.agora_br().strftime('%d/%m/%Y %H:%M')}")
         _secao_status_hoje()
-
-    with tab_registro:
+    elif aba == "✏️ Registrar":
         st.markdown("#### Registrar horário de ponto")
         _secao_registro(usuario_logado, eh_master)
-
-    with tab_historico:
+    else:
         st.markdown("#### Histórico mensal de ponto")
         _secao_historico_mensal(eh_master, usuario_logado)
 
