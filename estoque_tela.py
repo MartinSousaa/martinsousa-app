@@ -165,16 +165,6 @@ def estoque_txt(saldo, pid):
     return "em estoque: " + " · ".join(partes)
 
 
-def lote_txt(lote, por_id):
-    """'14:02 · Bailarina: Braço para cima +6 · Sentada +6 · leo'. Pura."""
-    partes = []
-    for m in lote["linhas"]:
-        p = por_id.get(str(m.get("produto_id")), {})
-        partes.append(f'{E.nome_completo(p) or "produto apagado"} +{E.inteiro(m.get("qtd"))}')
-    quando = str(lote.get("quando") or "")
-    return f'{quando[-5:] if len(quando) >= 5 else quando} · ' + " · ".join(partes) + f' · {lote.get("quem", "")}'
-
-
 def receita_txt(k, por_id):
     """'1× Braço para cima · 1× Sentada' de um código gerado. Pura."""
     return " · ".join(f'{q}× {E.nome_completo(por_id.get(pid, {})) or "?"}'
@@ -433,9 +423,24 @@ def _barra(saida=False):
         pass
 
 
-def _ficha(variacoes, saldo, codigos, por_id, quem):
+def _abrir_nova_variacao():
+    st.session_state["est_nova_var"] = True
+
+
+def _ficha(variacoes, saldo, codigos, por_id, quem, movs=None):
+    """A ficha do produto JÁ cadastrado (dono, 13/11): abre como o bipe da
+    vez da saída — o quadro grande à esquerda, as últimas entradas à direita."""
     cod = st.session_state["est_lido"]
-    st.markdown(cabecalho_html(variacoes, saldo, cod), unsafe_allow_html=True)
+    principal, lateral = st.columns([1.15, 1])
+    with lateral:
+        with st.container(border=True):
+            _ultimas(movs or [], por_id, quem)
+    with principal:
+        _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod)
+
+
+def _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod):
+    st.markdown(ficha_entrada_html(variacoes, saldo, cod), unsafe_allow_html=True)
     sem_nome = len(variacoes) == 1 and not str(variacoes[0].get("variacao") or "").strip()
     st.markdown("**Variações · o nome é você que escreve · quanto entra de cada**"
                 if not sem_nome else "**Quanto está entrando**")
@@ -461,12 +466,15 @@ def _ficha(variacoes, saldo, codigos, por_id, quem):
     total = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) for v in variacoes)
     valor = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) * E.custo_de(v, _origem_da_entrada())
                 for v in variacoes)
-    c1, c2, c3 = st.columns([3, 1.4, 1.2])
-    c1.markdown(f"total entrando: **{total} peça(s) · R\\$ "
+    st.markdown(f"total entrando: **{total} peça(s) · R\\$ "
                 f"{valor:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
+    c2, c4, c3 = st.columns([1.6, 1.4, 1])
     c2.button("CONFIRMAR ENTRADA", key="est_confirmar", type="primary",
               use_container_width=True, on_click=_confirmar_entrada,
               args=(variacoes, quem))
+    # À vista (dono, 13/11): dentro de um expander ninguém achava.
+    c4.button("➕ Nova variação", key="est_nova_var_b", use_container_width=True,
+              on_click=_abrir_nova_variacao)
     c3.button("Voltar", key="est_voltar", use_container_width=True, on_click=_voltar)
 
     _nova_variacao(variacoes, quem)
@@ -475,9 +483,11 @@ def _ficha(variacoes, saldo, codigos, por_id, quem):
 
 
 def _nova_variacao(variacoes, quem):
-    aberta = bool(st.session_state.get("est_nova_var"))
-    with st.expander("➕ Nova variação — bipe o mesmo código de novo, escreva o nome e tire a foto",
-                     expanded=aberta):
+    # Abre pelo botão «➕ Nova variação» ou bipando o mesmo código de novo.
+    if not st.session_state.get("est_nova_var"):
+        return
+    with st.container(border=True):
+        st.markdown("**➕ Nova variação** — escreva o nome e tire a foto")
         p0 = variacoes[0]
         sem_nome = len(variacoes) == 1 and not str(p0.get("variacao") or "").strip()
         with st.form("est_form_var", clear_on_submit=True):
@@ -713,6 +723,67 @@ def _campos_sku(prefixo, inicial=None):
     return tuple(vals)
 
 
+def _ch(base, i):
+    """A chave do campo da variação `i`. A primeira usa a chave de sempre."""
+    return base if i == 0 else f"{base}_{i}"
+
+
+def _mais_variacao():
+    ss = st.session_state
+    ss["est_cad_nvar"] = int(ss.get("est_cad_nvar") or 1) + 1
+
+
+def _linhas_de_variacao():
+    """Uma linha por variação no cadastro: nome, qtd varejo, qtd atacado."""
+    ss = st.session_state
+    n = int(ss.get("est_cad_nvar") or 1)
+    for i in range(n):
+        a, b, c = st.columns([2, 1, 1])
+        a.text_input(f"Variação {i + 1}", key=_ch("est_cad_var", i),
+                     placeholder="Braço para cima (fica com a foto)" if i == 0 else "Sentada",
+                     label_visibility="visible" if i == 0 else "collapsed")
+        b.number_input("Qtd varejo", min_value=0, step=1, value=0, key=_ch("est_cad_qv", i),
+                       label_visibility="visible" if i == 0 else "collapsed")
+        c.number_input("Qtd atacado", min_value=0, step=1, value=0, key=_ch("est_cad_qa", i),
+                       label_visibility="visible" if i == 0 else "collapsed")
+    st.button("➕ Adicionar outra variação", key="est_cad_mais_var", on_click=_mais_variacao)
+
+
+def variacoes_do_cadastro(lidas, tem_var):
+    """[(nome, qtd_varejo, qtd_atacado)] limpas, ou (None, erro). Pura.
+
+    Linha de variação toda vazia é ignorada (clicou «adicionar» a mais);
+    quantidade sem nome é erro — a peça não pode entrar sem dizer qual é.
+    Nome repetido também: duas linhas iguais no cadastro viram dois produtos
+    que ninguém distingue na saída."""
+    out = []
+    for nome, qv, qa in lidas:
+        nome = " ".join(str(nome or "").split())
+        qv, qa = int(qv or 0), int(qa or 0)
+        if tem_var and not nome:
+            if qv or qa:
+                return None, "Tem quantidade numa variação sem nome."
+            continue
+        out.append((nome if tem_var else "", qv, qa))
+    if tem_var and not out:
+        return None, "Falta o nome da variação."
+    nomes = [n.casefold() for n, _a, _b in out]
+    if len(set(nomes)) != len(nomes):
+        return None, "Duas variações com o mesmo nome."
+    return out, None
+
+
+def entrada_das_variacoes(novas, var_ok, quem, quando):
+    """A entrada de TODAS as variações do cadastro num lote só: um «excluir»
+    desfaz o cadastro inteiro. Pura."""
+    lin = []
+    for p, (_n, qv, qa) in zip(novas, var_ok):
+        lin += linhas_da_entrada_nova(p, qv, qa, quem, quando)
+    for l in lin:
+        l["lote"] = lin[0]["lote"]
+    return lin
+
+
 def linhas_da_entrada_nova(p, q_varejo, q_atacado, quem, quando):
     """A entrada do cadastro, com as peças de varejo e as de atacado no MESMO
     lote: um «desfazer» desfaz as duas. Pura."""
@@ -771,7 +842,10 @@ def quadro_da_foto(b64=""):
     dentro = (f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;height:100%;'
               f'object-fit:contain">' if b64 else
               '<div style="text-align:center;color:#9AA3AE;font-size:13px">📷<br>sem foto ainda</div>')
-    return ('<div style="aspect-ratio:1/1;width:100%;border-radius:18px;border:1px solid #3a3f45;'
+    # Altura fixa (dono, 13/11): o quadrado em 1:1 descia muito abaixo do
+    # último campo da esquerda («Tem variações com este código»). 250 px é o
+    # que cabe entre o upload e esse campo; a foto se encaixa sem cortar.
+    return ('<div style="height:250px;width:100%;border-radius:18px;border:1px solid #3a3f45;'
             'background:#2c2c2c;display:flex;align-items:center;justify-content:center;'
             f'overflow:hidden;margin-top:6px">{dentro}</div>')
 
@@ -825,17 +899,19 @@ def _cadastro(quem):
             forn = c1.text_input("Código do fornecedor", placeholder="TRES-B131", key="est_cad_forn")
             nome = c2.text_input("Produto", placeholder="Mini Yoga · conjunto", key="est_cad_nome")
             sku, custo, sku_at, custo_at = _campos_sku("est_cad_")
-            c4, c5 = st.columns(2)
-            q_var = c4.number_input("Qtd varejo", min_value=0, step=1, value=0, key="est_cad_qv",
-                                    help="Peças desta entrada que vieram da compra de VAREJO.")
-            q_at = c5.number_input("Qtd atacado", min_value=0, step=1, value=0, key="est_cad_qa",
-                                   help="Peças desta entrada que vieram da compra de ATACADO.")
-            c7, c8 = st.columns(2)
-            tem_var = c7.checkbox("Tem variações com este código", key="est_cad_tv",
-                                  help="Marcado: escreva o nome desta primeira. Depois bipe o mesmo "
-                                       "código de novo para cada variação.")
-            var = c8.text_input("Nome desta variação", placeholder="Braço para cima", key="est_cad_var",
-                                label_visibility="collapsed")
+            # Com variações (dono, 13/11), cada uma tem a sua quantidade: a
+            # linha de quantidade única some e as linhas das variações entram.
+            if not ss.get("est_cad_tv"):
+                c4, c5 = st.columns(2)
+                c4.number_input("Qtd varejo", min_value=0, step=1, value=0, key="est_cad_qv",
+                                help="Peças desta entrada que vieram da compra de VAREJO.")
+                c5.number_input("Qtd atacado", min_value=0, step=1, value=0, key="est_cad_qa",
+                                help="Peças desta entrada que vieram da compra de ATACADO.")
+            tem_var = st.checkbox("Tem variações com este código", key="est_cad_tv",
+                                  help="Marcado: uma linha por variação, cada uma com a sua "
+                                       "quantidade. A foto ao lado fica com a primeira.")
+            if tem_var:
+                _linhas_de_variacao()
         with dir_:
             foto = st.file_uploader("Foto do produto", type=None, key="est_cad_foto")
             st.markdown(quadro_da_foto(_miniatura(foto)), unsafe_allow_html=True)
@@ -843,11 +919,17 @@ def _cadastro(quem):
     st.button("Cancelar", key="est_cancelar", on_click=_voltar)
     if not enviar:
         return
-    faltando = [r for r, v in (("o nome do produto", nome),) if not str(v).strip()]
-    if tem_var and not str(var).strip():
-        faltando.append("o nome da variação")
-    if faltando:
-        st.error("Falta " + ", ".join(faltando) + ".")
+    if not str(nome).strip():
+        st.error("Falta o nome do produto.")
+        return
+    lidas = [(ss.get(_ch("est_cad_var", i), ""), ss.get(_ch("est_cad_qv", i), 0),
+              ss.get(_ch("est_cad_qa", i), 0))
+             for i in range(int(ss.get("est_cad_nvar") or 1) if tem_var else 1)]
+    if not tem_var:
+        lidas = [("", lidas[0][1], lidas[0][2])]
+    var_ok, erro_v = variacoes_do_cadastro(lidas, tem_var)
+    if erro_v:
+        st.error(erro_v)
         return
     custos, erro_c, avisos_c = _custos_do_formulario(sku, custo, sku_at, custo_at)
     if erro_c:
@@ -866,16 +948,20 @@ def _cadastro(quem):
             if erro:
                 st.warning(f"O produto foi salvo sem foto: {erro}")
         novas = E.linhas_de_produto(cod, forn, nome, E.numero(custos["custo"]),
-                                    [(var if tem_var else "", foto_id)], quem, _quando(),
+                                    [(v, foto_id if i == 0 else "") for i, (v, _a, _b) in enumerate(var_ok)],
+                                    quem, _quando(),
                                     sku=custos["sku"], sku_atacado=custos["sku_atacado"],
                                     custo_atacado=custos["custo_atacado"])
         E.gravar_produtos(novas)
-        entrada = linhas_da_entrada_nova(novas[0], q_var, q_at, quem, _quando())
+        entrada = entrada_das_variacoes(novas, var_ok, quem, _quando())
         if entrada:
             E.gravar_movimentos(entrada)
         _limpar_ficha()
+        q_var = sum(x[1] for x in var_ok)
+        q_at = sum(x[2] for x in var_ok)
         _pecas = " e ".join(f"{int(q)} de {o}" for q, o in ((q_var, E.VAREJO), (q_at, E.ATACADO)) if q)
-        _avisar(f"✓ «{nome.strip()}» cadastrado" + (f" com {_pecas}." if _pecas else ".")
+        _nv = f" · {len(var_ok)} variações" if len(var_ok) > 1 else ""
+        _avisar(f"✓ «{nome.strip()}» cadastrado{_nv}" + (f" com {_pecas}." if _pecas else ".")
                 + "".join(f" · {a}" for a in avisos_c))
         if sem_codigo:
             ss["est_etiqueta_nova"] = (cod, nome.strip())
@@ -885,18 +971,63 @@ def _cadastro(quem):
         st.error(f"Não gravei o cadastro — a planilha respondeu: {e}")
 
 
+PASSO_ENTRADAS = 5
+
+
+def resumo_da_entrada(lt, por_id):
+    """O que a lista de entradas mostra de um CONFIRMAR. Pura.
+
+    Mesmo desenho da saída (dono, 13/11), com uma diferença: a entrada é de
+    TODO MUNDO, então quem deu a entrada vai na linha de baixo."""
+    lin = lt["linhas"]
+    pids = list(dict.fromkeys(str(m.get("produto_id")) for m in lin))
+    p = por_id.get(pids[0], {}) if pids else {}
+    varias = len(pids) > 1
+    nome = (" · ".join(f'{E.nome_completo(por_id.get(str(m.get("produto_id")), {})) or "produto apagado"}'
+                       f' +{E.inteiro(m.get("qtd"))}' for m in lin) if varias
+            else (E.nome_completo(p) or "produto apagado"))
+    return {"nome": nome, "p": p, "q": sum(E.inteiro(m.get("qtd")) for m in lin),
+            "ean": "" if varias else E.limpar_codigo(p.get("ean")),
+            "sku": "" if varias else E.normalizar_sku(p.get("sku")),
+            "quem": str(lt.get("quem") or ""), "hora": str(lt.get("quando") or "")[-5:],
+            "desfeito": lt["desfeito"]}
+
+
+def linha_entrada_html(r):
+    """Uma linha das últimas entradas — a de `linha_bipada_html`, em verde. Pura."""
+    nome = f"<s>{_esc(r['nome'])}</s>" if r["desfeito"] else _esc(r["nome"])
+    sub = " · ".join(x for x in (r["hora"], r["ean"], f"SKU {r['sku']}" if r["sku"] else "",
+                                 r["quem"], "excluída" if r["desfeito"] else "") if x)
+    return (f'<div style="display:flex;align-items:center;gap:12px;padding:8px 0;'
+            f'opacity:{0.45 if r["desfeito"] else 1}">{foto_html(r["p"].get("foto_id"), 56)}'
+            f'<div style="flex:1"><div style="font-size:16px;font-weight:800">{nome}</div>'
+            f'<div style="font-size:12px;color:#9AA3AE;margin-top:2px">{_esc(sub)}</div></div>'
+            f'<div style="font-size:20px;font-weight:800;color:#7fd18b">+{r["q"]}</div></div>')
+
+
+def _mais_entradas():
+    ss = st.session_state
+    ss["est_ent_n"] = int(ss.get("est_ent_n") or PASSO_ENTRADAS) + PASSO_ENTRADAS
+
+
 def _ultimas(movs, por_id, quem):
-    lotes = E.ultimos_lotes(movs, E.ENTRADA, 5)
+    n = int(st.session_state.get("est_ent_n") or PASSO_ENTRADAS)
+    # Um a mais do que mostra: é assim que se sabe se a seta tem o que abrir.
+    lotes = E.ultimos_lotes(movs, E.ENTRADA, n + 1)
     if not lotes:
         return
-    st.markdown("**Últimas entradas**")
-    for lt in lotes:
-        c1, c2 = st.columns([6, 1])
-        txt = lote_txt(lt, por_id)
-        c1.markdown(f"~~{_esc(txt)}~~ · desfeita" if lt["desfeito"] else _esc(txt))
+    st.markdown(f'<div style="font-size:12px;letter-spacing:.14em;font-weight:800;color:#9AA3AE">'
+                f'ÚLTIMAS {min(n, len(lotes))} ENTRADAS</div>', unsafe_allow_html=True)
+    for lt in lotes[:n]:
+        # 4:1.4 e não 6:1: ao lado da ficha a coluna é estreita, e o
+        # «✖ excluir» quebrava em duas linhas (visto no navegador, 13/11).
+        c1, c2 = st.columns([4, 1.4], vertical_alignment="center")
+        c1.markdown(linha_entrada_html(resumo_da_entrada(lt, por_id)), unsafe_allow_html=True)
         if not lt["desfeito"]:
-            c2.button("↶ desfazer", key=f"est_desf_{lt['lote']}", on_click=_desfazer,
-                      args=(lt["lote"], quem))
+            c2.button("✖ excluir", key=f"est_desf_{lt['lote']}", on_click=_desfazer,
+                      args=(lt["lote"], quem), use_container_width=True)
+    if len(lotes) > n:
+        st.button("▾ mostrar mais 5", key="est_ent_mais", on_click=_mais_entradas)
 
 
 # ── SAÍDA (Parte 2) ──────────────────────────────────────────────────────────
@@ -1135,10 +1266,40 @@ def _barras_html(ean):
         return ""
 
 
-def bipe_atual_html(r):
-    """O quadro roxo do bipe da vez. Pura. Sem linha em branco: o HTML passa
+def quadro_grande_html(titulo, cor, nome, linhas, rotulo_custo, custo, foto_id, ean):
+    """O quadro grande do produto bipado — o da saída (roxo) e o da entrada
+    (verde, dono 13/11). Um desenho só para os dois: com duas cópias, uma
+    muda e a outra fica para trás. Pura. Sem linha em branco: o HTML passa
     pelo markdown do Streamlit."""
     cinza = "#9AA3AE"
+    import gdrive
+    url = gdrive.url_thumbnail(foto_id, 600) if foto_id else None
+    # Python 3.11: sem barra invertida dentro da f-string — pré-calculado.
+    barras = _barras_html(ean).replace("<svg ", "<svg style='max-width:100%;height:auto' ", 1)
+    # A foto ocupa 38% do quadro, sempre quadrada: lado fixo em pixel
+    # espremia o texto em coluna estreita (visto no navegador, 12/11).
+    foto = (f'<img src="{_esc(url)}" style="width:100%;aspect-ratio:1/1;object-fit:cover;'
+            f'border-radius:16px">' if url else
+            '<div style="width:100%;aspect-ratio:1/1;border-radius:16px;background:#444;display:flex;'
+            'align-items:center;justify-content:center;color:#9AA3AE;font-size:13px">sem foto</div>')
+    return (f'<div style="border:2px solid {cor};border-radius:20px;padding:20px;background:#2f2f2f;'
+            'color:#E8EAED">'
+            f'<div style="font-size:12px;letter-spacing:.14em;font-weight:800;color:{cor};'
+            f'margin-bottom:12px">{titulo}</div>'
+            '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">'
+            f'<div style="flex:0 0 38%;min-width:150px">{foto}</div>'
+            f'<div style="flex:1;min-width:200px;overflow-wrap:anywhere"><div style="font-size:26px;'
+            f'font-weight:800;line-height:1.15">{_esc(nome)}</div>'
+            + "".join(f'<div style="font-size:15px;color:{cinza};margin-top:7px">{x}</div>' for x in linhas)
+            + f'<div style="margin-top:12px;font-size:21px;font-weight:800;color:#4cc38a">'
+              f'{rotulo_custo}: {_rs(custo)}</div>'
+            + (f'<div style="margin-top:10px;max-width:100%;overflow:hidden">{barras}</div>'
+               if barras else "")
+            + '</div></div></div>')
+
+
+def bipe_atual_html(r):
+    """O quadro roxo do bipe da vez. Pura."""
     chip = "".join(f'<span style="display:inline-block;padding:3px 10px;border-radius:999px;'
                    f'background:#1f3a5a;color:#7cb8ff;font-size:12px;font-weight:700;'
                    f'margin-left:6px">{_esc(o)}</span>' for o in r["origens"])
@@ -1152,31 +1313,35 @@ def bipe_atual_html(r):
             '<span style="color:#f0c060">sem SKU</span>') if x) + chip)
     lin.append(f'Saiu <b style="color:#E8EAED">{r["q"]}</b>'
                + (f' · fica no físico <b style="color:#E8EAED">{r["fica"]}</b>' if r["fica"] is not None else ""))
-    rot_c = "custo do kit" if r["kit"] else "custo considerado"
-    import gdrive
-    url = gdrive.url_thumbnail(r["p"].get("foto_id"), 600) if r["p"].get("foto_id") else None
-    # Python 3.11: sem barra invertida dentro da f-string — pré-calculado.
-    barras = _barras_html(r["ean"]).replace("<svg ", "<svg style='max-width:100%;height:auto' ", 1)
-    # A foto ocupa 38% do quadro, sempre quadrada: lado fixo em pixel
-    # espremia o texto em coluna estreita (visto no navegador, 12/11).
-    foto = (f'<img src="{_esc(url)}" style="width:100%;aspect-ratio:1/1;object-fit:cover;'
-            f'border-radius:16px">' if url else
-            '<div style="width:100%;aspect-ratio:1/1;border-radius:16px;background:#444;display:flex;'
-            'align-items:center;justify-content:center;color:#9AA3AE;font-size:13px">sem foto</div>')
-    return ('<div style="border:2px solid #a78bfa;border-radius:20px;padding:20px;background:#2f2f2f;'
-            'color:#E8EAED">'
-            f'<div style="font-size:12px;letter-spacing:.14em;font-weight:800;color:#a78bfa;'
-            f'margin-bottom:12px">✓ SAIU AGORA · {_esc(r["hora"])} · {_esc(r["destino"]).upper()}</div>'
-            '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">'
-            f'<div style="flex:0 0 38%;min-width:150px">{foto}</div>'
-            f'<div style="flex:1;min-width:200px;overflow-wrap:anywhere"><div style="font-size:26px;'
-            f'font-weight:800;line-height:1.15">{_esc(r["nome"])}</div>'
-            + "".join(f'<div style="font-size:15px;color:{cinza};margin-top:7px">{x}</div>' for x in lin)
-            + f'<div style="margin-top:12px;font-size:21px;font-weight:800;color:#4cc38a">'
-              f'{rot_c}: {_rs(r["custo"])}</div>'
-            + (f'<div style="margin-top:10px;max-width:100%;overflow:hidden">{barras}</div>'
-               if barras else "")
-            + '</div></div></div>')
+    return quadro_grande_html(f'✓ SAIU AGORA · {_esc(r["hora"])} · {_esc(r["destino"]).upper()}',
+                              "#a78bfa", r["nome"], lin,
+                              "custo do kit" if r["kit"] else "custo considerado",
+                              r["custo"], r["p"].get("foto_id"), r["ean"])
+
+
+def ficha_entrada_html(variacoes, saldo, codigo):
+    """O quadro verde do produto bipado na ENTRADA (dono, 13/11): o mesmo
+    desenho do bipe da vez da saída. Pura."""
+    p = variacoes[0]
+    b = lambda x: f'<b style="color:#E8EAED">{_esc(x)}</b>'
+    ean = E.limpar_codigo(codigo)
+    lin = [f'Código de barras {b(ean)}']
+    sku = E.normalizar_sku(p.get("sku"))
+    forn = str(p.get("codigo_fornecedor") or "").strip()
+    lin.append(" · ".join(x for x in (
+        f'Fornecedor {b(forn)}' if forn else "",
+        f'SKU {b(sku)}' if sku else '<span style="color:#f0c060">sem SKU</span>') if x))
+    sku_at = E.normalizar_sku(p.get("sku_atacado"))
+    if sku_at:
+        lin.append(f'Atacado {b(sku_at)} · {_rs(E.custo_de(p, E.ATACADO))}')
+    total = sum(saldo.get((v["id"], E.FISICO), 0) for v in variacoes)
+    n = len(variacoes)
+    var_txt = f' · {n} variações' if n > 1 or str(p.get("variacao") or "").strip() else ""
+    lin.append(f'Em estoque no físico <b style="color:#E8EAED">{total}</b>{var_txt}')
+    lin.append(f'Registrado em {_esc(str(p.get("registrado_em") or "")[:10])} · '
+               '<span style="color:#f0c060">a idade conta daqui</span>')
+    return quadro_grande_html(f'✓ JÁ CADASTRADO · {_esc(ean)}', "#4cc38a", p.get("nome"), lin,
+                              "custo varejo", E.custo_de(p, E.VAREJO), p.get("foto_id"), ean)
 
 
 def linha_bipada_html(r):
@@ -2240,6 +2405,7 @@ def _entrada(quem):
     por_id = {p["id"]: p for p in prods}
     saldo = E.saldos(movs)
     cod = ss.get("est_lido")
+    ficha_aberta = False
 
     if ss.get("est_cadastrar"):
         _cadastro(quem)
@@ -2247,7 +2413,8 @@ def _entrada(quem):
         variacoes = E.do_codigo(prods, cod)
         gerado = E.codigo_gerado(codigos, cod)
         if variacoes:
-            _ficha(variacoes, saldo, codigos, por_id, quem)
+            _ficha(variacoes, saldo, codigos, por_id, quem, movs)
+            ficha_aberta = True
         elif gerado:
             st.warning(f"**{gerado.get('nome')}** é um código de VENDA ({receita_txt(gerado, por_id)}). "
                        f"Na entrada, bipe o código do produto.")
@@ -2258,7 +2425,8 @@ def _entrada(quem):
         st.caption("Bipe um código. Já cadastrado: abre a ficha. Não cadastrado: o Studio "
                    "pergunta se é produto novo.")
         _busca_sem_bipe(prods)
-    _ultimas(movs, por_id, quem)
+    if not ficha_aberta:      # com a ficha aberta, a lista está ao lado dela
+        _ultimas(movs, por_id, quem)
 
 
 def _abrir_ficha(ean):
@@ -2339,8 +2507,9 @@ if __name__ == "__main__":
     ok("_custos_do_formulario: sem nenhum dos dois, diz o que falta",
        "varejo ou de atacado" in _custos_do_formulario("", "", "", "")[1])
     _tabela_sku = _g_tab
-    ok("quadro_da_foto: quadrado, com a foto ou o aviso de sem foto",
-       "aspect-ratio:1/1" in quadro_da_foto("") and "sem foto" in quadro_da_foto("")
+    ok("quadro_da_foto: altura fixa (não desce além do último campo), com a foto ou o aviso",
+       "height:250px" in quadro_da_foto("") and "aspect-ratio" not in quadro_da_foto("")
+       and "sem foto" in quadro_da_foto("")
        and "data:image/jpeg;base64,QUJD" in quadro_da_foto("QUJD"))
     _sv = E.linhas_de_saida([(prods[1], 2)], E.VENDA, "leo", "12/11/2026 15:47", movs=ent)
     _lt = E.ultimos_lotes(ent + _sv, E.VENDA)[0]
@@ -2388,9 +2557,45 @@ if __name__ == "__main__":
        "&lt;resina&gt;" in cab and "em estoque: 8" in cab and "R$ 18,40" in cab
        and "2 variações" in cab)
     lt = E.ultimos_lotes(ent, E.ENTRADA)[0]
-    ok("lote_txt: hora, cada variação com a quantidade, e quem",
-       lote_txt(lt, por_id) == "14:03 · Bailarina <resina> + base · Braço para cima +6 · "
-                               "Bailarina <resina> + base · Sentada +2 · leo")
+    # CADASTRO COM VARIAÇÕES (dono, 13/11): várias de uma vez, num lote só.
+    _vo, _ve = variacoes_do_cadastro([("Braço  para cima ", "2", 1), ("", 0, 0), ("Sentada (P/M) + base", 3, 0)], True)
+    ok("variacoes_do_cadastro: limpa o nome, ignora a linha vazia, mantém a ordem",
+       _ve is None and _vo == [("Braço para cima", 2, 1), ("Sentada (P/M) + base", 3, 0)])
+    ok("variacoes_do_cadastro: quantidade sem nome, nome repetido e nenhuma variação são recusados",
+       variacoes_do_cadastro([("", 1, 0)], True)[0] is None
+       and "mesmo nome" in variacoes_do_cadastro([("Azul", 1, 0), ("azul", 0, 1)], True)[1]
+       and variacoes_do_cadastro([("", 0, 0)], True)[0] is None)
+    ok("variacoes_do_cadastro: sem variação, uma linha sem nome com as quantidades",
+       variacoes_do_cadastro([("", 4, 0)], False) == ([("", 4, 0)], None))
+    _nv = E.linhas_de_produto("7891234567895", "PR-2", "Porta 2 Relógio + Jóias", 10,
+                              [(v, "F1" if i == 0 else "") for i, (v, _a, _b) in enumerate(_vo)], "myrella", "x")
+    _ev = entrada_das_variacoes(_nv, _vo, "myrella", "2026-11-13 16:00")
+    _lt_ev = E.ultimos_lotes(_ev, E.ENTRADA)
+    ok("entrada_das_variacoes: as duas variações num lote só, com as quantidades de cada origem",
+       len(_lt_ev) == 1 and sorted((m["produto_id"], m["qtd"], m.get("origem")) for m in _ev)
+       == sorted([(_nv[0]["id"], "2", E.VAREJO), (_nv[0]["id"], "1", E.ATACADO), (_nv[1]["id"], "3", E.VAREJO)]))
+    _fe = ficha_entrada_html(_nv, E.saldos(_ev), "7891234567895")
+    ok("ficha_entrada_html: quadro verde, nome escapado, estoque somado das variações, sem linha em branco",
+       "#4cc38a" in _fe and "JÁ CADASTRADO" in _fe and "Relógio + Jóias" in _fe
+       and "físico <b style=\"color:#E8EAED\">6</b> · 2 variações" in _fe and "\n" not in _fe
+       and "PR-2" in _fe)
+    _re = resumo_da_entrada(lt, por_id)
+    ok("resumo_da_entrada: cada variação com a quantidade, o total, a hora e quem (lote real)",
+       _re["nome"] == "Bailarina <resina> + base · Braço para cima +6 · "
+                      "Bailarina <resina> + base · Sentada +2"
+       and _re["q"] == 8 and _re["hora"] == "14:03" and _re["quem"] == "leo" and _re["ean"] == "")
+    _le = linha_entrada_html(_re)
+    ok("linha_entrada_html: nome escapado, +N em verde, quem na linha de baixo, sem linha em branco",
+       "&lt;resina&gt;" in _le and "+8</div>" in _le and "#7fd18b" in _le and "leo" in _le
+       and "\n" not in _le)
+    _lt1 = E.ultimos_lotes(E.linhas_de_entrada([(prods[0], 3)], "myrella", "2026-11-13 15:54"),
+                           E.ENTRADA)[0]
+    _r1 = resumo_da_entrada(_lt1, por_id)
+    ok("resumo_da_entrada: um modelo só mostra o nome, o EAN e o +N do lote",
+       _r1["q"] == 3 and _r1["ean"] == "7891234567895" and "+" not in _r1["nome"].split("base")[-1])
+    ok("linha_entrada_html: entrada excluída fica riscada e marcada",
+       "<s>" in linha_entrada_html({**_r1, "desfeito": True})
+       and "excluída" in linha_entrada_html({**_r1, "desfeito": True}))
     k = E.linha_de_codigo("2000000000015", "quantidade", "Kit com 2", "7891234567895",
                           {prods[0]["id"]: 1, prods[1]["id"]: 1}, "leo", "x")
     ok("receita_txt: as peças de um código gerado",
