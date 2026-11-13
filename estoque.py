@@ -255,9 +255,34 @@ def itens_do_codigo(k):
     return {str(pid): inteiro(q) for pid, q in d.items() if inteiro(q) > 0}
 
 
+_LIGACOES = {"a", "o", "as", "os", "e", "de", "da", "do", "das", "dos", "com", "para", "em",
+             "na", "no", "nas", "nos", "por", "sem"}
+
+
+def capitalizar(txt):
+    """«JOGO DE DARDO MAGNÉTICO 46cm» → «Jogo de Dardo Magnético 46cm». Pura.
+
+    Dono, 13/11: a primeira letra de cada palavra maiúscula. Palavra só de
+    letras vira Maiúscula+minúsculas; a de ligação (de, e, com…) fica
+    minúscula, menos no começo. Palavra com número ou símbolo (46cm,
+    (P/M), MS-3500) fica como foi digitada: é medida, código ou sigla.
+    Os espaços ficam como estão — não é aqui que se limpa o nome."""
+    out = []
+    primeira = True
+    for w in str(txt or "").split(" "):
+        if w.isalpha():
+            low = w.lower()
+            w = low if (low in _LIGACOES and not primeira) else low[:1].upper() + low[1:]
+        if w:
+            primeira = False
+        out.append(w)
+    return " ".join(out)
+
+
 def nome_completo(p):
-    v = str(p.get("variacao") or "").strip()
-    return f'{p.get("nome", "")} · {v}' if v else str(p.get("nome", ""))
+    v = capitalizar(str(p.get("variacao") or "").strip())
+    nome = capitalizar(p.get("nome", ""))
+    return f'{nome} · {v}' if v else nome
 
 
 def saldos(movs):
@@ -1315,7 +1340,14 @@ if __name__ == "__main__":
        itens_do_codigo(k) == {p["id"]: 1 for p in prods}
        and codigo_gerado([k], c1) is k and do_codigo(prods, c1) == [])
     ok("nome_completo: nome · variação",
-       nome_completo(prods[0]) == "Bailarina  de resina (P/M) + base · Braço para cima")
+       nome_completo(prods[0]) == "Bailarina  de Resina (P/M) + Base · Braço para Cima")
+    # Dono, 13/11: primeira letra maiúscula. Os nomes reais da equipe.
+    ok("capitalizar: caixa alta vira Título, a ligação fica minúscula, medida e sigla ficam",
+       capitalizar("JOGO DE DARDO MAGNÉTICO 46cm") == "Jogo de Dardo Magnético 46cm"
+       and capitalizar("MARROM E VERDE") == "Marrom e Verde"
+       and capitalizar("porta 2 relógio + jóias") == "Porta 2 Relógio + Jóias"
+       and capitalizar("Mini Yoga · conjunto (P/M) MS-3500") == "Mini Yoga · Conjunto (P/M) MS-3500"
+       and capitalizar("de pé") == "De Pé" and capitalizar("") == "")
 
     # SAÍDA (Parte 2): cada bipe é uma unidade; o código com vários modelos
     # pergunta; o código gerado tira a receita; o Full soma do outro lado.

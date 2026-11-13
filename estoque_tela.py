@@ -109,7 +109,10 @@ _FOCO = """<script>
     const digitando = a && a !== d.body && ((a.tagName === 'INPUT' &&
                       texto.indexOf(a.type || '') >= 0 && a !== i) ||
                       a.tagName === 'TEXTAREA' || a.isContentEditable);
-    if (i && !digitando) i.focus();
+    // preventScroll (dono, 13/11): o foco voltava e o navegador rolava a
+    // tela até a barra — digitar a quantidade lá embaixo e clicar fora
+    // jogava a pessoa para o topo. O leitor digita na barra do mesmo jeito.
+    if (i && !digitando) i.focus({preventScroll: true});
   }, 120);
 })();
 /*NONCE*/
@@ -423,6 +426,11 @@ def _barra(saida=False):
         pass
 
 
+def _rot_col(txt):
+    """O rótulo de uma coluna da lista de variações. Pura."""
+    return f'<div style="font-size:12px;color:#9AA3AE;font-weight:700">{_esc(txt)}</div>'
+
+
 def _abrir_nova_variacao():
     st.session_state["est_nova_var"] = True
 
@@ -442,22 +450,32 @@ def _ficha(variacoes, saldo, codigos, por_id, quem, movs=None):
 def _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod):
     st.markdown(ficha_entrada_html(variacoes, saldo, cod), unsafe_allow_html=True)
     sem_nome = len(variacoes) == 1 and not str(variacoes[0].get("variacao") or "").strip()
-    st.markdown("**Variações · o nome é você que escreve · quanto entra de cada**"
-                if not sem_nome else "**Quanto está entrando**")
+    # ALINHADO (dono, 13/11): os rótulos ficam numa linha de cabeçalho só, e
+    # cada linha tem um campo de UMA altura por coluna — com o rótulo
+    # «entrando» em cima do número, ele descia e não batia com o nome.
+    larg = [0.7, 3, 1.3, 1.4]
+    # Respiro (dono, 13/11): o cabeçalho colava no quadro verde.
+    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+    cab = st.columns(larg)
+    cab[1].markdown(_rot_col("Variação" if not sem_nome else "Produto"), unsafe_allow_html=True)
+    cab[2].markdown(_rot_col("Em estoque"), unsafe_allow_html=True)
+    cab[3].markdown(_rot_col("Entrando"), unsafe_allow_html=True)
     for v in variacoes:
-        c0, c1, c2 = st.columns([0.7, 4, 1.4])
-        with c0:
-            st.markdown(foto_html(v.get("foto_id"), 54), unsafe_allow_html=True)
-        with c1:
-            if sem_nome:
-                st.markdown(f'**{_esc(v.get("nome"))}**  \n{estoque_txt(saldo, v["id"])}')
-            else:
-                st.text_input("Nome da variação", value=str(v.get("variacao") or ""),
-                              key=f"est_n_{v['id']}", label_visibility="collapsed")
-                st.caption(estoque_txt(saldo, v["id"]))
-        with c2:
-            st.number_input("entrando", min_value=0, step=1, value=0,
-                            key=f"est_q_{v['id']}")
+        c0, c1, c2, c3 = st.columns(larg, vertical_alignment="center")
+        c0.markdown(foto_html(v.get("foto_id"), 54), unsafe_allow_html=True)
+        if sem_nome:
+            c1.markdown(f'**{_esc(E.capitalizar(v.get("nome")))}**')
+        else:
+            c1.text_input("Nome da variação", value=E.capitalizar(str(v.get("variacao") or "")),
+                          key=f"est_n_{v['id']}", label_visibility="collapsed")
+        c2.markdown(_esc(estoque_txt(saldo, v["id"]).replace("em estoque: ", "")))
+        c3.number_input("entrando", min_value=0, step=1, value=None,
+                        key=f"est_q_{v['id']}", label_visibility="collapsed")
+    # Logo abaixo da última variação (dono, 13/11), e o quadro dela abre ali
+    # — com respiro: o botão encostava na foto da última linha.
+    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+    st.button("➕ Nova variação", key="est_nova_var_b", on_click=_abrir_nova_variacao)
+    _nova_variacao(variacoes, quem)
     st.segmented_control("Onde está entrando", ["Físico"] + list(E.FULLS.values()), default="Físico",
                          key="est_onde_entra",
                          help="Produto que JÁ está no Full e não dá para bipar: escolha o Full e digite a quantidade.")
@@ -468,16 +486,12 @@ def _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod):
                 for v in variacoes)
     st.markdown(f"total entrando: **{total} peça(s) · R\\$ "
                 f"{valor:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
-    c2, c4, c3 = st.columns([1.6, 1.4, 1])
+    c2, c3 = st.columns([2, 1])
     c2.button("CONFIRMAR ENTRADA", key="est_confirmar", type="primary",
               use_container_width=True, on_click=_confirmar_entrada,
               args=(variacoes, quem))
-    # À vista (dono, 13/11): dentro de um expander ninguém achava.
-    c4.button("➕ Nova variação", key="est_nova_var_b", use_container_width=True,
-              on_click=_abrir_nova_variacao)
     c3.button("Voltar", key="est_voltar", use_container_width=True, on_click=_voltar)
 
-    _nova_variacao(variacoes, quem)
     _editar_produto(variacoes, quem)
     _variacoes_de_quantidade(variacoes, codigos, por_id, quem)
 
@@ -498,7 +512,7 @@ def _nova_variacao(variacoes, quem):
                     help="O produto tinha uma variação só, sem nome. Para separar, as duas precisam de nome.")
             nome = st.text_input("Nome da nova variação (posição, cor…)")
             foto = st.file_uploader("Foto da variação", type=None, key="est_var_foto")
-            qtd = st.number_input("Quantidade entrando agora", min_value=0, step=1, value=0)
+            qtd = int(st.number_input("Quantidade entrando agora", min_value=0, step=1, value=None) or 0)
             enviar = st.form_submit_button("Salvar variação", type="primary")
         if not enviar:
             return
@@ -742,9 +756,9 @@ def _linhas_de_variacao():
         a.text_input(f"Variação {i + 1}", key=_ch("est_cad_var", i),
                      placeholder="Braço para cima (fica com a foto)" if i == 0 else "Sentada",
                      label_visibility="visible" if i == 0 else "collapsed")
-        b.number_input("Qtd varejo", min_value=0, step=1, value=0, key=_ch("est_cad_qv", i),
+        b.number_input("Qtd varejo", min_value=0, step=1, value=None, key=_ch("est_cad_qv", i),
                        label_visibility="visible" if i == 0 else "collapsed")
-        c.number_input("Qtd atacado", min_value=0, step=1, value=0, key=_ch("est_cad_qa", i),
+        c.number_input("Qtd atacado", min_value=0, step=1, value=None, key=_ch("est_cad_qa", i),
                        label_visibility="visible" if i == 0 else "collapsed")
     st.button("➕ Adicionar outra variação", key="est_cad_mais_var", on_click=_mais_variacao)
 
@@ -903,9 +917,9 @@ def _cadastro(quem):
             # linha de quantidade única some e as linhas das variações entram.
             if not ss.get("est_cad_tv"):
                 c4, c5 = st.columns(2)
-                c4.number_input("Qtd varejo", min_value=0, step=1, value=0, key="est_cad_qv",
+                c4.number_input("Qtd varejo", min_value=0, step=1, value=None, key="est_cad_qv",
                                 help="Peças desta entrada que vieram da compra de VAREJO.")
-                c5.number_input("Qtd atacado", min_value=0, step=1, value=0, key="est_cad_qa",
+                c5.number_input("Qtd atacado", min_value=0, step=1, value=None, key="est_cad_qa",
                                 help="Peças desta entrada que vieram da compra de ATACADO.")
             tem_var = st.checkbox("Tem variações com este código", key="est_cad_tv",
                                   help="Marcado: uma linha por variação, cada uma com a sua "
@@ -1340,7 +1354,7 @@ def ficha_entrada_html(variacoes, saldo, codigo):
     lin.append(f'Em estoque no físico <b style="color:#E8EAED">{total}</b>{var_txt}')
     lin.append(f'Registrado em {_esc(str(p.get("registrado_em") or "")[:10])} · '
                '<span style="color:#f0c060">a idade conta daqui</span>')
-    return quadro_grande_html(f'✓ JÁ CADASTRADO · {_esc(ean)}', "#4cc38a", p.get("nome"), lin,
+    return quadro_grande_html(f'✓ JÁ CADASTRADO · {_esc(ean)}', "#4cc38a", E.capitalizar(p.get("nome")), lin,
                               "custo varejo", E.custo_de(p, E.VAREJO), p.get("foto_id"), ean)
 
 
@@ -2550,7 +2564,7 @@ if __name__ == "__main__":
     ok("linha_sem_ean_html: código desenhado, palavra destacada, sem linha em branco",
        "<svg" in _hl and "<mark" in _hl and "\n" not in _hl and "R$ 18,90" in _hl)
     ok("rotulo_manual: quantidade, nome, a marca de manual e a observação limpa",
-       rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + base · Sentada · saída manual · ML 123"
+       rotulo_manual(prods[1], 3, "  ML  123 ") == "3× Bailarina <resina> + Base · Sentada · saída manual · ML 123"
        and rotulo_manual(prods[1], 1).endswith("saída manual"))
     cab = cabecalho_html(prods, E.saldos(ent), "7891234567895")
     ok("cabecalho_html: nome escapado, total do estoque, custo em reais",
@@ -2581,8 +2595,8 @@ if __name__ == "__main__":
        and "PR-2" in _fe)
     _re = resumo_da_entrada(lt, por_id)
     ok("resumo_da_entrada: cada variação com a quantidade, o total, a hora e quem (lote real)",
-       _re["nome"] == "Bailarina <resina> + base · Braço para cima +6 · "
-                      "Bailarina <resina> + base · Sentada +2"
+       _re["nome"] == "Bailarina <resina> + Base · Braço para Cima +6 · "
+                      "Bailarina <resina> + Base · Sentada +2"
        and _re["q"] == 8 and _re["hora"] == "14:03" and _re["quem"] == "leo" and _re["ean"] == "")
     _le = linha_entrada_html(_re)
     ok("linha_entrada_html: nome escapado, +N em verde, quem na linha de baixo, sem linha em branco",
@@ -2592,14 +2606,14 @@ if __name__ == "__main__":
                            E.ENTRADA)[0]
     _r1 = resumo_da_entrada(_lt1, por_id)
     ok("resumo_da_entrada: um modelo só mostra o nome, o EAN e o +N do lote",
-       _r1["q"] == 3 and _r1["ean"] == "7891234567895" and "+" not in _r1["nome"].split("base")[-1])
+       _r1["q"] == 3 and _r1["ean"] == "7891234567895" and "+" not in _r1["nome"].split("Base")[-1])
     ok("linha_entrada_html: entrada excluída fica riscada e marcada",
        "<s>" in linha_entrada_html({**_r1, "desfeito": True})
        and "excluída" in linha_entrada_html({**_r1, "desfeito": True}))
     k = E.linha_de_codigo("2000000000015", "quantidade", "Kit com 2", "7891234567895",
                           {prods[0]["id"]: 1, prods[1]["id"]: 1}, "leo", "x")
     ok("receita_txt: as peças de um código gerado",
-       receita_txt(k, por_id).startswith("1× Bailarina <resina> + base · Braço para cima"))
+       receita_txt(k, por_id).startswith("1× Bailarina <resina> + Base · Braço para Cima"))
     ok("foto_html: sem foto vira quadrado, com foto vira miniatura do Drive",
        "sem foto" in foto_html("") and "thumbnail?id=abc" in foto_html("abc"))
     ok("o foco não rouba o campo de quem está digitando",
@@ -2617,11 +2631,11 @@ if __name__ == "__main__":
     _kit = E.linhas_de_saida([(prods[0], 1), (prods[1], 1)], E.VENDA, "leo", "x", obs="Kit com 2")
     ok("rotulo_do_lote: kit pelo nome do kit; produto pelo nome dele",
        rotulo_do_lote(_kit, por_id) == "Kit com 2"
-       and rotulo_do_lote(_kit[:1], por_id) == "Bailarina <resina> + base · Braço para cima")
+       and rotulo_do_lote(_kit[:1], por_id) == "Bailarina <resina> + Base · Braço para Cima")
     _bx = E.linhas_de_baixa(prods[1], 1, E.DEVOLUCAO, "my", "11/11/2026 15:00", volta=False,
                             obs="arranhado")
     ok("linha_baixa_txt: devolução ruim é descarte, com valor e obs",
-       linha_baixa_txt(_bx, por_id) == "11/11 · Bailarina <resina> + base · Sentada · Devolução → "
+       linha_baixa_txt(_bx, por_id) == "11/11 · Bailarina <resina> + Base · Sentada · Devolução → "
                                        "descarte · arranhado · −1 · R$ 18,40 · my")
     _bx2 = E.linhas_de_baixa(prods[0], 2, E.DEVOLUCAO, "my", "11/11/2026 15:00", volta=True)
     _bx3 = E.linhas_de_baixa(prods[0], 1, E.QUEBRA, "leo", "11/11/2026 15:00", local="full_ml1")
