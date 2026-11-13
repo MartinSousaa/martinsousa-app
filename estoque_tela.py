@@ -1019,6 +1019,69 @@ def linha_entrada_html(r):
             f'<div style="font-size:20px;font-weight:800;color:#7fd18b">+{r["q"]}</div></div>')
 
 
+def linhas_da_correcao(lote, movs, novas, quem, quando):
+    """Corrige as quantidades de uma ENTRADA (dono, 13/11). Pura.
+
+    `novas` = {índice da linha no lote: quantidade nova}. Grava o lote ao
+    contrário (o desfazer de sempre) e um lote novo com as quantidades
+    certas — cada linha mantém produto, local, origem e custo da original:
+    corrigir o número não pode trocar a peça de Full nem de compra.
+    Quantidade 0 tira a linha. Lote já desfeito devolve [].
+    Devolve (linhas, lote_novo)."""
+    lote = str(lote)
+    orig = [m for m in movs if str(m.get("lote")) == lote and m.get("tipo") != E.DESFEITO]
+    volta = E.linhas_que_desfazem(lote, movs, quem, quando)
+    if not volta:
+        return [], None
+    novo = E._id("L")
+    certas = []
+    for i, m in enumerate(orig):
+        q = int(novas.get(i, E.inteiro(m.get("qtd"))) or 0)
+        if q > 0:
+            certas.append({**m, "id": E._id("M"), "lote": novo, "qtd": str(q), "quem": quem,
+                           "obs": f"corrige {lote}"})
+    return volta + certas, (novo if certas else None)
+
+
+def _alternar_ed_entrada(lote):
+    ss = st.session_state
+    ss["est_ent_ed"] = None if ss.get("est_ent_ed") == lote else lote
+
+
+def _salvar_correcao(lote, quem, n):
+    ss = st.session_state
+    try:
+        _p, movs, _c = E.carregar()
+        novas = {i: ss.get(f"est_ent_q_{lote}_{i}") for i in range(n)}
+        linhas, novo = linhas_da_correcao(lote, movs, novas, quem, _quando())
+        if not linhas:
+            _avisar("Essa entrada já tinha sido excluída.", True)
+            return
+        E.gravar_movimentos(linhas)
+        ss["est_ent_ed"] = None
+        tot = sum(E.inteiro(m["qtd"]) for m in linhas if str(m.get("lote")) == str(novo))
+        _avisar(f"✎ Entrada corrigida: agora {tot} peça(s)." if novo else
+                "↶ Entrada excluída: todas as quantidades ficaram zero.")
+    except Exception as e:
+        _avisar(f"Não corrigi — a planilha respondeu: {e}", True)
+
+
+def _edicao_da_entrada(lt, por_id, quem):
+    """Uma quantidade por linha do lote, já com a que foi gravada."""
+    linhas = [m for m in lt["linhas"] if m.get("tipo") != E.DESFEITO]
+    with st.container(border=True):
+        for i, m in enumerate(linhas):
+            p = por_id.get(str(m.get("produto_id")), {})
+            onde = E.NOME_LOCAL.get(m.get("local"), "físico") if m.get("local") != E.FISICO else "físico"
+            a, b = st.columns([3, 1.2], vertical_alignment="center")
+            a.markdown(f'{_esc(E.nome_completo(p) or "produto apagado")} · {_esc(onde)} · '
+                       f'{_esc(E.origem_de(m))}')
+            b.number_input("quantidade certa", min_value=0, step=1, value=E.inteiro(m.get("qtd")),
+                           key=f"est_ent_q_{lt['lote']}_{i}", label_visibility="collapsed")
+        st.button("Salvar quantidade", key=f"est_ent_sv_{lt['lote']}", type="primary",
+                  on_click=_salvar_correcao, args=(lt["lote"], quem, len(linhas)))
+
+
 def _mais_entradas():
     ss = st.session_state
     ss["est_ent_n"] = int(ss.get("est_ent_n") or PASSO_ENTRADAS) + PASSO_ENTRADAS
@@ -1033,13 +1096,21 @@ def _ultimas(movs, por_id, quem):
     st.markdown(f'<div style="font-size:12px;letter-spacing:.14em;font-weight:800;color:#9AA3AE">'
                 f'ÚLTIMAS {min(n, len(lotes))} ENTRADAS</div>', unsafe_allow_html=True)
     for lt in lotes[:n]:
-        # 4:1.4 e não 6:1: ao lado da ficha a coluna é estreita, e o
+        # 4:2.2 e não 6:1: ao lado da ficha a coluna é estreita, e o
         # «✖ excluir» quebrava em duas linhas (visto no navegador, 13/11).
-        c1, c2 = st.columns([4, 1.4], vertical_alignment="center")
+        c1, c2 = st.columns([4, 2.2], vertical_alignment="center")
         c1.markdown(linha_entrada_html(resumo_da_entrada(lt, por_id)), unsafe_allow_html=True)
         if not lt["desfeito"]:
-            c2.button("✖ excluir", key=f"est_desf_{lt['lote']}", on_click=_desfazer,
+            # ✎ editar (dono, 13/11): «eram 2 e entraram 3» se corrige sem
+            # excluir e bipar tudo de novo. Os dois botões lado a lado,
+            # como na saída.
+            b1, b2 = c2.columns(2)
+            b1.button("✎ editar", key=f"est_ent_ed_{lt['lote']}", on_click=_alternar_ed_entrada,
+                      args=(lt["lote"],), use_container_width=True)
+            b2.button("✖ excluir", key=f"est_desf_{lt['lote']}", on_click=_desfazer,
                       args=(lt["lote"], quem), use_container_width=True)
+            if st.session_state.get("est_ent_ed") == lt["lote"]:
+                _edicao_da_entrada(lt, por_id, quem)
     if len(lotes) > n:
         st.button("▾ mostrar mais 5", key="est_ent_mais", on_click=_mais_entradas)
 
@@ -2593,6 +2664,27 @@ if __name__ == "__main__":
        "#4cc38a" in _fe and "JÁ CADASTRADO" in _fe and "Relógio + Jóias" in _fe
        and "físico <b style=\"color:#E8EAED\">6</b> · 2 variações" in _fe and "\n" not in _fe
        and "PR-2" in _fe)
+    # ✎ EDITAR A ENTRADA (dono, 13/11): «eram 2 e entraram 3». Lote real,
+    # com varejo e atacado e um Full, como a tela grava.
+    _lc = (E.linhas_de_entrada([(prods[0], 1), (prods[1], 2)], "MartinSousa", "13/11/2026 16:19")
+           + E.linhas_de_entrada([(prods[1], 4)], "MartinSousa", "13/11/2026 16:19",
+                                 local="full_shp2", origem=E.ATACADO))
+    for _l in _lc:
+        _l["lote"] = _lc[0]["lote"]
+    _cor, _novo = linhas_da_correcao(_lc[0]["lote"], _lc, {1: 1}, "leo", "13/11/2026 16:30")
+    _sc = E.saldos(_lc + _cor)
+    ok("linhas_da_correcao: só a linha corrigida muda; Full, origem e custo das outras ficam",
+       _sc.get((prods[0]["id"], E.FISICO)) == 1 and _sc.get((prods[1]["id"], E.FISICO)) == 1
+       and _sc.get((prods[1]["id"], "full_shp2")) == 4 and _novo
+       and [m.get("origem") for m in _cor if m["lote"] == _novo] == [E.VAREJO, E.VAREJO, E.ATACADO]
+       and all(m["custo_unit"] == o["custo_unit"] for m, o in zip([m for m in _cor if m["lote"] == _novo], _lc)))
+    ok("linhas_da_correcao: o lote antigo fica desfeito e o novo aparece nas últimas entradas",
+       _lc[0]["lote"] in E.lotes_desfeitos(_lc + _cor)
+       and E.ultimos_lotes(_lc + _cor, E.ENTRADA)[0]["lote"] == _novo)
+    _cz, _nz = linhas_da_correcao(_lc[0]["lote"], _lc, {0: 0, 1: 0, 2: 0}, "leo", "x")
+    ok("linhas_da_correcao: tudo zero vira exclusão; corrigir duas vezes o mesmo lote não dobra",
+       _nz is None and all(v == 0 for v in E.saldos(_lc + _cz).values())
+       and linhas_da_correcao(_lc[0]["lote"], _lc + _cor, {1: 5}, "leo", "x") == ([], None))
     _re = resumo_da_entrada(lt, por_id)
     ok("resumo_da_entrada: cada variação com a quantidade, o total, a hora e quem (lote real)",
        _re["nome"] == "Bailarina <resina> + Base · Braço para Cima +6 · "
