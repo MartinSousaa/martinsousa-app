@@ -2190,7 +2190,13 @@ def pagina(usuario_logado=None):
     st.markdown("### 📦 Estoque")
     if st.session_state.get("est_modo_pendente"):
         st.session_state["est_modo"] = st.session_state.pop("est_modo_pendente")
-    modo = st.segmented_control("Modo", MODOS, default=MODOS[0], key="est_modo",
+    # O valor inicial vem do session_state, e NÃO de `default=` (13/11): o
+    # `_ir_cadastrar` escreve `est_modo`, e widget com default E valor escrito
+    # pelo código põe um aviso amarelo na tela uma passada só — os campos do
+    # cadastro mudam de posição, o Streamlit os recria e o clique em
+    # «CADASTRAR E DAR ENTRADA» vindo da Contagem se perdia.
+    st.session_state.setdefault("est_modo", MODOS[0])
+    modo = st.segmented_control("Modo", MODOS, key="est_modo",
                                 label_visibility="collapsed") or MODOS[0]
     if modo in EM_CONSTRUCAO:
         st.info(f"**{modo}** é a {EM_CONSTRUCAO[modo]} do Estoque: o layout está aprovado "

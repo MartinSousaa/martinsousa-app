@@ -5533,6 +5533,15 @@ MUTACOES = [
         None,
         ["python3", "estoque_tela.py"],
     ),
+    (
+        'o seletor de modo do estoque volta a ter default= e valor escrito pelo codigo (13/11)',
+        "estoque_tela.py",
+        [('    st.session_state.setdefault("est_modo", MODOS[0])\n'
+          '    modo = st.segmented_control("Modo", MODOS, key="est_modo",',
+          '    modo = st.segmented_control("Modo", MODOS, default=MODOS[0], key="est_modo",')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 

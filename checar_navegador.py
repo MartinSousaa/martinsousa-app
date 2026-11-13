@@ -486,17 +486,20 @@ def main():
             pg.wait_for_timeout(2500)
             pg.get_by_role("button", name="➕ Cadastrar este código").click()
             pg.wait_for_timeout(2500)
+            # Widget com default E valor escrito pelo código (13/11): o aviso
+            # amarelo empurrava o cadastro e o clique de salvar se perdia.
+            _aviso_w = "created with a default value" in pg.inner_text("body")
             pg.get_by_label("Produto", exact=True).fill("Porta 2 Relógio + Jóias (P/M)")
             pg.get_by_label("Custo varejo (R$)").fill("31,50")
             pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
             pg.wait_for_timeout(3500)
             _txt_d = pg.inner_text("body")
             ok = ("Porta 2 Relógio + Jóias (P/M):0" in _txt_d and "Onde você vai contar" in _txt_d
-                  and len(navegou) == 1)
+                  and not _aviso_w and len(navegou) == 1)
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + "estoque: código desconhecido na Contagem oferece cadastrar "
                   f"e volta para a Contagem (cadastrado={'Porta 2 Relógio + Jóias (P/M):0' in _txt_d}, "
-                  f"voltou={'Onde você vai contar' in _txt_d})" + ("" if ok else " DEBUG:" + _txt_d[-900:].replace("\n", " | ")))
+                  f"voltou={'Onde você vai contar' in _txt_d}, aviso_do_widget={_aviso_w})" + ("" if ok else " DEBUG:" + _txt_d[-900:].replace("\n", " | ")))
             # "É O KIT?" NA SAÍDA (dono, 12/11): o produto que também vai em
             # kit sai como UNIDADE na hora; o botão troca pelo kit inteiro, e
             # quem não clica e bipa o próximo deixa a unidade como está.
