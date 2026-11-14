@@ -688,7 +688,7 @@ def pagina_descricao(usuario_logado):
                     f"""<button onclick="copyBtn(this)" style="width:100%;padding:6px 12px;background:#1A3A6B;color:#E8EEF5;border:1px solid #4A7EC7;border-radius:5px;cursor:pointer;font-size:14px;font-family:sans-serif;">📋 Copiar código</button>
 <script>
 var _t={_cod_json};
-function copyBtn(b){{if(navigator.clipboard){{navigator.clipboard.writeText(_t).then(function(){{b.textContent='✅ Copiado!';setTimeout(function(){{b.textContent='📋 Copiar código';}},2000)}}).catch(function(){{fb(b)}})}}else{{fb(b)}}function fb(b){{var ta=document.createElement('textarea');ta.value=_t;ta.style.cssText='position:fixed;opacity:0;top:0;left:0';document.body.appendChild(ta);ta.focus();ta.select();document.execCommand('copy');document.body.removeChild(ta);b.textContent='✅ Copiado!';setTimeout(function(){{b.textContent='📋 Copiar código';}},2000)}}}}
+function copyBtn(b){{if(navigator.clipboard){{navigator.clipboard.writeText(_t).then(function(){{b.textContent='✅ Copiado!';setTimeout(function(){{b.textContent='📋 Copiar código';}},2000)}}).catch(function(){{fb(b)}})}}else{{fb(b)}}function fb(b){{var ta=document.createElement('textarea');ta.value=_t;ta.style.cssText='position:fixed;opacity:0;top:0;left:0';document.body.appendChild(ta);ta.focus({{preventScroll:true}});ta.select();document.execCommand('copy');document.body.removeChild(ta);b.textContent='✅ Copiado!';setTimeout(function(){{b.textContent='📋 Copiar código';}},2000)}}}}
 </script>""",
                     height=45,
                 )
@@ -714,7 +714,7 @@ function copyBtn(b){{if(navigator.clipboard){{navigator.clipboard.writeText(_t).
             f"""<button onclick="copyDesc(this)" style="width:100%;padding:6px 12px;background:#1A3A6B;color:#E8EEF5;border:1px solid #4A7EC7;border-radius:5px;cursor:pointer;font-size:14px;font-family:sans-serif;margin-bottom:8px;">📋 Copiar descrição</button>
 <script>
 var _td={_desc_json};
-function copyDesc(b){{if(navigator.clipboard){{navigator.clipboard.writeText(_td).then(function(){{b.textContent='✅ Descrição copiada!';setTimeout(function(){{b.textContent='📋 Copiar descrição';}},2500)}}).catch(function(){{fb(b)}})}}else{{fb(b)}}function fb(b){{var ta=document.createElement('textarea');ta.value=_td;ta.style.cssText='position:fixed;opacity:0;top:0;left:0';document.body.appendChild(ta);ta.focus();ta.select();document.execCommand('copy');document.body.removeChild(ta);b.textContent='✅ Descrição copiada!';setTimeout(function(){{b.textContent='📋 Copiar descrição';}},2500)}}}}
+function copyDesc(b){{if(navigator.clipboard){{navigator.clipboard.writeText(_td).then(function(){{b.textContent='✅ Descrição copiada!';setTimeout(function(){{b.textContent='📋 Copiar descrição';}},2500)}}).catch(function(){{fb(b)}})}}else{{fb(b)}}function fb(b){{var ta=document.createElement('textarea');ta.value=_td;ta.style.cssText='position:fixed;opacity:0;top:0;left:0';document.body.appendChild(ta);ta.focus({{preventScroll:true}});ta.select();document.execCommand('copy');document.body.removeChild(ta);b.textContent='✅ Descrição copiada!';setTimeout(function(){{b.textContent='📋 Copiar descrição';}},2500)}}}}
 </script>""",
             height=45,
         )

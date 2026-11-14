@@ -5395,10 +5395,24 @@ def _promocoes_ml(conta):
         _tabs_vistas, _tabelas = [], []
         # As tabelas da caixa (data_editor, 28/10): o que cada uma recebeu.
         _Falso.data_editor = lambda self, df, *a, **kw: (_tabelas.append(df), df)[1]
-        f.tabs = lambda rot, **kw: (_tabs_vistas.extend(rot), [_Falso(f._chaves) for _ in rot])[1]
+        # As cinco seções viraram um seletor (varredura de 13/11): só a
+        # escolhida se desenha. O duplo guarda os rótulos e a tela é
+        # desenhada uma vez por seção, como a pessoa clicando em cada uma.
+        _seg0 = f.segmented_control
+
+        def _seg_pml(rot, opcoes, key=None, format_func=None, **kw):
+            if key == "pml_aba":
+                _tabs_vistas.extend((format_func or str)(o) for o in opcoes)
+                return f.session_state.get(key)
+            return _seg0(rot, opcoes, key=key, format_func=format_func, **kw)
+        f.segmented_control = _seg_pml
         try:
-            _pm.pagina("MartinSousa")
+            for _aba_pml in ("and", "disp", "criar", "fins", "auto"):
+                f.session_state["pml_aba"] = _aba_pml
+                f._chaves.clear()        # cada seção é uma passada nova
+                _pm.pagina("MartinSousa")
         finally:
+            f.segmented_control = _seg0
             _pa_t.carregar_vistos, _pa_t.carregar_regras, _pa_t.carregar_log, _pa_t.estado = _g_pa
         _j = " ".join(_txt)
         conta("Promoções ML: a aba de finalizadas conta quem saiu e não voltou",

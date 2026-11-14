@@ -1911,9 +1911,18 @@ def _secao_paradas():
     _lista_ab = [_a for _a in _lista_ab if not _a["user"]]
     _agora = datetime.now(_pc.FUSO)
 
-    _t_dep, _t_ant = st.tabs(["⚡ Já aconteceu", "📅 Vai acontecer"])
+    # Seletor e não st.tabs (varredura de 13/11): com st.tabs, «Lançar» em
+    # «Vai acontecer» voltava a tela para «Já aconteceu».
+    _modos = ["⚡ Já aconteceu", "📅 Vai acontecer"]
+    if st.session_state.get("pt_p_modo") not in _modos:
+        st.session_state["pt_p_modo"] = _modos[0]
+    _modo = st.segmented_control("Tipo de parada", _modos, key="pt_p_modo",
+                                 label_visibility="collapsed") or _modos[0]
+    _erro_p = st.session_state.pop("pt_p_erro", None)
+    if _erro_p:
+        st.error(_erro_p)
 
-    with _t_dep:
+    if _modo == _modos[0]:
         st.caption("Para o que só dá para registrar depois de resolvido — "
                    "queda de internet, falta de energia.")
         _c1, _c2, _c3, _c4, _c5 = st.columns([1.2, .9, .9, 2.4, 1])
@@ -1926,15 +1935,10 @@ def _secao_paradas():
         _dur1 = ((_h2.hour * 60 + _h2.minute) - (_h1.hour * 60 + _h1.minute))
         if _dur1 > 0:
             _c4.caption(f"Parada de **{_fmt_min(_dur1)}**")
-        if _c5.button("Lançar", key="pt_p_add", use_container_width=True):
-            if not (_m1 or "").strip():
-                st.error("Escreva o que houve — é o que justifica a parada.")
-            else:
-                _ok, _msg = _ab.salvar(_d1, _h1, _h2, _m1,
-                                       tipo=_ab.TIPO_PARADA)
-                st.rerun() if _ok else st.error(_msg)
+        _c5.button("Lançar", key="pt_p_add", use_container_width=True,
+                   on_click=_lancar_parada, args=(False,))
 
-    with _t_ant:
+    else:
         st.caption("Para o que dá para programar — emenda de feriado, feriado "
                    "regional, férias coletivas. Dia inteiro, do primeiro ao "
                    "último.")
@@ -1948,14 +1952,8 @@ def _secao_paradas():
         _nd = (_df - _di).days + 1
         if _nd > 0:
             _e3.caption(f"**{_nd}** dia(s) sem expediente")
-        if _e4.button("Lançar", key="pt_f_add", use_container_width=True):
-            if not (_m2 or "").strip():
-                st.error("Escreva a situação.")
-            else:
-                _ok, _msg = _ab.salvar(_di, _ab.DIA_INTEIRO[0],
-                                       _ab.DIA_INTEIRO[1], _m2,
-                                       data_fim=_df, tipo=_ab.TIPO_PERIODO)
-                st.rerun() if _ok else st.error(_msg)
+        _e4.button("Lançar", key="pt_f_add", use_container_width=True,
+                   on_click=_lancar_parada, args=(True,))
 
     if not _lista_ab:
         st.caption("Nada lançado até agora.")
@@ -1979,10 +1977,8 @@ def _secao_paradas():
             f'<b>{_esc_ab(_a["motivo"]) or "sem motivo"}</b>'
             f'<span style="color:var(--ms-texto-sec);"> — {_quando}</span>'
             f'</div>', unsafe_allow_html=True)
-        if _l2.button("🗑️", key=f'pt_ab_x_{_a["linha"]}',
-                      use_container_width=True):
-            _ok, _msg = _ab.remover_linha(_a["linha"])
-            st.rerun() if _ok else st.error(_msg)
+        _l2.button("🗑️", key=f'pt_ab_x_{_a["linha"]}', use_container_width=True,
+                   on_click=_apagar_abono, args=(_a["linha"], "pt_p_erro"))
 
 
 def _secao_ajuste_ociosidade(usuario_logado=None):
@@ -2092,6 +2088,40 @@ def _secao_ajuste_ociosidade(usuario_logado=None):
             st.error(f"**Não consegui desfazer:** {_msg}")
 
 
+def _lancar_parada(periodo):
+    """«Lançar» das paradas. Callback (varredura de 13/11): grava antes da
+    passada, e a lista abaixo já sai com a parada — sem st.rerun."""
+    import abonos as _ab
+    ss = st.session_state
+    if periodo:
+        _m = ss.get("pt_f_motivo") or ""
+        if not _m.strip():
+            ss["pt_p_erro"] = "Escreva a situação."
+            return
+        ok, msg = _ab.salvar(ss.get("pt_f_ini"), _ab.DIA_INTEIRO[0], _ab.DIA_INTEIRO[1], _m,
+                             data_fim=ss.get("pt_f_fim"), tipo=_ab.TIPO_PERIODO)
+    else:
+        _m = ss.get("pt_p_motivo") or ""
+        if not _m.strip():
+            ss["pt_p_erro"] = "Escreva o que houve — é o que justifica a parada."
+            return
+        ok, msg = _ab.salvar(ss.get("pt_p_data"), ss.get("pt_p_ini"), ss.get("pt_p_fim"), _m,
+                             tipo=_ab.TIPO_PARADA)
+    if not ok:
+        ss["pt_p_erro"] = msg
+    else:
+        # Campo limpo depois de gravar: com o texto ainda lá, um segundo
+        # clique em «Lançar» gravava a mesma parada de novo.
+        ss["pt_f_motivo" if periodo else "pt_p_motivo"] = ""
+
+
+def _apagar_abono(linha, chave_erro):
+    import abonos as _ab
+    ok, msg = _ab.remover_linha(linha)
+    if not ok:
+        st.session_state[chave_erro] = msg
+
+
 def _decidir_abono(linha, k, usuario_logado, aprovar):
     """Aprovar/Recusar do pedido. Callback: roda antes da passada."""
     import abonos as _ab
@@ -2160,6 +2190,9 @@ def _secao_abatimentos(usuario_logado: str):
     decididos = [a for a in _lista
                  if a["user"] and a["status"] != _ab.PENDENTE]
     st.markdown(f"##### ✅ Já decididos ({len(decididos)})")
+    _erro_del = st.session_state.pop("ab_del_erro", None)
+    if _erro_del:
+        st.error(_erro_del)
     if not decididos:
         st.caption("Nada decidido ainda.")
         return
@@ -2168,10 +2201,9 @@ def _secao_abatimentos(usuario_logado: str):
         c1.markdown(_cartao_pedido(a, _ab), unsafe_allow_html=True)
         # Apagar existe para o engano — aprovou o pedido errado, recusou sem
         # ler. Reabrir a decisao mudaria indicador de mes fechado sem rastro.
-        if c2.button("🗑️", key=f'ab_del_{a["linha"]}',
-                     use_container_width=True, help="Apagar o pedido"):
-            ok, msg = _ab.remover_linha(a["linha"])
-            st.rerun() if ok else st.error(msg)
+        c2.button("🗑️", key=f'ab_del_{a["linha"]}', use_container_width=True,
+                  help="Apagar o pedido", on_click=_apagar_abono,
+                  args=(a["linha"], "ab_del_erro"))
         st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
 

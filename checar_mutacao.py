@@ -5565,6 +5565,41 @@ MUTACOES = [
         None,
         ["python3", "visao_financeira.py"],
     ),
+    (
+        'o Ponto volta a usar st.tabs: aprovar abono roda a RHiD e a aba volta para a primeira (13/11)',
+        "relogio_ponto.py",
+        [('    aba = st.segmented_control("Seção do ponto", abas, key="ponto_aba",\n'
+          '                               label_visibility="collapsed") or abas[0]',
+          '    aba = st.tabs(abas) and abas[0]')],
+        None,
+        ["python3", "checar_interacao.py"],
+    ),
+    (
+        'aprovar abono volta a ser `if botao: ... st.rerun()` — duas passadas por clique (13/11)',
+        "relogio_ponto.py",
+        [('        c4.button("✅ Aprovar", key=f"{k}_ok", use_container_width=True,\n'
+          '                  on_click=_decidir_abono, args=(a["linha"], k, usuario_logado, True))',
+          '        if c4.button("✅ Aprovar", key=f"{k}_ok", use_container_width=True):\n'
+          '            st.rerun()')],
+        None,
+        ["python3", "checar_interacao.py"],
+    ),
+    (
+        'a barra de bipe volta a puxar o foco rolando a tela para o topo (13/11)',
+        "estoque_tela.py",
+        [("    if (i && !digitando) i.focus({preventScroll: true});",
+          "    if (i && !digitando) i.focus();")],
+        None,
+        ["python3", "checar_interacao.py"],
+    ),
+    (
+        'a quantidade da entrada volta a nascer em 0 — digitar 1 vira 10 (13/11)',
+        "estoque_tela.py",
+        [('c3.number_input("entrando", min_value=0, step=1, value=None,',
+          'c3.number_input("entrando", min_value=0, step=1, value=0,')],
+        None,
+        ["python3", "checar_interacao.py"],
+    ),
 ]
 
 
