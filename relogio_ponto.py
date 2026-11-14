@@ -2628,6 +2628,54 @@ if __name__ == "__main__":
     ok("dia fechado continua como era",
        _hm(_janelas_do_dia(_hj, _t_hj(9, 0), _t_hj(12, 0), _t_hj(13, 0), _t_hj(18, 0),
                            agora=_ag_hj)) == [("09:00", "12:00"), ("13:00", "18:00")])
+
+    # ── O 🗑️ DE «JÁ DECIDIDOS» (varredura de 13/11) ─────────────────────
+    #
+    # `_secao_abatimentos` é lida pelo Painel de Metas (analise_metas.py).
+    # O apagar era `if botão: … st.rerun()` — duas passadas por clique, e o
+    # erro de `remover_linha` era desenhado na passada que o rerun jogava
+    # fora. Agora é callback: o erro vai para "ab_del_erro" e a seção o lê na
+    # passada seguinte. A guarda mede os DOIS lados da mesma chave — a do
+    # callback e a que a seção lê — e o callback rodando de verdade.
+    import sys as _sys_ab
+    import types as _types_ab
+    _tree_ab = _ast_rp.parse(_insp_rp.getsource(_secao_abatimentos))
+    _botoes_del = [
+        _n for _n in _ast_rp.walk(_tree_ab)
+        if isinstance(_n, _ast_rp.Call) and getattr(_n.func, "attr", "") == "button"
+        and any(k.arg == "on_click" and getattr(k.value, "id", "") == "_apagar_abono"
+                for k in _n.keywords)]
+    _chave_cb = {
+        _ast_rp.unparse(k.value.elts[1]) for _n in _botoes_del for k in _n.keywords
+        if k.arg == "args" and isinstance(k.value, _ast_rp.Tuple) and len(k.value.elts) == 2}
+    _chave_lida = {
+        _ast_rp.unparse(_n.args[0]) for _n in _ast_rp.walk(_tree_ab)
+        if isinstance(_n, _ast_rp.Call) and getattr(_n.func, "attr", "") == "pop"
+        and "session_state" in _ast_rp.unparse(_n.func.value) and _n.args}
+    ok("o 🗑️ de «Já decididos» apaga por callback", len(_botoes_del) == 1)
+    ok("e a chave de erro do callback é a que a seção lê",
+       bool(_chave_cb) and _chave_cb <= _chave_lida)
+    ok("e a seção não pede segunda passada (sem st.rerun)",
+       not any(isinstance(_n, _ast_rp.Call) and _ast_rp.unparse(_n.func) == "st.rerun"
+               for _n in _ast_rp.walk(_tree_ab)))
+    _ab_orig = _sys_ab.modules.get("abonos")
+    _ss_orig = st.session_state
+    try:
+        for _res_ab, _espera in (((False, "planilha fora do ar"), "planilha fora do ar"),
+                                 ((True, ""), None)):
+            _sys_ab.modules["abonos"] = _types_ab.SimpleNamespace(
+                remover_linha=lambda linha, _r=_res_ab: _r)
+            st.session_state = {}
+            _apagar_abono(7, "ab_del_erro")
+            ok(f"apagar {'falhando' if _espera else 'dando certo'}: "
+               f"erro na chave = {_espera!r}",
+               st.session_state.get("ab_del_erro") == _espera)
+    finally:
+        st.session_state = _ss_orig
+        if _ab_orig is None:
+            _sys_ab.modules.pop("abonos", None)
+        else:
+            _sys_ab.modules["abonos"] = _ab_orig
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
     # aprovado SEMPRE — e o `checar_mutacao` le exatamente isso. Era assim
