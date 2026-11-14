@@ -5551,6 +5551,21 @@ MUTACOES = [
         ["python3", "shopee_api.py"],
     ),
     (
+        'o painel financeiro perde o FATURAMENTO cheio do mes (13/11)',
+        "visao_financeira.py",
+        [("            + kp(\"FATURAMENTO\", _dinheiro(fat),", "            + (lambda *a: \"\")(\"FATURAMENTO\", _dinheiro(fat),")],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
+        'a Visao Geral passa a ler o Mercado Pago sozinha a cada passada (13/11)',
+        "visao_financeira.py",
+        [("    faixa = html_a_liberar(_mt.ultima_leitura(), _hj.isoformat()) if corrente else \"\"",
+          "    faixa = html_a_liberar(_mt.ler_e_guardar(), _hj.isoformat()) if corrente else \"\"")],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
         'o Ponto volta a usar st.tabs: aprovar abono roda a RHiD e a aba volta para a primeira (13/11)',
         "relogio_ponto.py",
         [('    aba = st.segmented_control("Seção do ponto", abas, key="ponto_aba",\n'
