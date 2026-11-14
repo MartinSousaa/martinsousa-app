@@ -637,7 +637,7 @@ def pagina(usuario_logado=None):
     st.markdown("### 🏷️ Promoções — Mercado Livre")
     _resultado()
     dados = st.session_state.get("pml_dados")
-    rotulo = "🔄 Ler as promoções das 4 contas" if not dados else "🔄 Ler de novo"
+    rotulo = "🔄 Ler as promoções das 4 contas"   # fixo: desenhado antes da leitura (13/11)
     if st.session_state.get("pml_desatualizado"):
         st.warning("Houve mudança no Mercado Livre depois da última leitura — leia de novo "
                    "para ver a situação atual.")
