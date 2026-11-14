@@ -530,7 +530,20 @@ python3 checar_alcance.py         # a correção chegou em TODOS os irmãos?
 python3 checar_mutacao.py         # as guardas VEEM o defeito? reintroduz e exige vermelho
 python3 checar_comunicacao.py     # o sistema CONTA o que sabe? um assunto, um dono
 python3 checar_navegador.py       # o clique ABRE ou NAVEGA? (navegador de verdade, 27/10)
+python3 checar_interacao.py       # quanto CUSTA um clique? (varredura geral, 13/11)
 ```
+
+O de 13/11 nasceu de uma pergunta do dono, depois de trazer cinco defeitos no
+mesmo dia: *"Eu tenho que ficar trazendo cada erro? Não consegue rodar uma
+leitura geral para pegar isso antes de acontecer?"*. Os cinco eram o mesmo
+assunto — o que acontece entre o clique e a tela redesenhada — e nenhum
+verificador perguntava isso. Ele reprova, por AST: `st.tabs` (todas as abas
+rodam a cada clique e a escolhida volta para a primeira), `if botão: …
+st.rerun()` (duas passadas por clique — use `on_click`), widget com
+`default=` e a chave escrita no session_state, `focus()` sem
+`preventScroll` (a tela pula para o topo) e quantidade nascendo em 0.
+O `if botão → st.rerun()` antigo fica numa BASE por arquivo que só desce:
+reprova o que passar dela.
 
 O OITAVO nasceu de uma proposta do dono, em 29/09: *"precisaria pegar a
 codificação, linguagem de comunicação do sistema com o Gemini, prompt (...)

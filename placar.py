@@ -2412,9 +2412,15 @@ def bloco_mapa_de_pontos(d, meta_eq):
     _somam = sum(c.get("pts") or 0 for c in _cards)
     import pandas as _pd_mp
 
-    _t1, _t2 = st.tabs(["Hoje, cartão a cartão", "Comparar com outro dia"])
+    # Seletor e não st.tabs (varredura de 13/11): a aba «Comparar» lia a
+    # planilha de retratos a cada passada do painel, mesmo fechada.
+    _vistas = ["Hoje, cartão a cartão", "Comparar com outro dia"]
+    if st.session_state.get("pl_cartoes_vista") not in _vistas:
+        st.session_state["pl_cartoes_vista"] = _vistas[0]
+    _vista = st.segmented_control("Ver", _vistas, key="pl_cartoes_vista",
+                                  label_visibility="collapsed") or _vistas[0]
 
-    with _t1:
+    if _vista == _vistas[0]:
         st.caption(f"**{len(_cards)} cartões somam {_somam:,.0f} pts** · "
                    f"penalidades tiram {d.get('pen_total') or 0:,.0f} pts · "
                    f"saldo {(_somam - (d.get('pen_total') or 0)):,.0f} de "
@@ -2437,7 +2443,7 @@ def bloco_mapa_de_pontos(d, meta_eq):
             } for p in d["pen_cards"]]), use_container_width=True,
                 hide_index=True)
 
-    with _t2:
+    else:
         _retratos = _ps.ler()
         if len(_retratos) < 2:
             # DIZER A VERDADE SOBRE O QUE AINDA NÃO EXISTE. O retrato começou

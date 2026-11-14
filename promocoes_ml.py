@@ -663,20 +663,29 @@ def pagina(usuario_logado=None):
     import promocoes_auto as _pa
     vistos = _vistos_guardados()
     fins = _pa.finalizadas(vistos)
-    t1, t2, t3, t4, t5 = st.tabs([f"🟢 Em andamento ({len(dados['andamento'])})",
-                                  f"📨 Disponíveis para participar ({len(dados['produtos'])} produtos)",
-                                  "➕ Criar desconto %",
-                                  f"🔁 Finalizadas sem recriar ({len(fins)})",
-                                  "⚙️ Automático"])
-    with t1:
+    # Seletor e não st.tabs (varredura de 13/11): as cinco abas rodavam a
+    # cada clique, e depois de «Confirmar» a tela voltava para a primeira.
+    # A opção é um nome fixo; a contagem entra só no rótulo — com a contagem
+    # dentro do valor, ela mudava ao confirmar e a escolha se perdia.
+    rotulos = {"and": f"🟢 Em andamento ({len(dados['andamento'])})",
+               "disp": f"📨 Disponíveis para participar ({len(dados['produtos'])} produtos)",
+               "criar": "➕ Criar desconto %",
+               "fins": f"🔁 Finalizadas sem recriar ({len(fins)})",
+               "auto": "⚙️ Automático"}
+    if st.session_state.get("pml_aba") not in rotulos:
+        st.session_state["pml_aba"] = "and"
+    aba = st.segmented_control("Promoções", list(rotulos), key="pml_aba",
+                               format_func=rotulos.get,
+                               label_visibility="collapsed") or "and"
+    if aba == "and":
         _aba_andamento(dados)
-    with t2:
+    elif aba == "disp":
         _aba_disponiveis(dados)
-    with t3:
+    elif aba == "criar":
         _aba_criar(dados, _pc.agora_br().date())
-    with t4:
+    elif aba == "fins":
         _aba_finalizadas(fins)
-    with t5:
+    else:
         _aba_automatico(_pc.agora_br())
 
 

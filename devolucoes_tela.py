@@ -76,6 +76,13 @@ def pagina(usuario_logado=None):
 
 # ── 1. Em aberto ────────────────────────────────────────────────────────────
 
+def _resolver(a, usuario_logado):
+    import devolucoes as _dv
+    ok, msg = _dv.acompanhar(a, {"resolvido": "TRUE"}, usuario_logado or "")
+    if not ok:
+        st.session_state[f"dv_ok_erro_{a['id']}"] = msg
+
+
 def _em_aberto(_dv, linhas, usuario_logado):
     abertos = _dv.em_aberto(linhas)
     st.markdown("##### ⚠️ Em aberto")
@@ -103,13 +110,13 @@ def _em_aberto(_dv, linhas, usuario_logado):
                 if not ok:
                     st.error(msg)
         with c2:
-            if st.button("✅ Resolvido", key=f"dv_ok_{a['id']}",
-                         use_container_width=True):
-                ok, msg = _dv.acompanhar(a, {"resolvido": "TRUE"},
-                                         usuario_logado or "")
-                (st.success if ok else st.error)(msg)
-                if ok:
-                    st.rerun()
+            # Callback (varredura de 13/11): grava antes da passada, e a
+            # devolução já sai da lista — sem desenhar a tela duas vezes.
+            st.button("✅ Resolvido", key=f"dv_ok_{a['id']}", use_container_width=True,
+                      on_click=_resolver, args=(a, usuario_logado))
+            _erro = st.session_state.pop(f"dv_ok_erro_{a['id']}", None)
+            if _erro:
+                st.error(_erro)
 
 
 # ── 2. O mês ────────────────────────────────────────────────────────────────

@@ -60,7 +60,7 @@ if (!window.__msBipe) { window.__msBipe = true;
         // que perdeu o foco (a quantidade) gravava primeiro e o bipe se
         // perdia.
         var codigo = buf;
-        barra.focus(); poe(barra, codigo);
+        barra.focus(); poe(barra, codigo);  // rola de propósito: a ficha do bipe abre logo abaixo da barra
         setTimeout(function () {
           if (barra.value !== codigo) poe(barra, codigo);
           barra.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter',
@@ -858,9 +858,10 @@ def _pergunta(cod):
         f'<div style="color:#E8EAED;font-weight:600;margin-top:4px">Cadastrar como produto novo?</div></div>',
         unsafe_allow_html=True)
     c1, c2, _ = st.columns([1.3, 1.3, 3])
-    if c1.button("SIM, CADASTRAR", key="est_sim", type="primary", use_container_width=True):
-        st.session_state["est_cadastrar"] = True
-        st.rerun()
+    # Callback (varredura de 13/11): o `if botão: … st.rerun()` desenhava a
+    # tela duas vezes por clique.
+    c1.button("SIM, CADASTRAR", key="est_sim", type="primary", use_container_width=True,
+              on_click=lambda: st.session_state.update(est_cadastrar=True))
     c2.button("NÃO, BIPEI ERRADO", key="est_nao", use_container_width=True, on_click=_voltar)
 
 
@@ -2030,16 +2031,21 @@ def _kits_cadastrados(codigos, por_id, saldo):
             with c2.popover("✎ editar", use_container_width=True):
                 novo_nome = st.text_input("Nome", value=str(k.get("nome") or ""),
                                           key=f"est_kn_{k['codigo']}")
-                if st.button("Salvar nome", key=f"est_ks_{k['codigo']}"):
-                    try:
-                        E.atualizar_codigos({k["codigo"]: {"nome": novo_nome.strip()}})
-                        _avisar("✓ Nome do kit atualizado.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Não gravei — a planilha respondeu: {e}")
+                st.button("Salvar nome", key=f"est_ks_{k['codigo']}", on_click=_salvar_nome_kit,
+                          args=(k["codigo"],))
             if ss.get("est_imprimir") == k["codigo"]:
                 _etiqueta(k["codigo"], k.get("nome"), " · ".join(
                     E.nome_completo(por_id.get(pid, {})) for pid in E.itens_do_codigo(k)))
+
+
+def _salvar_nome_kit(codigo):
+    """Callback do «Salvar nome» do kit: grava antes da passada."""
+    try:
+        novo = str(st.session_state.get(f"est_kn_{codigo}") or "").strip()
+        E.atualizar_codigos({codigo: {"nome": novo}})
+        _avisar("✓ Nome do kit atualizado.")
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", True)
 
 
 # ── PAINEL (Parte 5) ─────────────────────────────────────────────────────────
@@ -2255,7 +2261,7 @@ _CAMERA = """<div id="leitor" style="width:100%;max-width:420px;margin:auto"></d
     if (!b) return;
     Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value').set.call(b, cod);
     b.dispatchEvent(new Event('input', {bubbles: true}));
-    b.focus();
+    b.focus();  // rola de propósito: o código lido abre a ficha logo abaixo da barra
     setTimeout(function () { b.blur(); }, 60);
     if (navigator.vibrate) navigator.vibrate(80);
     document.getElementById('msg').textContent = 'lido: ' + cod;
