@@ -284,8 +284,98 @@ def html_a_liberar(dados, hoje):
             f'<span style="font-weight:600;letter-spacing:0">{quando}</span></div>{corpo}</div>')
 
 
+def equilibrio_do_mes(ano, mes, hoje):
+    """O ponto de equilíbrio do mês. Nenhuma conta nova (dono, 16/11).
+
+    "Depois do faturamento eu preciso saber qual foi ou qual está sendo o
+    ponto de equilíbrio do mês." As contas são as que a Home e a Meta de
+    gastos já usam — uma terceira acabaria discordando delas (Forma 5):
+
+      em andamento  `equilibrio_caixa.acompanhamento` com o comprometido do
+                    quadro de gastos da Home (`_resumo_gastos`, cache 5 min),
+                    a margem média dos 3 meses e o faturado do Bling — os
+                    mesmos três números de `meta_gastos_tela._acompanhar_mes`
+      fechado       `equilibrio_caixa.equilibrio_real` sobre a linha do mês,
+                    a mesma chamada de `historico.meses`
+    Mês futuro: None.
+    """
+    import base_vendas as _bv
+    import equilibrio_caixa as _ec
+    a, m = int(ano), int(mes)
+    if (a, m) > (hoje.year, hoje.month):
+        return None
+    if (a, m) == (hoje.year, hoje.month):
+        import home_gestao as _hg
+        import placar_core as _pc
+        q, _ = _hg._resumo_gastos(a, m)
+        ind, _ = _bv.media_recente(a, m, quantos=3)
+        fat, _ = _hg._faturamento_bling(a, m)
+        r = _ec.acompanhamento((q or {}).get("meta"), (q or {}).get("total"),
+                               (ind or {}).get("margem_bruta"), fat, agora=_pc.agora_br())
+        return {"tipo": "corrente", **r}
+    import meta_gastos as _mg
+    mapa, _ = _bv.somas_por_mes()
+    lin = _mg.linha_do_mes(a, m)
+    r = _ec.equilibrio_real(lin.get("meta"), lin.get("realizado"), lin.get("origem"),
+                            mapa or {}, a, m)
+    return {"tipo": "fechado", **r}
+
+
+def html_equilibrio(eq):
+    """(valor, rodapé, cor do valor) do quadrado PONTO DE EQUILÍBRIO. Pura.
+
+    `eq` é o que `equilibrio_do_mes` devolve, ou {"erro": "..."}. Quando falta
+    dado, o quadrado DIZ o que falta — nunca um zero (Regra 11).
+    """
+    import visao_faturamento as _vf
+    SEC, BOM, RUIM, AMB = _vf.SEC, _vf.BOM, _vf.RUIM, "#f0c060"
+    if not eq:
+        return "—", f'<span style="color:{SEC}">sem dado do mês</span>', "#E8EAED"
+    if eq.get("erro"):
+        return "—", f'<span style="color:{AMB}">⚠️ {_esc_txt(eq["erro"])}</span>', "#E8EAED"
+    plan = eq.get("eq_planejado") if eq.get("tipo") == "corrente" else eq.get("planejado")
+    plan_txt = f" · planejado {_dinheiro(plan)}" if plan else ""
+
+    def barra(pct, cor):
+        p = max(0.0, min(float(pct), 100.0))
+        return (f'<div style="height:6px;background:#222;border-radius:4px;margin-top:6px;'
+                f'overflow:hidden"><div style="width:{p:.0f}%;height:100%;background:{cor}">'
+                f'</div></div>')
+    if eq.get("tipo") == "corrente":
+        real = eq.get("eq_real")
+        if not real:
+            return ("—", f'<span style="color:{SEC}">falta o gasto comprometido ou o lucro '
+                    'bruto médio dos 3 meses</span>', "#E8EAED")
+        sub = f'<span style="color:{SEC}">real até agora{plan_txt}</span>'
+        nec, fat = eq.get("necessario_hoje"), eq.get("faturado")
+        if fat is None or not nec:
+            return (_dinheiro(real), sub + f'<div style="color:{AMB};margin-top:3px">sem o '
+                    'faturamento do Bling para comparar</div>', "#E8EAED")
+        ok_ = fat >= nec
+        cor = BOM if ok_ else RUIM
+        txt = (f'✓ até hoje precisava {_dinheiro(nec)} — faturou {_dinheiro(fat)}' if ok_ else
+               f'✗ até hoje precisava {_dinheiro(nec)} — faturou {_dinheiro(fat)} '
+               f'(faltam {_dinheiro(nec - fat)})')
+        return (_dinheiro(real), sub + barra(fat / nec * 100, cor)
+                + f'<div style="color:{cor};font-weight:700;margin-top:3px">{txt}</div>', "#E8EAED")
+    real = eq.get("real")
+    if real is None:
+        return ("—", f'<span style="color:{SEC}">{_esc_txt(eq.get("motivo") or "sem dado")}'
+                f'{plan_txt}</span>', "#E8EAED")
+    sub = f'<span style="color:{SEC}">real do mês{plan_txt}</span>'
+    res, fat = eq.get("resultado"), eq.get("faturado")
+    cor = BOM if (res or 0) >= 0 else RUIM
+    txt = (f'✓ cobriu: sobra {_dinheiro(res)} (líq. {_dinheiro(fat)})' if (res or 0) >= 0 else
+           f'✗ faltaram {_dinheiro(-res)} (líq. {_dinheiro(fat)})')
+    aviso = (f'<div style="color:{AMB};margin-top:3px">⚠️ gasto abaixo da metade da meta — '
+             'extrato faltando?</div>' if eq.get("suspeito") else "")
+    return (_dinheiro(real), sub + barra((fat or 0) / real * 100 if real else 0, cor)
+            + f'<div style="color:{cor};font-weight:700;margin-top:3px">{txt}</div>' + aviso,
+            "#E8EAED" if res is None or res >= 0 else RUIM)
+
+
 def html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas, lpv, parcial, compromissos=None,
-                fat_sub="BASE DE VENDAS", faixa_mp=""):
+                fat_sub="BASE DE VENDAS", faixa_mp="", eq=None):
     """O layout A aprovado (05/11): placar, para onde foi o dinheiro e onde o
     gasto fugiu do previsto."""
     import visao_faturamento as _vf
@@ -326,10 +416,13 @@ def html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas, lpv, parcial, c
                       f'proporcionais: {_esc_txt(", ".join(_sd))}</div>' if _sd else ""))
     else:
         liq_sub = f'<span style="color:{SEC}">margem − LPV × vendas</span>'
-    kpis = ('<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">'
+    _eq_v, _eq_sub, _eq_cor = html_equilibrio(eq)
+    kpis = ('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px">'
             + kp("FATURAMENTO", _dinheiro(fat),
                  f'<span style="color:{SEC}">{_esc_txt(fat_sub)}</span>' if fat is not None
                  else f'<span style="color:{SEC}">sem BASE DE VENDAS no mês</span>')
+            # Logo depois do faturamento (dono, 16/11).
+            + kp("PONTO DE EQUILÍBRIO", _eq_v, _eq_sub, _eq_cor)
             + kp("ENTROU NA CONTA", _dinheiro(entrou), ent_sub)
             + kp("SAIU DA CONTA", _dinheiro(saiu), _variacao(saiu, saiu_ant, gasto=True))
             + kp("LUCRO BRUTO", _dinheiro(bruto),
@@ -493,10 +586,15 @@ def mostrar(ano, mes, mes_txt, valores, fontes, lpv):
     # O «a liberar» só existe no mês em andamento, e a tela NÃO vai à rede:
     # mostra a última leitura guardada (dono, 13/11).
     faixa = html_a_liberar(_mt.ultima_leitura(), _hj.isoformat()) if corrente else ""
+    # Registro não derruba painel: o erro vai para DENTRO do quadrado.
+    try:
+        eq = equilibrio_do_mes(ano, mes, _hj)
+    except Exception as e:
+        eq = {"erro": f"não consegui calcular: {type(e).__name__}"}
     st.markdown(html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas,
                             lpv.get(int(mes)), parcial, comp,
                             fat_sub=("BASE DE VENDAS · até " + _hj.strftime("%d/%m")) if corrente
-                            else "BASE DE VENDAS", faixa_mp=faixa),
+                            else "BASE DE VENDAS", faixa_mp=faixa, eq=eq),
                 unsafe_allow_html=True)
     if corrente:
         # Callback: a leitura acontece ANTES de o painel se desenhar, e o
@@ -677,6 +775,73 @@ if __name__ == "__main__":
        "ultima_leitura()" in _insp.getsource(mostrar) and "ler_todas" not in _insp.getsource(mostrar)
        and "on_click=_ler_mp" in _insp.getsource(mostrar))
     _mt._guardada().clear()
+
+    # ── PONTO DE EQUILÍBRIO, logo depois do faturamento (dono, 16/11) ─────
+    # A CADEIA DE VERDADE: `equilibrio_do_mes` → `equilibrio_caixa` → quadrado.
+    # Só a planilha, o Bling e o quadro de gastos (o que vai à rede) são
+    # trocados, e o mapa tem a forma de `base_vendas.somas_por_mes`
+    # (bruto ≠ líquido de propósito: trocar um pelo outro tem de aparecer).
+    import base_vendas as _bv_q
+    import home_gestao as _hg_q
+    import meta_gastos as _mg_q
+    from datetime import date as _date_q, datetime as _dtm_q
+
+    def _mes_q(fat_liq, lb):
+        m_ = {k: 0.0 for k in _bv_q.COLUNAS}
+        m_.update({"faturamento": fat_liq * 1.1, "fat_liquido": fat_liq,
+                   "lucro_bruto": lb, "linhas": 10})
+        return m_
+    _mapa_q = {(2026, 6): _mes_q(200000, 60000), (2026, 7): _mes_q(200000, 60000),
+               (2026, 8): _mes_q(200000, 60000), (2026, 9): _mes_q(220000, 55000)}
+    _orig_q = (_hg_q._resumo_gastos, _hg_q._faturamento_bling, _bv_q.somas_por_mes,
+               _mg_q.linha_do_mes)
+    import placar_core as _pc_q
+    _ag_orig = _pc_q.agora_br
+    try:
+        _bv_q.somas_por_mes = lambda: (_mapa_q, "")
+        _mg_q.linha_do_mes = lambda a, m: {"meta": 60000.0, "realizado": 66000.0, "origem": "extrato"}
+        _eq_f = equilibrio_do_mes(2026, 9, _date_q(2026, 11, 16))
+        _v, _sub, _cor = html_equilibrio(_eq_f)
+        ok("mês fechado: real = gasto ÷ lucro bruto do mês (66 mil ÷ 25%)",
+           _eq_f["tipo"] == "fechado" and _v == _dinheiro(264000.0))
+        ok("e diz que faltou, contra o faturamento LÍQUIDO",
+           "faltaram" in _sub and _dinheiro(44000.0) in _sub and _dinheiro(220000.0) in _sub
+           and "planejado " + _dinheiro(200000.0) in _sub)
+        # Mês em andamento: dia 16 às 0h de um mês de 30 = metade.
+        _hg_q._resumo_gastos = lambda a, m: ({"meta": 60000.0, "total": 75000.0}, [])
+        _hg_q._faturamento_bling = lambda a, m: (130000.0, [])
+        _pc_q.agora_br = lambda: _dtm_q(2026, 11, 16, 0, 0)
+        _eq_c = equilibrio_do_mes(2026, 11, _date_q(2026, 11, 16))
+        _v, _sub, _ = html_equilibrio(_eq_c)
+        _mb_q = _bv_q.media_recente(2026, 11, quantos=3)[0]["margem_bruta"]
+        ok("em andamento: real = comprometido ÷ lucro bruto médio dos 3 meses",
+           _eq_c["tipo"] == "corrente" and _mb_q
+           and _eq_c["eq_real"] == round(75000 / (_mb_q / 100.0), 2)
+           and _v == _dinheiro(_eq_c["eq_real"]))
+        ok("em andamento: compara o faturado com o necessário ATÉ HOJE",
+           "até hoje precisava " + _dinheiro(_eq_c["necessario_hoje"]) in _sub
+           and _dinheiro(130000.0) in _sub)
+        # 130 mil contra ~132,9 mil necessários até o dia 16: abaixo, por pouco.
+        ok("e abaixo do necessário fica vermelho, com o quanto falta",
+           _eq_c["necessario_hoje"] > 130000.0 and "✗" in _sub
+           and "faltam " + _dinheiro(_eq_c["necessario_hoje"] - 130000.0) in _sub)
+        ok("mês futuro não tem equilíbrio", equilibrio_do_mes(2026, 12, _date_q(2026, 11, 16)) is None)
+    finally:
+        _hg_q._resumo_gastos, _hg_q._faturamento_bling, _bv_q.somas_por_mes, _mg_q.linha_do_mes = _orig_q
+        _pc_q.agora_br = _ag_orig
+    ok("sem dado ou com erro, o quadrado diz o que falta — e não mostra zero",
+       html_equilibrio(None)[0] == "—" and "⚠️" in html_equilibrio({"erro": "x"})[1]
+       and "BASE DE VENDAS" in html_equilibrio({"tipo": "fechado", "real": None,
+                                                "motivo": "a BASE DE VENDAS ainda não tem o mês"})[1])
+    _hq = html_painel("NOV", 2026, 1.0, 2.0, None, _d, _s, 20.0, False, eq=_eq_f)
+    ok("o quadrado vem LOGO DEPOIS do faturamento",
+       0 < _hq.find("FATURAMENTO") < _hq.find("PONTO DE EQUILÍBRIO") < _hq.find("ENTROU NA CONTA"))
+    ok("nenhuma conta nova: as duas são as de equilibrio_caixa",
+       "_ec.acompanhamento(" in _insp.getsource(equilibrio_do_mes)
+       and "_ec.equilibrio_real(" in _insp.getsource(equilibrio_do_mes)
+       and "/" not in _insp.getsource(equilibrio_do_mes).split('"""')[2])
+    ok("o erro do cálculo não derruba o painel: vai para dentro do quadrado",
+       "equilibrio_do_mes(" in _insp.getsource(mostrar) and "eq=eq" in _insp.getsource(mostrar))
 
     print(f"\nfalhas: {falhas}")
     raise SystemExit(1 if falhas else 0)

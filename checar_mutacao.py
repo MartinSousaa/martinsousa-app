@@ -5566,6 +5566,23 @@ MUTACOES = [
         ["python3", "visao_financeira.py"],
     ),
     (
+        'o ponto de equilibrio do mes fechado passa a ter conta propria, fora de equilibrio_caixa (16/11)',
+        "visao_financeira.py",
+        [('    r = _ec.equilibrio_real(lin.get("meta"), lin.get("realizado"), lin.get("origem"),\n'
+          '                            mapa or {}, a, m)',
+          '    r = {"real": lin.get("realizado") / 0.3, "planejado": None, "faturado": 0,\n'
+          '         "resultado": 0, "motivo": ""}')],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
+        'o equilibrio do mes em andamento diz "coberto" com metade do necessario ate hoje (16/11)',
+        "visao_financeira.py",
+        [("        ok_ = fat >= nec\n", "        ok_ = fat >= nec * 0.5\n")],
+        None,
+        ["python3", "visao_financeira.py"],
+    ),
+    (
         'o Ponto volta a usar st.tabs: aprovar abono roda a RHiD e a aba volta para a primeira (13/11)',
         "relogio_ponto.py",
         [('    aba = st.segmented_control("Seção do ponto", abas, key="ponto_aba",\n'
