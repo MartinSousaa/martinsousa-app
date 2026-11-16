@@ -462,6 +462,10 @@ def _ficha(variacoes, saldo, codigos, por_id, quem, movs=None):
 
 def _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod):
     st.markdown(ficha_entrada_html(variacoes, saldo, cod), unsafe_allow_html=True)
+    # LOGO ABAIXO DO QUADRO (dono, 16/11): «não tem botão para editar o SKU,
+    # incluir SKU de varejo… foto e tudo mais». Tinha — no fim da página,
+    # depois do CONFIRMAR, fora da tela. Edição que ninguém acha não existe.
+    _editar_produto(variacoes, quem)
     sem_nome = len(variacoes) == 1 and not str(variacoes[0].get("variacao") or "").strip()
     # ALINHADO (dono, 13/11): os rótulos ficam numa linha de cabeçalho só, e
     # cada linha tem um campo de UMA altura por coluna — com o rótulo
@@ -505,7 +509,6 @@ def _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod):
               args=(variacoes, quem))
     c3.button("Voltar", key="est_voltar", use_container_width=True, on_click=_voltar)
 
-    _editar_produto(variacoes, quem)
     _variacoes_de_quantidade(variacoes, codigos, por_id, quem)
 
 
@@ -555,7 +558,7 @@ def _nova_variacao(variacoes, quem):
 
 
 def _editar_produto(variacoes, quem):
-    with st.expander("✎ Editar produto (nome, código do fornecedor, SKU, custo, foto)"):
+    with st.expander("✎ Editar produto — SKU varejo e atacado, custo, nome, fornecedor, foto"):
         p0 = variacoes[0]
         # A chave leva o código: dois produtos abertos em seguida não dividem
         # o que foi digitado em um.
@@ -2821,6 +2824,18 @@ if __name__ == "__main__":
        "SKU MS-3500" in _cs and "atacado MS-2800 R$ 28,00" in _cs and "sem SKU" in cabecalho_html(prods, {}, "1"))
     ok("tabela_produtos: busca pelo SKU também",
        len(tabela_produtos([{"produto": {**prods[0], "sku": "MS-3500"}, "valor": 1}], "ms-3500")) == 1)
+
+    # ✎ EDITAR À VISTA (dono, 16/11): a edição existia no fim da página e o
+    # dono disse que não tinha. Por AST, no bloco: o «✎ Editar produto» é
+    # chamado ANTES da lista de variações e do CONFIRMAR — não só «existe».
+    import ast as _ast_ed
+    _arv_ed = _ast_ed.parse(_insp.getsource(_ficha_principal).lstrip())
+    _ch_ed = sorted((n.lineno, _ast_ed.unparse(n.func)) for n in _ast_ed.walk(_arv_ed)
+                    if isinstance(n, _ast_ed.Call))
+    _l_ed = [ln for ln, f in _ch_ed if f == "_editar_produto"]
+    _l_tela = [ln for ln, f in _ch_ed if f in ("st.columns", "st.button", "c2.button")]
+    ok("ficha: ✎ Editar produto aparece logo abaixo do quadro, antes das variações e do CONFIRMAR",
+       len(_l_ed) == 1 and _l_tela and _l_ed[0] < min(_l_tela))
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
