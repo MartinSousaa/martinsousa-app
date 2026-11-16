@@ -565,7 +565,9 @@ def _editar_produto(variacoes, quem):
         sku, custo, sku_at, custo_at = _campos_sku(
             f"est_ed_{E.limpar_codigo(p0.get('ean'))}_",
             {"sku": str(p0.get("sku") or ""),
-             "custo": f'{E.numero(p0.get("custo")):.2f}'.replace(".", ","),
+             # Só atacado (dono, 16/11): o custo base É o do atacado; mostrado
+             # como «Custo varejo», parecia cadastrado sozinho.
+             "custo": ("" if E.so_atacado(p0) else f'{E.numero(p0.get("custo")):.2f}'.replace(".", ",")),
              "sku_at": str(p0.get("sku_atacado") or ""),
              "custo_at": (f'{E.numero(p0.get("custo_atacado")):.2f}'.replace(".", ",")
                           if str(p0.get("custo_atacado") or "").strip() else "")})
@@ -1432,7 +1434,8 @@ def ficha_entrada_html(variacoes, saldo, codigo):
     forn = str(p.get("codigo_fornecedor") or "").strip()
     lin.append(" · ".join(x for x in (
         f'Fornecedor {b(forn)}' if forn else "",
-        f'SKU {b(sku)}' if sku else '<span style="color:#f0c060">sem SKU</span>') if x))
+        f'SKU {b(sku)}' if sku else ("só atacado" if E.so_atacado(p) else
+                                     '<span style="color:#f0c060">sem SKU</span>')) if x))
     sku_at = E.normalizar_sku(p.get("sku_atacado"))
     if sku_at:
         lin.append(f'Atacado {b(sku_at)} · {_rs(E.custo_de(p, E.ATACADO))}')
@@ -1443,7 +1446,8 @@ def ficha_entrada_html(variacoes, saldo, codigo):
     lin.append(f'Registrado em {_esc(str(p.get("registrado_em") or "")[:10])} · '
                '<span style="color:#f0c060">a idade conta daqui</span>')
     return quadro_grande_html(f'✓ JÁ CADASTRADO · {_esc(ean)}', "#4cc38a", E.capitalizar(p.get("nome")), lin,
-                              "custo varejo", E.custo_de(p, E.VAREJO), p.get("foto_id"), ean)
+                              "custo atacado" if E.so_atacado(p) else "custo varejo",
+                              E.custo_de(p, E.VAREJO), p.get("foto_id"), ean)
 
 
 def linha_bipada_html(r):
@@ -2824,6 +2828,27 @@ if __name__ == "__main__":
        "SKU MS-3500" in _cs and "atacado MS-2800 R$ 28,00" in _cs and "sem SKU" in cabecalho_html(prods, {}, "1"))
     ok("tabela_produtos: busca pelo SKU também",
        len(tabela_produtos([{"produto": {**prods[0], "sku": "MS-3500"}, "valor": 1}], "ms-3500")) == 1)
+
+    # SÓ ATACADO (dono, 16/11): «cadastrou valor de varejo sozinho, copiou o
+    # de atacado». Cadeia real: o cadastro grava pelo _custos_do_formulario,
+    # e o quadro e o «sem SKU» leem o produto que ele gravou.
+    _orig_tab = _tabela_sku
+    try:
+        _tabela_sku = lambda: ({}, "")
+        _mud, _err, _av = _custos_do_formulario("", "", "MS-3949", "39,49")
+    finally:
+        _tabela_sku = _orig_tab
+    _pat = {**prods[0], **(_mud or {})}
+    _fe_at = ficha_entrada_html([_pat], {}, "7908045146994")
+    ok("só atacado: o cadastro grava o custo base = atacado e sem SKU de varejo (a regra de 12/11 fica)",
+       not _err and _mud["sku"] == "" and _mud["custo"] == "39.49" and _mud["custo_atacado"] == "39.49")
+    ok("só atacado: o quadro diz «custo atacado» e «só atacado», nunca «custo varejo»/«sem SKU»",
+       "custo atacado" in _fe_at and "só atacado" in _fe_at and "custo varejo" not in _fe_at
+       and "sem SKU" not in _fe_at)
+    ok("só atacado: fica fora da lista «Produtos sem SKU»; sem SKU nenhum continua entrando",
+       E.sem_sku([_pat], None) == [] and len(E.sem_sku([{**_pat, "sku_atacado": ""}], None)) == 1)
+    ok("só atacado: com custo de varejo digitado diferente, volta a ser «custo varejo»",
+       "custo varejo" in ficha_entrada_html([{**_pat, "custo": "45"}], {}, "1"))
 
     # ✎ EDITAR À VISTA (dono, 16/11): a edição existia no fim da página e o
     # dono disse que não tinha. Por AST, no bloco: o «✎ Editar produto» é

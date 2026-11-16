@@ -882,6 +882,16 @@ def consulta_sku(tabela, sku):
     return {"achou": True, "custo": l["custo"], "aviso": aviso}
 
 
+def so_atacado(p):
+    """O produto é SÓ de atacado (dono, 16/11)? Sem SKU de varejo, com SKU de
+    atacado, e o custo base igual ao do atacado — que é o que o cadastro grava
+    quando só o atacado foi preenchido (estoque_tela._custos_do_formulario).
+    A tela não pode chamar esse custo de «varejo». Pura."""
+    if normalizar_sku(p.get("sku")) or not normalizar_sku(p.get("sku_atacado")):
+        return False
+    return abs(numero(p.get("custo")) - custo_de(p, ATACADO)) < 0.005
+
+
 def sem_sku(produtos, tabela):
     """Os produtos para a lista «Produtos sem SKU». Pura.
 
@@ -894,7 +904,9 @@ def sem_sku(produtos, tabela):
         if ch in vistos:
             continue
         vistos.add(ch)
-        sku = normalizar_sku(p.get("sku"))
+        # Só atacado (dono, 16/11): o SKU que vale é o do atacado — ele não
+        # entra na lista como «sem SKU».
+        sku = normalizar_sku(p.get("sku")) or normalizar_sku(p.get("sku_atacado"))
         if not sku:
             fora.append((p, "sem SKU"))
         elif tabela is not None and sku not in tabela:
@@ -1579,13 +1591,26 @@ if __name__ == "__main__":
     ok("aba_de_sku: aceita com e sem acento, maiúscula ou não",
        aba_de_sku(["X", "PRECO  DE CUSTO"]) == "PRECO  DE CUSTO" and aba_de_sku(["HISTÓRICO SKU", "PREÇO DE CUSTO."]) == "PREÇO DE CUSTO."
        and aba_de_sku(["SKU"]) == "")
-    _ss = sem_sku([{**_pa, "sku": ""}, {**_pa, "id": "P2", "variacao": "b", "sku": ""},
+    _ss = sem_sku([{**_pa, "sku": "", "sku_atacado": ""},
+                   {**_pa, "id": "P2", "variacao": "b", "sku": "", "sku_atacado": ""},
                    {**_pa, "id": "P3", "ean": "1", "sku": "MS-0001"},
                    {**_pa, "id": "P4", "ean": "2", "sku": "MS-3500"}], _tab)
     ok("sem_sku: o sem SKU entra uma vez (variações dividem), o de SKU desconhecido entra, o achado não",
        [(p["id"], m) for p, m in _ss] == [(_pa["id"], "sem SKU"), ("P3", "SKU MS-0001 não está na planilha")])
     ok("sem_sku: sem conseguir ler a planilha, só o vazio entra (não acusa SKU que pode estar lá)",
-       [m for _p, m in sem_sku([{**_pa, "sku": "MS-0001"}, {**_pa, "ean": "9", "sku": ""}], None)] == ["sem SKU"])
+       [m for _p, m in sem_sku([{**_pa, "sku": "MS-0001"}, {**_pa, "ean": "9", "sku": "", "sku_atacado": ""}],
+                               None)] == ["sem SKU"])
+    # Só atacado (dono, 16/11): o SKU do atacado é o que vale — achado, fora
+    # da lista; desconhecido, entra dizendo qual.
+    ok("sem_sku: só atacado com SKU achado fica fora; com SKU desconhecido entra dizendo qual",
+       sem_sku([{**_pa, "sku": "", "sku_atacado": "MS-3500"}], _tab) == []
+       and [m for _p, m in sem_sku([{**_pa, "sku": "", "sku_atacado": "MS-0001"}], _tab)]
+       == ["SKU MS-0001 não está na planilha"])
+    ok("so_atacado: sem varejo, com atacado e custo igual; varejo ou custo diferente não",
+       so_atacado({"sku": "", "sku_atacado": "MS-1", "custo": "39.49", "custo_atacado": "39.49"})
+       and not so_atacado({"sku": "MS-2", "sku_atacado": "MS-1", "custo": "39.49", "custo_atacado": "39.49"})
+       and not so_atacado({"sku": "", "sku_atacado": "MS-1", "custo": "45", "custo_atacado": "39.49"})
+       and not so_atacado({"sku": "", "sku_atacado": "", "custo": "10"}))
     ok("normalizar_sku: maiúscula, sem espaço sobrando, espaço duplo vira um",
        normalizar_sku("  ms-35  00 ") == "MS-35 00" and normalizar_sku(None) == "")
     _dup = tabela_de_sku(["A", "SKU", "PRODUTO", "QUANTIDADE", "CUSTO"],
