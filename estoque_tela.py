@@ -843,6 +843,16 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False):
             if erro_v:
                 _avisar(f"Nada foi gravado — {erro_v}", erro=True)
                 return
+    if blocos:
+        # A planilha de AGORA, não a da tela: o segundo clique precisa ver
+        # o que o primeiro acabou de gravar.
+        ja = nomes_ja_cadastrados(E.carregar_agora()[0], p0.get("ean"))
+        rep = [n for n, _q, _f in blocos if n.lower() in ja]
+        if rep:
+            _avisar("Nada foi gravado — " + ", ".join(f"«{n}»" for n in rep)
+                    + (" já está cadastrada" if len(rep) == 1 else " já estão cadastradas")
+                    + " neste produto. Se acabou de salvar, ela já entrou: confira a lista.", erro=True)
+            return
     if mud is None and not blocos and not var_mud and not var_fotos and not ajustes:
         _avisar("Nada para gravar: nenhum campo mudou.", erro=True)
         return
@@ -2773,13 +2783,26 @@ def _fornecedor_em_massa(marcadas):
                   on_click=_salvar_fornecedor_em_massa, args=(opcoes,))
 
 
-def variacao_pode_excluir(v, saldo):
-    """(pode, motivo). Variação com peça em QUALQUER lugar (físico ou Full)
-    não sai: o valor dela sumiria do estoque sem saída nenhuma. Pura."""
+def variacao_pode_excluir(v, saldo, codigos=()):
+    """(pode, aviso). Pura. Dono, 17/11: «preciso poder excluir a quantidade
+    sem ter que dar baixa» — variação COM peça sai, e as peças saem junto
+    como ajuste de contagem (o aviso diz quantas). Só a que entra num kit
+    não sai: o kit tiraria peça de uma linha que sumiu."""
+    if E.kits_com(codigos, v.get("id")):
+        return False, "entra num kit — troque o kit antes de excluir"
     q = sum(n for (pid, _loc), n in saldo.items() if pid == v.get("id"))
     if q:
-        return False, f"tem {q} peça(s) em estoque — dê saída ou ajuste a contagem antes de excluir"
+        return True, f"as {q} peça(s) dela saem do estoque como ajuste de contagem, sem baixa"
     return True, ""
+
+
+def nomes_ja_cadastrados(prods, ean):
+    """Os nomes de variação (minúsculos) já ATIVOS neste código. Pura.
+    Salvar duas vezes — clique duplo, ou de novo depois de um erro da
+    planilha no meio — duplicava todas as variações (dono, 17/11)."""
+    ean = E.limpar_codigo(ean)
+    return {" ".join(str(p.get("variacao") or "").split()).lower() for p in prods
+            if E.limpar_codigo(p.get("ean")) == ean and str(p.get("ativo", "1")).strip() != "0"}
 
 
 def _pedir_exclusao(pid):
@@ -2790,11 +2813,26 @@ def _cancelar_exclusao():
     st.session_state.pop("est_pn_excluir", None)
 
 
-def _excluir_variacao(pid, nome):
-    """Desativa (ativo=0): some do estoque e das buscas; o histórico fica."""
+def _excluir_variacao(pid, nome, quem=""):
+    """Zera as peças (ajuste de contagem) e desativa (ativo=0): some do
+    estoque e das buscas; o histórico fica. Lê a planilha na hora: o saldo
+    da tela pode ter 2 minutos."""
     try:
+        prods, movs, codigos = E.carregar_agora()
+        p = next((x for x in prods if x.get("id") == pid), None)
+        if p is None:
+            _avisar(f"Não achei «{nome}» na planilha — nada foi excluído.", erro=True)
+            return
+        pode, motivo = variacao_pode_excluir(p, E.saldos(movs), codigos)
+        if not pode:
+            _avisar(f"«{nome}» {motivo}. Nada foi excluído.", erro=True)
+            return
+        zera = E.linhas_de_zerar(p, movs, quem, _quando(), "variação excluída no Estoque cadastrado")
+        if zera:
+            E.gravar_movimentos(zera)
         E.atualizar_produtos({pid: {"ativo": "0"}})
-        _avisar(f"✓ Variação «{nome}» excluída.")
+        n = -sum(int(m["qtd"]) for m in zera)
+        _avisar(f"✓ Variação «{nome}» excluída" + (f" — {n} peça(s) saíram do estoque." if n else "."))
     except Exception as e:
         _avisar(f"Não excluí — a planilha respondeu: {e}", erro=True)
     st.session_state.pop("est_pn_excluir", None)
@@ -2838,15 +2876,16 @@ def _variacoes_do_painel(variacoes, saldo, quem, pf):
     alvo = next((v for v in variacoes if v["id"] == ss.get("est_pn_excluir")), None)
     if alvo is not None:
         nome = E.nome_completo(alvo)
-        pode, motivo = variacao_pode_excluir(alvo, saldo)
+        pode, motivo = variacao_pode_excluir(alvo, saldo, E.carregar()[2])
         if not pode:
             st.warning(f"«{nome}» {motivo}.")
             st.button("Ok", key="est_pn_x_ok", on_click=_cancelar_exclusao)
         else:
-            st.warning(f"Excluir a variação «{nome}»? Ela some do estoque; o histórico fica.")
+            st.warning(f"Excluir a variação «{nome}»? Ela some do estoque; o histórico fica."
+                       + (f" {motivo[0].upper()}{motivo[1:]}." if motivo else ""))
             a, b = st.columns(2)
             a.button("Sim, excluir", key="est_pn_x_sim", type="primary", use_container_width=True,
-                     on_click=_excluir_variacao, args=(alvo["id"], nome))
+                     on_click=_excluir_variacao, args=(alvo["id"], nome, quem))
             b.button("Cancelar", key="est_pn_x_nao", use_container_width=True, on_click=_cancelar_exclusao)
     st.button("➕ Nova variação", key="est_pn_nova_var", on_click=_abrir_nova_variacao)
     _nova_variacao(variacoes, quem, sufixo_ed="_pn", botoes=False)
@@ -3670,9 +3709,67 @@ if __name__ == "__main__":
                               [("Preto", ""), ("Branco (P)", "")], "l", "x")
     _sx = E.saldos(E.linhas_de_entrada([(_vx[0], 3)], "l", "x")
                    + E.linhas_de_entrada([(_vx[1], 2)], "l", "x", local=list(E.FULLS)[0]))
-    ok("variação: com peça no físico OU no Full não exclui; zerada exclui",
-       not variacao_pode_excluir(_vx[0], _sx)[0] and not variacao_pode_excluir(_vx[1], _sx)[0]
-       and variacao_pode_excluir(_vx[1], E.saldos([]))[0])
+    # Dono, 17/11: «preciso poder excluir a quantidade sem ter que dar baixa».
+    _kx = [{"codigo": "K1", "tipo": "kit", "itens": E.json.dumps({_vx[1]["id"]: 1})}]
+    ok("variação: com peça (físico OU Full) EXCLUI e o aviso diz quantas saem; em kit não exclui",
+       variacao_pode_excluir(_vx[0], _sx) == (True, "as 3 peça(s) dela saem do estoque como ajuste de contagem, sem baixa")
+       and variacao_pode_excluir(_vx[1], _sx)[0] and "2 peça" in variacao_pode_excluir(_vx[1], _sx)[1]
+       and not variacao_pode_excluir(_vx[1], _sx, _kx)[0]
+       and variacao_pode_excluir(_vx[1], E.saldos([])) == (True, ""))
+    # PELA CADEIA: o ✕ de verdade, com a planilha de mentira — zera as peças
+    # (todas as origens e locais) e desativa.
+    _db_x = {"p": [dict(x) for x in _vx], "m": E.linhas_de_entrada([(_vx[0], 3)], "l", "x")
+             + E.linhas_de_entrada([(_vx[0], 2)], "l", "x", local=list(E.FULLS)[0]), "c": []}
+    _gm, _ap, _av = [], {}, []
+    _orig_x = (E.carregar_agora, E.gravar_movimentos, E.atualizar_produtos, _avisar)
+    try:
+        E.carregar_agora = lambda: (_db_x["p"], _db_x["m"], _db_x["c"])
+        E.gravar_movimentos = lambda l: _gm.extend(l)
+        E.atualizar_produtos = lambda d: _ap.update(d)
+        globals()["_avisar"] = lambda msg, erro=False: _av.append((msg, erro))
+        _excluir_variacao(_vx[0]["id"], "Preto", "leo")
+        _sobra = E.saldos(_db_x["m"] + _gm)
+    finally:
+        E.carregar_agora, E.gravar_movimentos, E.atualizar_produtos = _orig_x[:3]
+        globals()["_avisar"] = _orig_x[3]
+    ok("✕ com peça: grava ajuste que ZERA físico e Full, desativa, e diz quantas saíram",
+       not any(q for (pid, _l), q in _sobra.items() if pid == _vx[0]["id"])
+       and all(m["tipo"] == E.AJUSTE_CONTAGEM for m in _gm) and len(_gm) == 2
+       and _ap == {_vx[0]["id"]: {"ativo": "0"}} and _av and "5 peça(s)" in _av[0][0] and not _av[0][1])
+    # SALVAR DUAS VEZES (dono, 17/11: «duplicou as variações sozinho»). O
+    # segundo clique lê a planilha de AGORA e não grava de novo.
+    ok("nomes já cadastrados: só os ATIVOS deste código, com espaço e maiúscula normalizados",
+       nomes_ja_cadastrados(_vx + [{**_vx[0], "variacao": "Rosa", "ativo": "0"},
+                                   {**_vx[0], "ean": "1", "variacao": "Azul"}], " 7908045165056")
+       == {"preto", "branco (p)"})
+    _db_s = {"p": [dict(x) for x in _vx], "m": [], "c": []}
+    _gp, _av2 = [], []
+    _orig_s = (E.carregar_agora, E.gravar_produtos, E.gravar_movimentos, _avisar, st.session_state)
+    try:
+        E.carregar_agora = lambda: (_db_s["p"], _db_s["m"], _db_s["c"])
+        def _grava(l):
+            _gp.extend(l)
+            _db_s["p"] += l
+        E.gravar_produtos = _grava
+        E.gravar_movimentos = lambda l: _db_s["m"].extend(l)
+        globals()["_avisar"] = lambda msg, erro=False: _av2.append((msg, erro))
+        for _clique in range(2):
+            st.session_state = {"est_nova_var": True, "est_var_n": 2, "est_var_k": 0,
+                                "est_var_nome_0_0": "Porta 2  Relógio + Jóias (G)", "est_var_qtd_0_0": 4,
+                                "est_var_nome_0_1": "Azul", "est_var_qtd_0_1": 1}
+            _salvar_produto(_vx, "leo", "_pn")
+        st.session_state = {"est_nova_var": True, "est_var_n": 1, "est_var_k": 0,
+                            "est_var_nome_0_0": "PRETO", "est_var_qtd_0_0": 2}
+        _salvar_produto(_vx, "leo", "_pn")
+    finally:
+        E.carregar_agora, E.gravar_produtos, E.gravar_movimentos, _ = _orig_s[:4]
+        globals()["_avisar"] = _orig_s[3]
+        st.session_state = _orig_s[4]
+    ok("salvar 2× seguidas: as variações novas entram UMA vez; nome que já existe não grava nada",
+       len(_gp) == 2 and sorted(x["variacao"] for x in _gp) == ["Azul", "Porta 2 Relógio + Jóias (G)"]
+       and not _av2[0][1] and _av2[1][1] and "já estão cadastradas" in _av2[1][0]
+       and _av2[2][1] and "«PRETO» já está cadastrada" in _av2[2][0]
+       and sum(int(m["qtd"]) for m in _db_s["m"]) == 5)
     _src_pn = _insp.getsource(_painel)
     _src_vp = _insp.getsource(_variacoes_do_painel)
     ok("Estoque cadastrado: a linha escolhida mostra ✕ e ➕ Nova variação",

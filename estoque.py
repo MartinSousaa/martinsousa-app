@@ -1006,6 +1006,13 @@ def _limpar_cache():
             pass
 
 
+def carregar_agora():
+    """A planilha de AGORA (joga o cache de 2 min fora antes). Para o que
+    decide se grava: o segundo clique precisa ver o que o primeiro gravou."""
+    _limpar_cache()
+    return carregar()
+
+
 def cabecalho_completo(cab_da_aba, colunas):
     """O cabeçalho da aba com as colunas que faltam no FIM. Pura.
 
@@ -1705,5 +1712,16 @@ if __name__ == "__main__":
     ok("foto_principal: a de capa vence; sem ela, a da variação; vazia não conta",
        foto_principal({"foto_id": "V", "foto_produto": "P"}) == "P"
        and foto_principal({"foto_id": "V", "foto_produto": "  "}) == "V" and foto_principal({}) is None)
+    # carregar_agora: o cache sai ANTES da leitura (o 2º clique do «Salvar»
+    # vê o que o 1º gravou — dono, 17/11, variações duplicadas).
+    _ordem_ca = []
+    _orig_ca = (globals()["_limpar_cache"], globals()["carregar"])
+    try:
+        globals()["_limpar_cache"] = lambda: _ordem_ca.append("limpa")
+        globals()["carregar"] = lambda: _ordem_ca.append("le") or ("P", "M", "C")
+        _r_ca = carregar_agora()
+    finally:
+        globals()["_limpar_cache"], globals()["carregar"] = _orig_ca
+    ok("carregar_agora: limpa o cache e só DEPOIS lê", _ordem_ca == ["limpa", "le"] and _r_ca == ("P", "M", "C"))
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
