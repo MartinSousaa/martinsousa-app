@@ -557,13 +557,17 @@ def _nova_variacao(variacoes, quem):
             st.error(f"Não gravei a variação — a planilha respondeu: {e}")
 
 
-def _editar_produto(variacoes, quem):
-    with st.expander("✎ Editar produto — SKU varejo e atacado, custo, nome, fornecedor, foto"):
+def _editar_produto(variacoes, quem, sufixo="", aberto=False):
+    """O cadastro inteiro do produto. `sufixo` separa as chaves: o mesmo
+    produto pode estar aberto na ficha E no «✎ editar» das últimas entradas
+    na mesma tela (dono, 17/11) — chave repetida derruba a tela."""
+    with st.expander("✎ Editar produto — SKU varejo e atacado, custo, nome, fornecedor, foto",
+                     expanded=aberto):
         p0 = variacoes[0]
         # A chave leva o código: dois produtos abertos em seguida não dividem
         # o que foi digitado em um.
         sku, custo, sku_at, custo_at = _campos_sku(
-            f"est_ed_{E.limpar_codigo(p0.get('ean'))}_",
+            f"est_ed_{E.limpar_codigo(p0.get('ean'))}{sufixo}_",
             {"sku": str(p0.get("sku") or ""),
              # Só atacado (dono, 16/11): o custo base É o do atacado; mostrado
              # como «Custo varejo», parecia cadastrado sozinho.
@@ -571,11 +575,11 @@ def _editar_produto(variacoes, quem):
              "sku_at": str(p0.get("sku_atacado") or ""),
              "custo_at": (f'{E.numero(p0.get("custo_atacado")):.2f}'.replace(".", ",")
                           if str(p0.get("custo_atacado") or "").strip() else "")})
-        with st.form("est_form_edit"):
+        with st.form(f"est_form_edit{sufixo}"):
             nome = st.text_input("Produto", value=str(p0.get("nome") or ""))
             forn = st.text_input("Código do fornecedor", value=str(p0.get("codigo_fornecedor") or ""))
             alvo = st.selectbox("Trocar a foto de", [E.nome_completo(v) for v in variacoes])
-            foto = st.file_uploader("Nova foto (opcional)", type=None, key="est_edit_foto")
+            foto = st.file_uploader("Nova foto (opcional)", type=None, key=f"est_edit_foto{sufixo}")
             enviar = st.form_submit_button("Salvar alterações")
         if not enviar:
             return
@@ -1099,6 +1103,19 @@ def _edicao_da_entrada(lt, por_id, quem):
                            key=f"est_ent_q_{lt['lote']}_{i}", label_visibility="collapsed")
         st.button("Salvar quantidade", key=f"est_ent_sv_{lt['lote']}", type="primary",
                   on_click=_salvar_correcao, args=(lt["lote"], quem, len(linhas)))
+        # O CADASTRO INTEIRO (dono, 17/11): «quando clicar em editar ao dar
+        # entrada precisa abrir a tela completa para editar qualquer
+        # informação». Um editor por código de barras do lote, já aberto.
+        todos = list(por_id.values())
+        eans = []
+        for m in linhas:
+            e = E.limpar_codigo(por_id.get(str(m.get("produto_id")), {}).get("ean"))
+            if e and e not in eans:
+                eans.append(e)
+        for e in eans:
+            vs = E.do_codigo(todos, e)
+            if vs:
+                _editar_produto(vs, quem, sufixo=f"_lt{lt['lote']}", aberto=True)
 
 
 def _mais_entradas():
@@ -2884,6 +2901,17 @@ if __name__ == "__main__":
        E.sem_sku([_pat], None) == [] and len(E.sem_sku([{**_pat, "sku_atacado": ""}], None)) == 1)
     ok("só atacado: com custo de varejo digitado diferente, volta a ser «custo varejo»",
        "custo varejo" in ficha_entrada_html([{**_pat, "custo": "45"}], {}, "1"))
+
+    # ✎ EDITAR DA ENTRADA ABRE O CADASTRO INTEIRO (dono, 17/11). Por AST: a
+    # edição da entrada chama _editar_produto aberto e com sufixo; e as
+    # chaves do editor levam o sufixo (ficha + entrada na mesma tela).
+    _src_ee = _insp.getsource(_edicao_da_entrada)
+    _src_ep = _insp.getsource(_editar_produto)
+    ok("editar entrada: abre o cadastro inteiro (_editar_produto), já aberto",
+       "_editar_produto(vs, quem, sufixo=" in _src_ee and "aberto=True" in _src_ee)
+    ok("editar produto: form, foto e SKU com sufixo — sem chave repetida com a ficha",
+       'st.form(f"est_form_edit{sufixo}")' in _src_ep and 'key=f"est_edit_foto{sufixo}"' in _src_ep
+       and "{sufixo}_" in _src_ep)
 
     # BUSCAR POR NOME NA SAÍDA (dono, 17/11). Por AST: o seletor vem logo
     # depois da barra e antes do «Ver»; o botão chama o MESMO _bipe_na_saida.
