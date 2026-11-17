@@ -2511,6 +2511,64 @@ def produto_escolhido(linhas, sel, guardado, desmarcou, ean_guardado=""):
                  if ean_guardado and E.limpar_codigo(l["produto"].get("ean")) == ean_guardado), None)
 
 
+def opcoes_fornecedor_em_massa(prods):
+    """{rótulo: [ids das variações]} — UM produto por código, em ordem
+    alfabética, com o fornecedor que já tem. Pura."""
+    por = {}
+    for p in E.ativos(prods):
+        ch = E.limpar_codigo(p.get("ean")) or p["id"]
+        por.setdefault(ch, []).append(p)
+    fora = {}
+    for vs in sorted(por.values(), key=lambda vs: E._sem_acento(E.capitalizar(vs[0].get("nome")))):
+        f = str(vs[0].get("fornecedor") or "").strip()
+        cod = vs[0].get("codigo_fornecedor") or vs[0].get("ean") or ""
+        rot = f'{E.capitalizar(vs[0].get("nome"))} · {cod}' + (f" — {f}" if f else " — sem fornecedor")
+        while rot in fora:                   # dois produtos com o mesmo nome e código
+            rot += " "
+        fora[rot] = [v["id"] for v in vs]
+    return fora
+
+
+def mudancas_fornecedor(opcoes, escolhidos, fornecedor):
+    """({id: {"fornecedor": nome}}, erro) do preenchimento em massa. Pura."""
+    nome = " ".join(str(fornecedor or "").split())
+    if not escolhidos:
+        return {}, "Escolha ao menos um produto."
+    if not nome:
+        return {}, "Escreva o fornecedor."
+    return {pid: {"fornecedor": nome} for r in escolhidos for pid in opcoes.get(r, [])}, ""
+
+
+def _salvar_fornecedor_em_massa(opcoes):
+    ss = st.session_state
+    k = int(ss.get("est_fm_k") or 0)
+    escolhidos = ss.get(f"est_fm_sel_{k}") or []
+    mud, erro = mudancas_fornecedor(opcoes, escolhidos, ss.get(f"est_fm_nome_{k}"))
+    if erro:
+        _avisar(f"Nada foi gravado — {erro}", erro=True)
+        return
+    try:
+        E.atualizar_produtos(mud)
+        nome = next(iter(mud.values()))["fornecedor"]
+        _avisar(f"✓ Fornecedor «{nome}» gravado em {len(escolhidos)} produto(s).")
+        ss["est_fm_k"] = k + 1                      # os campos nascem limpos
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", erro=True)
+
+
+def _fornecedor_em_massa(prods):
+    """Preencher o fornecedor de vários produtos de uma vez (dono, 17/11):
+    para os que já estavam cadastrados antes do campo existir."""
+    k = int(st.session_state.get("est_fm_k") or 0)
+    with st.expander("🏷 Preencher fornecedor em vários produtos"):
+        opcoes = opcoes_fornecedor_em_massa(prods)
+        st.multiselect("Produtos", list(opcoes), key=f"est_fm_sel_{k}",
+                       placeholder="escolha os produtos (dá para digitar para procurar)")
+        st.text_input("Fornecedor", key=f"est_fm_nome_{k}", placeholder="nome do fornecedor")
+        st.button("Salvar fornecedor nos escolhidos", key=f"est_fm_ok_{k}", type="primary",
+                  on_click=_salvar_fornecedor_em_massa, args=(opcoes,))
+
+
 def variacao_pode_excluir(v, saldo):
     """(pode, motivo). Variação com peça em QUALQUER lugar (físico ou Full)
     não sai: o valor dela sumiria do estoque sem saída nenhuma. Pura."""
@@ -2715,6 +2773,7 @@ def _painel(quem):
                       selection_mode="single-row", key=f"est_tab_{sig}",
                       column_config={"foto": st.column_config.ImageColumn("", width="small")})
     st.caption(f"{len(linhas)} produto(s)" + (f" com «{busca.strip()}»" if busca.strip() else ""))
+    _fornecedor_em_massa(prods)
     sel = list(getattr(getattr(ev, "selection", None), "rows", []) or [])
     desmarcou = ss.get("est_pn_sig") == sig and bool(ss.get("est_pn_sel")) and not sel
     pid = produto_escolhido(linhas, sel, ss.get("est_pn_pid"), desmarcou, ss.get("est_pn_ean", ""))
@@ -3647,6 +3706,25 @@ if __name__ == "__main__":
        "on_click=_abrir_ed_variacao" in _src_vp2 and "_editar_variacao(v)" in _src_vp2
        and "on_click=_fechar_ed_variacao" in _insp.getsource(_editar_variacao)
        and "on_click=_salvar_variacao" in _insp.getsource(_editar_variacao))
+
+    # FORNECEDOR EM MASSA (dono, 17/11): um rótulo por produto, e o nome
+    # vai para TODAS as variações dele. Pela cadeia: linhas_de_produto.
+    _fm = (E.linhas_de_produto("7908045100001", "AP3017", "Jogo de Dardo 34cm", 46, [("Marrom", ""), ("Verde", "")],
+                               "l", "x")
+           + E.linhas_de_produto("7891234567895", "PR-2", "Porta 2 Relógio + Jóias", 10, [("", "")], "l", "x",
+                                 fornecedor="Três Irmãos"))
+    _fo = opcoes_fornecedor_em_massa(_fm)
+    _fr = list(_fo)
+    _fmud, _ferr = mudancas_fornecedor(_fo, [_fr[0]], "  Wang  (SP) + Cia ")
+    ok("fornecedor em massa: um por produto, e grava em todas as variações dele",
+       len(_fo) == 2 and _fr[0].startswith("Jogo de Dardo 34cm") and "sem fornecedor" in _fr[0]
+       and "Três Irmãos" in _fr[1] and _ferr == ""
+       and _fmud == {_fm[0]["id"]: {"fornecedor": "Wang (SP) + Cia"}, _fm[1]["id"]: {"fornecedor": "Wang (SP) + Cia"}})
+    ok("fornecedor em massa: sem produto ou sem nome não grava",
+       mudancas_fornecedor(_fo, [], "X")[1] != "" and mudancas_fornecedor(_fo, _fr, "  ")[1] != "")
+    ok("fornecedor em massa: está no Estoque cadastrado, e salva por callback",
+       "_fornecedor_em_massa(prods)" in _insp.getsource(_painel)
+       and "on_click=_salvar_fornecedor_em_massa" in _insp.getsource(_fornecedor_em_massa))
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
