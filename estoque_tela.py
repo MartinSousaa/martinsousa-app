@@ -338,6 +338,24 @@ def _avisar(msg, erro=False):
     st.session_state["est_aviso"] = (msg, erro)
 
 
+def foto_da_tela(foto, nome):
+    """(foto_id, aviso) de um campo de foto. O aviso NÃO vai para st.warning:
+    toda gravação aqui termina em st.rerun(), que apagava o aviso — sobrava
+    só o «✓ salvo», e a foto que o Drive recusou parecia salva (17/11). Quem
+    chama junta o aviso à mensagem de `_avisar`, que sobrevive ao rerun."""
+    if foto is None:
+        return "", ""
+    fid, erro = E.salvar_foto(foto.getvalue(), nome)
+    if not erro:
+        return fid or "", ""
+    return fid or "", ("⚠ FOTO: " + erro) if fid else ("⚠ A FOTO NÃO FOI SALVA: " + erro)
+
+
+def _com_foto(msg, aviso_foto):
+    """Junta o aviso da foto à mensagem e põe a mensagem em vermelho. Pura."""
+    return (msg + " · " + aviso_foto, True) if aviso_foto else (msg, False)
+
+
 def _quando():
     import placar_core as _pc
     return _pc.agora_br().strftime("%d/%m/%Y %H:%M")
@@ -448,6 +466,10 @@ def _abrir_nova_variacao():
     st.session_state["est_nova_var"] = True
 
 
+def _fechar_nova_variacao():
+    st.session_state.pop("est_nova_var", None)
+
+
 def _ficha(variacoes, saldo, codigos, por_id, quem, movs=None):
     """A ficha do produto JÁ cadastrado (dono, 13/11): abre como o bipe da
     vez da saída — o quadro grande à esquerda, as últimas entradas à direita."""
@@ -519,30 +541,22 @@ def _nova_variacao(variacoes, quem):
     with st.container(border=True):
         st.markdown("**➕ Nova variação** — escreva o nome e tire a foto")
         p0 = variacoes[0]
-        sem_nome = len(variacoes) == 1 and not str(p0.get("variacao") or "").strip()
+        # UM CAMPO SÓ (dono, 17/11): «a primeira já é a variação». O produto
+        # que já existe fica como está; pedir o nome dele travava o salvar.
         with st.form("est_form_var", clear_on_submit=True):
-            nome_antigo = ""
-            if sem_nome:
-                nome_antigo = st.text_input(
-                    "Nome da variação que JÁ existe (a primeira)",
-                    help="O produto tinha uma variação só, sem nome. Para separar, as duas precisam de nome.")
-            nome = st.text_input("Nome da nova variação (posição, cor…)")
+            nome = st.text_input("Nome da variação (posição, cor…)")
             foto = st.file_uploader("Foto da variação", type=None, key="est_var_foto")
             qtd = int(st.number_input("Quantidade entrando agora", min_value=0, step=1, value=None) or 0)
             enviar = st.form_submit_button("Salvar variação", type="primary")
+        # Clicou errado (dono, 17/11): sair sem salvar.
+        st.button("Cancelar", key="est_var_cancelar", on_click=_fechar_nova_variacao)
         if not enviar:
             return
-        if not str(nome).strip() or (sem_nome and not str(nome_antigo).strip()):
-            st.error("Escreva o nome da variação" + (" — das duas." if sem_nome else "."))
+        if not str(nome).strip():
+            st.error("Escreva o nome da variação.")
             return
         try:
-            foto_id = ""
-            if foto is not None:
-                foto_id, erro = E.salvar_foto(foto.getvalue(), E.limpar_codigo(p0.get("ean")))
-                if erro:
-                    st.warning(f"A variação foi salva sem foto: {erro}")
-            if sem_nome:
-                E.atualizar_produtos({p0["id"]: {"variacao": str(nome_antigo).strip()}})
+            foto_id, af = foto_da_tela(foto, E.limpar_codigo(p0.get("ean")))
             novas = E.linhas_de_produto(p0.get("ean"), p0.get("codigo_fornecedor"), p0.get("nome"),
                                         E.numero(p0.get("custo")), [(nome, foto_id)], quem, _quando(),
                                         sku=p0.get("sku", ""), sku_atacado=p0.get("sku_atacado", ""),
@@ -550,7 +564,8 @@ def _nova_variacao(variacoes, quem):
             E.gravar_produtos(novas)
             E.gravar_movimentos(E.linhas_de_entrada([(novas[0], int(qtd))], quem, _quando(),
                                                     origem=_origem_da_entrada()))
-            _avisar(f"✓ Variação «{str(nome).strip()}» criada" + (f", com {int(qtd)} peça(s)." if qtd else "."))
+            _avisar(*_com_foto(f"✓ Variação «{str(nome).strip()}» criada"
+                               + (f", com {int(qtd)} peça(s)." if qtd else "."), af))
             st.session_state.pop("est_nova_var", None)
             st.rerun()
         except Exception as e:
@@ -595,16 +610,13 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False):
         try:
             mud = {v["id"]: {"nome": nome.strip(), "codigo_fornecedor": forn.strip(), **custos}
                    for v in variacoes}
-            if foto is not None:
-                foto_id, erro = E.salvar_foto(foto.getvalue(), E.limpar_codigo(p0.get("ean")))
-                if erro:
-                    st.warning(f"A foto não foi trocada: {erro}")
-                else:
-                    v = variacoes[[E.nome_completo(x) for x in variacoes].index(alvo)]
-                    mud[v["id"]]["foto_id"] = foto_id
+            foto_id, af = foto_da_tela(foto, E.limpar_codigo(p0.get("ean")))
+            if foto_id:
+                v = variacoes[[E.nome_completo(x) for x in variacoes].index(alvo)]
+                mud[v["id"]]["foto_id"] = foto_id
             E.atualizar_produtos(mud)
-            _avisar("✓ Produto atualizado. O custo novo vale para as próximas entradas."
-                    + "".join(f" · {a}" for a in avisos_c))
+            _avisar(*_com_foto("✓ Produto atualizado. O custo novo vale para as próximas entradas."
+                               + "".join(f" · {a}" for a in avisos_c), af))
             # Salvou: o «✎ editar» da entrada recolhe (dono, 17/11).
             if fechar:
                 _fechar_ed_entrada()
@@ -987,11 +999,7 @@ def _cadastro(quem):
         elif E.do_codigo(prods, cod):
             st.error("Este código acabou de ser cadastrado por outra pessoa. Bipe de novo.")
             return
-        foto_id = ""
-        if foto is not None:
-            foto_id, erro = E.salvar_foto(foto.getvalue(), cod)
-            if erro:
-                st.warning(f"O produto foi salvo sem foto: {erro}")
+        foto_id, af = foto_da_tela(foto, cod)
         novas = E.linhas_de_produto(cod, forn, nome, E.numero(custos["custo"]),
                                     [(v, foto_id if i == 0 else "") for i, (v, _a, _b) in enumerate(var_ok)],
                                     quem, _quando(),
@@ -1006,8 +1014,8 @@ def _cadastro(quem):
         q_at = sum(x[2] for x in var_ok)
         _pecas = " e ".join(f"{int(q)} de {o}" for q, o in ((q_var, E.VAREJO), (q_at, E.ATACADO)) if q)
         _nv = f" · {len(var_ok)} variações" if len(var_ok) > 1 else ""
-        _avisar(f"✓ «{nome.strip()}» cadastrado{_nv}" + (f" com {_pecas}." if _pecas else ".")
-                + "".join(f" · {a}" for a in avisos_c))
+        _avisar(*_com_foto(f"✓ «{nome.strip()}» cadastrado{_nv}" + (f" com {_pecas}." if _pecas else ".")
+                           + "".join(f" · {a}" for a in avisos_c), af))
         if sem_codigo:
             ss["est_etiqueta_nova"] = (cod, nome.strip())
         _voltar_ao_modo()
@@ -1837,16 +1845,12 @@ def quadros_perda_html(bm):
 
 
 def _gravar_baixa(p, motivo, quem, q, volta, local, obs, pedido, foto):
-    foto_id = ""
-    if foto is not None:
-        foto_id, erro = E.salvar_foto(foto.getvalue(), f"baixa_{E.limpar_codigo(p.get('ean'))}")
-        if erro:
-            st.warning(f"Gravei sem a foto: {erro}")
+    foto_id, af = foto_da_tela(foto, f"baixa_{E.limpar_codigo(p.get('ean'))}")
     _p, movs, _c = E.carregar()
     linhas = E.linhas_de_baixa(p, q, motivo, quem, _quando(), local=local, volta=volta,
                                obs=obs, pedido=pedido, foto_id=foto_id, movs=movs)
     E.gravar_movimentos(linhas)
-    return linhas
+    return linhas, af
 
 
 def _baixas(quem):
@@ -1919,10 +1923,10 @@ def _ficha_baixa(var, motivo, saldo, quem):
     if not enviar:
         return
     try:
-        _gravar_baixa(p, motivo, quem, int(q), volta, local, obs.strip(), pedido.strip(), foto)
+        _lb, af = _gravar_baixa(p, motivo, quem, int(q), volta, local, obs.strip(), pedido.strip(), foto)
         oque = ("voltou ao estoque" if motivo == E.DEVOLUCAO and volta else
                 f"perda de {_rs(int(q) * E.numero(p.get('custo')))}")
-        _avisar(f"✓ {NOME_MOTIVO[motivo]}: {int(q)}× {E.nome_completo(p)} — {oque}.")
+        _avisar(*_com_foto(f"✓ {NOME_MOTIVO[motivo]}: {int(q)}× {E.nome_completo(p)} — {oque}.", af))
         ss.pop("est_bx_cod", None)
         st.rerun()
     except Exception as e:
@@ -2077,15 +2081,11 @@ def _criar_kit(prods, codigos, por_id, saldo, nova, quem):
         else:
             try:
                 novo = E.novo_codigo_interno(E.todos_os_codigos(prods, codigos))
-                foto_id = ""
-                if foto is not None:
-                    foto_id, erro = E.salvar_foto(foto.getvalue(), f"kit_{novo}")
-                    if erro:
-                        st.warning(f"O kit foi salvo sem foto: {erro}")
+                foto_id, af = foto_da_tela(foto, f"kit_{novo}")
                 E.gravar_codigo(E.linha_de_codigo(novo, "kit", nome, "", dict(kit), quem,
                                                   _quando(), foto_id=foto_id))
                 ss["est_etiqueta_nova"] = (novo, str(nome).strip())
-                _avisar(f"✓ Kit «{str(nome).strip()}» criado com o código {novo}.")
+                _avisar(*_com_foto(f"✓ Kit «{str(nome).strip()}» criado com o código {novo}.", af))
                 _limpar_kit()
                 st.rerun()
             except Exception as e:
@@ -2225,7 +2225,36 @@ def tabela_produtos(linhas, busca=""):
         if b and b not in " ".join(alvo.split()) and E.limpar_codigo(b) != E.limpar_codigo(p.get("ean")):
             continue
         fora.append(l)
-    return sorted(fora, key=lambda l: -l["valor"])
+    # ORDEM ALFABÉTICA (dono, 17/11), sem acento e sem maiúscula: «Álbum»
+    # junto de «album», antes de «Caixa». Era pelo valor.
+    return sorted(fora, key=lambda l: E._sem_acento(E.nome_completo(l["produto"])))
+
+
+def assinatura_da_lista(linhas):
+    """Muda quando a lista da tabela muda (linha a mais, a menos, outra ordem). Pura."""
+    import hashlib
+    return hashlib.md5("|".join(l["produto"]["id"] for l in linhas).encode()).hexdigest()[:10]
+
+
+def produto_escolhido(linhas, sel, guardado, desmarcou, ean_guardado=""):
+    """O id do produto aberto no Estoque cadastrado. Pura.
+
+    Linha marcada: ela. `desmarcou` (a MESMA tabela tinha marcação e agora
+    não tem): fechou. Tabela desmarcada por ter nascido de novo (variação
+    nova, excluída, busca): fica aberto o produto guardado, se ainda está
+    na lista. Tratar «sem marcação» como «desmarcou» fechava o produto no
+    clique seguinte — o «+ Nova variação» que não abria (17/11).
+    """
+    ids = [l["produto"]["id"] for l in linhas]
+    if sel and sel[0] < len(ids):
+        return ids[sel[0]]
+    if desmarcou or not guardado:
+        return None
+    if guardado in ids:
+        return guardado
+    # A variação aberta foi excluída: fica aberta outra do mesmo produto.
+    return next((l["produto"]["id"] for l in linhas
+                 if ean_guardado and E.limpar_codigo(l["produto"].get("ean")) == ean_guardado), None)
 
 
 def variacao_pode_excluir(v, saldo):
@@ -2354,13 +2383,23 @@ def _painel(quem):
     if df.empty:
         st.caption("Nenhum produto" + (" com essa busca." if busca else " cadastrado ainda."))
         return
+    # O PRODUTO ESCOLHIDO NÃO SOME (dono, 17/11: «clico em + nova variação
+    # e não abre»). Salvar uma variação põe uma linha nova na lista, e o
+    # Streamlit desmarca a tabela — o produto, o botão e as variações sumiam.
+    # Lista nova = tabela nova (a chave leva a assinatura) e o produto
+    # escolhido vem do que foi guardado; lista igual, vale o clique.
+    sig = assinatura_da_lista(linhas)
     ev = st.dataframe(df, hide_index=True, use_container_width=True, on_select="rerun",
-                      selection_mode="single-row", key="est_tab",
+                      selection_mode="single-row", key=f"est_tab_{sig}",
                       column_config={"foto": st.column_config.ImageColumn("", width="small")})
     st.caption(f"{len(linhas)} produto(s)" + (f" com «{busca.strip()}»" if busca.strip() else ""))
     sel = list(getattr(getattr(ev, "selection", None), "rows", []) or [])
-    if sel and sel[0] < len(linhas):
-        p = linhas[sel[0]]["produto"]
+    desmarcou = ss.get("est_pn_sig") == sig and bool(ss.get("est_pn_sel")) and not sel
+    pid = produto_escolhido(linhas, sel, ss.get("est_pn_pid"), desmarcou, ss.get("est_pn_ean", ""))
+    p = next((l["produto"] for l in linhas if l["produto"]["id"] == pid), None)
+    ss["est_pn_sig"], ss["est_pn_pid"], ss["est_pn_sel"] = sig, pid, bool(sel)
+    ss["est_pn_ean"] = E.limpar_codigo(p.get("ean")) if p else ""
+    if p:
         # ✎ EDITAR NO ESTOQUE CADASTRADO (dono, 17/11: «cadê o botão de
         # editar? preciso pôr foto»). O mesmo editor da Entrada, com todos
         # os campos; sufixo próprio nas chaves.
@@ -3010,6 +3049,15 @@ if __name__ == "__main__":
        'st.form(f"est_form_edit{sufixo}")' in _src_ep and 'key=f"est_edit_foto{sufixo}"' in _src_ep
        and "{sufixo}_" in _src_ep)
 
+    # ORDEM ALFABÉTICA do Estoque cadastrado (dono, 17/11), com nome da
+    # planilha (acento, maiúscula) e valor invertido de propósito.
+    _alf = [{"produto": {**prods[0], "nome": n, "variacao": ""}, "valor": v}
+            for n, v in (("Caixa para 12 Relógios", 900), ("álbum Pequeno", 10), ("Álbum Grande", 5),
+                         ("Globo Azul 14cm", 50))]
+    ok("estoque cadastrado: ordem alfabética, sem olhar acento, maiúscula ou valor",
+       [l["produto"]["nome"] for l in tabela_produtos(_alf, "")]
+       == ["Álbum Grande", "álbum Pequeno", "Caixa para 12 Relógios", "Globo Azul 14cm"])
+
     # SEM OS RISCADOS (dono, 17/11). Cadeia real: uma entrada corrigida pelo
     # ✎ editar (linhas_da_correcao) e outra excluída (linhas_que_desfazem).
     _mv_e = E.linhas_de_entrada([(prods[0], 2)], "my", "16/11/2026 10:00")
@@ -3074,6 +3122,77 @@ if __name__ == "__main__":
     ok("Estoque cadastrado: a linha escolhida mostra ✕ e ➕ Nova variação",
        "_variacoes_do_painel(" in _src_pn and "_nova_variacao(variacoes, quem)" in _src_vp
        and "on_click=_excluir_variacao" in _src_vp and '"ativo": "0"' in _insp.getsource(_excluir_variacao))
+
+    # A FOTO QUE «NÃO SALVOU» (dono, 17/11). O aviso do Drive ia para
+    # st.warning e o st.rerun() logo depois o apagava: sobrava «✓ salvo».
+    class _Up:
+        def getvalue(self):
+            return b"x"
+    _real_sf = E.salvar_foto
+    try:
+        E.salvar_foto = lambda d, n: ("", "o Drive recusou (cota)")
+        _f1 = foto_da_tela(_Up(), "1")
+        E.salvar_foto = lambda d, n: ("F1", "a foto foi gravada, mas o Drive não deixou ela pública")
+        _f2 = foto_da_tela(_Up(), "1")
+        E.salvar_foto = lambda d, n: ("F1", None)
+        _f3 = foto_da_tela(_Up(), "1")
+    finally:
+        E.salvar_foto = _real_sf
+    ok("foto: recusada, gravada sem ser pública, e boa — cada uma diz o que houve",
+       _f1 == ("", "⚠ A FOTO NÃO FOI SALVA: o Drive recusou (cota)") and _f2[0] == "F1"
+       and _f2[1].startswith("⚠ FOTO:") and _f3 == ("F1", "") and foto_da_tela(None, "1") == ("", ""))
+    ok("foto: o aviso entra na mensagem que sobrevive ao rerun, em vermelho",
+       _com_foto("✓ Produto atualizado.", _f1[1]) == ("✓ Produto atualizado. · " + _f1[1], True)
+       and _com_foto("✓ ok", "") == ("✓ ok", False))
+    # Todo campo de foto do estoque passa por foto_da_tela, e quem chama põe
+    # o aviso em _com_foto — os cinco irmãos, não só a edição (Forma 1).
+    import ast as _ast_ft
+    _arv_ft = _ast_ft.parse(open(__file__, encoding="utf-8").read())
+    _fun_ft = {n.name: _ast_ft.unparse(n) for n in _arv_ft.body if isinstance(n, _ast_ft.FunctionDef)}
+    _sf = [k for k, v in _fun_ft.items() if "E.salvar_foto(" in v]
+    _usa = [k for k, v in _fun_ft.items() if "foto_da_tela(" in v and k != "foto_da_tela"]
+    _sem = [k for k in _usa if "_com_foto(" not in _fun_ft[k]
+            and not (k == "_gravar_baixa" and "_com_foto(" in _fun_ft["_ficha_baixa"]
+                                                        and "_gravar_baixa(" in _fun_ft["_ficha_baixa"])]
+    _warn = [k for k in _usa if "st.warning(" in _fun_ft[k] and "foto" in _fun_ft[k].split("st.warning(")[1][:60]]
+    # O aviso não pode ser trocado no caminho: todo `af` nasce do Drive.
+    _af_ruim = [n.name for n in _arv_ft.body if isinstance(n, _ast_ft.FunctionDef)
+                for x in _ast_ft.walk(n) if isinstance(x, (_ast_ft.Assign, _ast_ft.AugAssign))
+                and "af" in _ast_ft.unparse(x.targets[0] if isinstance(x, _ast_ft.Assign) else x.target)
+                .replace(" ", "").split(",")
+                and not (isinstance(x.value, _ast_ft.Call)
+                         and _ast_ft.unparse(x.value.func) in ("foto_da_tela", "_gravar_baixa"))]
+    ok(f"foto: só foto_da_tela chama o Drive, e os {len(_usa)} campos avisam pela mensagem "
+       f"({_sem}, {_warn}, {_af_ruim})",
+       _sf == ["foto_da_tela"] and len(_usa) == 5 and not _sem and not _warn and not _af_ruim)
+
+    # O PRODUTO ESCOLHIDO NÃO SOME (dono, 17/11). Pela cadeia: as linhas
+    # vêm de tabela_produtos, como na tela, antes e depois da variação nova.
+    _pe = E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("", "")], "l", "x")
+    _pb = E.linhas_de_produto("7891234567895", "MBLN-06", "Álbum + base", 18, [("", "")], "l", "x")
+    _ln = lambda ps: tabela_produtos([{"produto": q, "valor": 0} for q in ps])
+    _antes = _ln(_pe + _pb)
+    _nova = E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("Preto", "")], "l", "x")
+    _depois = _ln(_pe + _pb + _nova)
+    _i = [l["produto"]["id"] for l in _antes].index(_pe[0]["id"])
+    _esc1 = produto_escolhido(_antes, [_i], None, False)
+    _esc2 = produto_escolhido(_depois, [], _esc1, False, "5901234123457")
+    ok("produto escolhido: lista mudou (variação nova) e ele continua aberto, mesmo com a tabela desmarcada",
+       _esc1 == _pe[0]["id"] and assinatura_da_lista(_antes) != assinatura_da_lista(_depois)
+       and _esc2 == _pe[0]["id"])
+    ok("produto escolhido: e continua no CLIQUE SEGUINTE (o + Nova variação que não abria)",
+       produto_escolhido(_depois, [], _esc2, False, "5901234123457") == _pe[0]["id"])
+    ok("produto escolhido: desmarcou fecha; a excluída deixa aberta a irmã",
+       produto_escolhido(_antes, [], _esc1, True) is None
+       and produto_escolhido(_ln(_pb + _nova), [], _esc1, False, "5901234123457") == _nova[0]["id"])
+    _src_pn2 = _insp.getsource(_painel)
+    ok("produto escolhido: a tabela troca de chave quando a lista muda",
+       'key=f"est_tab_{sig}"' in _src_pn2 and "produto_escolhido(" in _src_pn2
+       and 'desmarcou = ss.get("est_pn_sig") == sig and bool(ss.get("est_pn_sel")) and not sel' in _src_pn2)
+    _src_nv = _insp.getsource(_nova_variacao)
+    ok("nova variação: um campo de nome só, e Cancelar",
+       "JÁ existe" not in _src_nv and "nome_antigo" not in _src_nv
+       and "on_click=_fechar_nova_variacao" in _src_nv)
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
