@@ -2228,6 +2228,64 @@ def tabela_produtos(linhas, busca=""):
     return sorted(fora, key=lambda l: -l["valor"])
 
 
+def variacao_pode_excluir(v, saldo):
+    """(pode, motivo). Variação com peça em QUALQUER lugar (físico ou Full)
+    não sai: o valor dela sumiria do estoque sem saída nenhuma. Pura."""
+    q = sum(n for (pid, _loc), n in saldo.items() if pid == v.get("id"))
+    if q:
+        return False, f"tem {q} peça(s) em estoque — dê saída ou ajuste a contagem antes de excluir"
+    return True, ""
+
+
+def _pedir_exclusao(pid):
+    st.session_state["est_pn_excluir"] = pid
+
+
+def _cancelar_exclusao():
+    st.session_state.pop("est_pn_excluir", None)
+
+
+def _excluir_variacao(pid, nome):
+    """Desativa (ativo=0): some do estoque e das buscas; o histórico fica."""
+    try:
+        E.atualizar_produtos({pid: {"ativo": "0"}})
+        _avisar(f"✓ Variação «{nome}» excluída.")
+    except Exception as e:
+        _avisar(f"Não excluí — a planilha respondeu: {e}", erro=True)
+    st.session_state.pop("est_pn_excluir", None)
+
+
+def _variacoes_do_painel(variacoes, saldo, quem):
+    """As variações do produto escolhido no Estoque cadastrado: ✕ para
+    excluir (com confirmação) e ➕ Nova variação — o mesmo da Entrada."""
+    ss = st.session_state
+    st.markdown("**Variações**")
+    for v in variacoes:
+        c0, c1, c2, c3 = st.columns([0.6, 3, 1.6, 0.5], vertical_alignment="center")
+        c0.markdown(foto_html(v.get("foto_id"), 44), unsafe_allow_html=True)
+        c1.markdown(f"**{_esc(E.nome_completo(v))}**")
+        c2.markdown(_esc(estoque_txt(saldo, v["id"]).replace("em estoque: ", "")))
+        # A última não tem ✕: excluir a única variação é excluir o produto.
+        if len(variacoes) > 1:
+            c3.button("✕", key=f"est_pn_x_{v['id']}", help="Excluir esta variação",
+                      on_click=_pedir_exclusao, args=(v["id"],))
+    alvo = next((v for v in variacoes if v["id"] == ss.get("est_pn_excluir")), None)
+    if alvo is not None:
+        nome = E.nome_completo(alvo)
+        pode, motivo = variacao_pode_excluir(alvo, saldo)
+        if not pode:
+            st.warning(f"«{nome}» {motivo}.")
+            st.button("Ok", key="est_pn_x_ok", on_click=_cancelar_exclusao)
+        else:
+            st.warning(f"Excluir a variação «{nome}»? Ela some do estoque; o histórico fica.")
+            a, b = st.columns(2)
+            a.button("Sim, excluir", key="est_pn_x_sim", type="primary", use_container_width=True,
+                     on_click=_excluir_variacao, args=(alvo["id"], nome))
+            b.button("Cancelar", key="est_pn_x_nao", use_container_width=True, on_click=_cancelar_exclusao)
+    st.button("➕ Nova variação", key="est_pn_nova_var", on_click=_abrir_nova_variacao)
+    _nova_variacao(variacoes, quem)
+
+
 def _painel(quem):
     import gdrive
     import pandas as pd
@@ -2306,7 +2364,11 @@ def _painel(quem):
         # ✎ EDITAR NO ESTOQUE CADASTRADO (dono, 17/11: «cadê o botão de
         # editar? preciso pôr foto»). O mesmo editor da Entrada, com todos
         # os campos; sufixo próprio nas chaves.
-        _editar_produto(E.do_codigo(prods, p.get("ean")) or [p], quem, sufixo="_pn")
+        _vs_pn = E.do_codigo(prods, p.get("ean")) or [p]
+        _editar_produto(_vs_pn, quem, sufixo="_pn")
+        # VARIAÇÕES AQUI TAMBÉM (dono, 17/11): «cadê o botão de cadastrar
+        # variação?» e «um X para excluir a variação».
+        _variacoes_do_painel(_vs_pn, E.saldos(movs), quem)
         st.markdown(f"**Histórico · {_esc(E.nome_completo(p))}**")
         hist = [m for m in movs if m.get("produto_id") == p["id"]][-30:]
         st.dataframe(pd.DataFrame([{"Quando": m.get("quando"), "O quê": m.get("tipo"),
@@ -2963,8 +3025,8 @@ if __name__ == "__main__":
     # ✎ EDITAR NO ESTOQUE CADASTRADO (dono, 17/11): a linha escolhida abre o
     # MESMO _editar_produto, com sufixo próprio.
     ok("estoque cadastrado: a linha escolhida abre o ✎ Editar produto (com sufixo)",
-       '_editar_produto(E.do_codigo(prods, p.get("ean")) or [p], quem, sufixo="_pn")'
-       in _insp.getsource(_painel))
+       '_vs_pn = E.do_codigo(prods, p.get("ean")) or [p]' in _insp.getsource(_painel)
+       and '_editar_produto(_vs_pn, quem, sufixo="_pn")' in _insp.getsource(_painel))
 
     # BUSCAR POR NOME NA SAÍDA (dono, 17/11). Por AST: o seletor vem logo
     # depois da barra e antes do «Ver»; o botão chama o MESMO _bipe_na_saida.
@@ -2998,6 +3060,20 @@ if __name__ == "__main__":
     _l_tela = [ln for ln, f in _ch_ed if f in ("st.columns", "st.button", "c2.button")]
     ok("ficha: ✎ Editar produto aparece logo abaixo do quadro, antes das variações e do CONFIRMAR",
        len(_l_ed) == 1 and _l_tela and _l_ed[0] < min(_l_tela))
+
+    # VARIAÇÃO NO ESTOQUE CADASTRADO (dono, 17/11): ➕ e ✕ ao lado do editar.
+    _vx = E.linhas_de_produto("7908045165056", "PR-2", "Porta 2 Relógio + Jóias", 10,
+                              [("Preto", ""), ("Branco (P)", "")], "l", "x")
+    _sx = E.saldos(E.linhas_de_entrada([(_vx[0], 3)], "l", "x")
+                   + E.linhas_de_entrada([(_vx[1], 2)], "l", "x", local=list(E.FULLS)[0]))
+    ok("variação: com peça no físico OU no Full não exclui; zerada exclui",
+       not variacao_pode_excluir(_vx[0], _sx)[0] and not variacao_pode_excluir(_vx[1], _sx)[0]
+       and variacao_pode_excluir(_vx[1], E.saldos([]))[0])
+    _src_pn = _insp.getsource(_painel)
+    _src_vp = _insp.getsource(_variacoes_do_painel)
+    ok("Estoque cadastrado: a linha escolhida mostra ✕ e ➕ Nova variação",
+       "_variacoes_do_painel(" in _src_pn and "_nova_variacao(variacoes, quem)" in _src_vp
+       and "on_click=_excluir_variacao" in _src_vp and '"ativo": "0"' in _insp.getsource(_excluir_variacao))
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
