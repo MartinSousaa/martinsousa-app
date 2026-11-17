@@ -467,6 +467,10 @@ def _abrir_nova_variacao():
     st.session_state["est_nova_var"] = True
 
 
+def _fechar_nova_variacao():
+    st.session_state.pop("est_nova_var", None)
+
+
 def _ficha(variacoes, saldo, codigos, por_id, quem, movs=None):
     """A ficha do produto JÁ cadastrado (dono, 13/11): abre como o bipe da
     vez da saída — o quadro grande à esquerda, as últimas entradas à direita."""
@@ -538,26 +542,22 @@ def _nova_variacao(variacoes, quem):
     with st.container(border=True):
         st.markdown("**➕ Nova variação** — escreva o nome e tire a foto")
         p0 = variacoes[0]
-        sem_nome = len(variacoes) == 1 and not str(p0.get("variacao") or "").strip()
+        # UM CAMPO SÓ (dono, 17/11): «a primeira já é a variação». O produto
+        # que já existe fica como está; pedir o nome dele travava o salvar.
         with st.form("est_form_var", clear_on_submit=True):
-            nome_antigo = ""
-            if sem_nome:
-                nome_antigo = st.text_input(
-                    "Nome da variação que JÁ existe (a primeira)",
-                    help="O produto tinha uma variação só, sem nome. Para separar, as duas precisam de nome.")
-            nome = st.text_input("Nome da nova variação (posição, cor…)")
+            nome = st.text_input("Nome da variação (posição, cor…)")
             foto = st.file_uploader("Foto da variação", type=None, key="est_var_foto")
             qtd = int(st.number_input("Quantidade entrando agora", min_value=0, step=1, value=None) or 0)
             enviar = st.form_submit_button("Salvar variação", type="primary")
+        # Clicou errado (dono, 17/11): sair sem salvar.
+        st.button("Cancelar", key="est_var_cancelar", on_click=_fechar_nova_variacao)
         if not enviar:
             return
-        if not str(nome).strip() or (sem_nome and not str(nome_antigo).strip()):
-            st.error("Escreva o nome da variação" + (" — das duas." if sem_nome else "."))
+        if not str(nome).strip():
+            st.error("Escreva o nome da variação.")
             return
         try:
             foto_id, af = foto_da_tela(foto, E.limpar_codigo(p0.get("ean")))
-            if sem_nome:
-                E.atualizar_produtos({p0["id"]: {"variacao": str(nome_antigo).strip()}})
             novas = E.linhas_de_produto(p0.get("ean"), p0.get("codigo_fornecedor"), p0.get("nome"),
                                         E.numero(p0.get("custo")), [(nome, foto_id)], quem, _quando(),
                                         sku=p0.get("sku", ""), sku_atacado=p0.get("sku_atacado", ""),
@@ -2240,6 +2240,33 @@ def tabela_produtos(linhas, busca=""):
     return sorted(fora, key=lambda l: E._sem_acento(E.nome_completo(l["produto"])))
 
 
+def assinatura_da_lista(linhas):
+    """Muda quando a lista da tabela muda (linha a mais, a menos, outra ordem). Pura."""
+    import hashlib
+    return hashlib.md5("|".join(l["produto"]["id"] for l in linhas).encode()).hexdigest()[:10]
+
+
+def produto_escolhido(linhas, sel, guardado, desmarcou, ean_guardado=""):
+    """O id do produto aberto no Estoque cadastrado. Pura.
+
+    Linha marcada: ela. `desmarcou` (a MESMA tabela tinha marcação e agora
+    não tem): fechou. Tabela desmarcada por ter nascido de novo (variação
+    nova, excluída, busca): fica aberto o produto guardado, se ainda está
+    na lista. Tratar «sem marcação» como «desmarcou» fechava o produto no
+    clique seguinte — o «+ Nova variação» que não abria (17/11).
+    """
+    ids = [l["produto"]["id"] for l in linhas]
+    if sel and sel[0] < len(ids):
+        return ids[sel[0]]
+    if desmarcou or not guardado:
+        return None
+    if guardado in ids:
+        return guardado
+    # A variação aberta foi excluída: fica aberta outra do mesmo produto.
+    return next((l["produto"]["id"] for l in linhas
+                 if ean_guardado and E.limpar_codigo(l["produto"].get("ean")) == ean_guardado), None)
+
+
 def variacao_pode_excluir(v, saldo):
     """(pode, motivo). Variação com peça em QUALQUER lugar (físico ou Full)
     não sai: o valor dela sumiria do estoque sem saída nenhuma. Pura."""
@@ -2367,13 +2394,23 @@ def _painel(quem):
     if df.empty:
         st.caption("Nenhum produto" + (" com essa busca." if busca else " cadastrado ainda."))
         return
+    # O PRODUTO ESCOLHIDO NÃO SOME (dono, 17/11: «clico em + nova variação
+    # e não abre»). Salvar uma variação põe uma linha nova na lista, e o
+    # Streamlit desmarca a tabela — o produto, o botão e as variações sumiam.
+    # Lista nova = tabela nova (a chave leva a assinatura) e o produto
+    # escolhido vem do que foi guardado; lista igual, vale o clique.
+    sig = assinatura_da_lista(linhas)
     ev = st.dataframe(df, hide_index=True, use_container_width=True, on_select="rerun",
-                      selection_mode="single-row", key="est_tab",
+                      selection_mode="single-row", key=f"est_tab_{sig}",
                       column_config={"foto": st.column_config.ImageColumn("", width="small")})
     st.caption(f"{len(linhas)} produto(s)" + (f" com «{busca.strip()}»" if busca.strip() else ""))
     sel = list(getattr(getattr(ev, "selection", None), "rows", []) or [])
-    if sel and sel[0] < len(linhas):
-        p = linhas[sel[0]]["produto"]
+    desmarcou = ss.get("est_pn_sig") == sig and bool(ss.get("est_pn_sel")) and not sel
+    pid = produto_escolhido(linhas, sel, ss.get("est_pn_pid"), desmarcou, ss.get("est_pn_ean", ""))
+    p = next((l["produto"] for l in linhas if l["produto"]["id"] == pid), None)
+    ss["est_pn_sig"], ss["est_pn_pid"], ss["est_pn_sel"] = sig, pid, bool(sel)
+    ss["est_pn_ean"] = E.limpar_codigo(p.get("ean")) if p else ""
+    if p:
         # ✎ EDITAR NO ESTOQUE CADASTRADO (dono, 17/11: «cadê o botão de
         # editar? preciso pôr foto»). O mesmo editor da Entrada, com todos
         # os campos; sufixo próprio nas chaves.
@@ -3159,6 +3196,34 @@ if __name__ == "__main__":
     ok(f"foto: só foto_da_tela chama o Drive, e os {len(_usa)} campos avisam pela mensagem "
        f"({_sem}, {_warn}, {_af_ruim})",
        _sf == ["foto_da_tela"] and len(_usa) == 5 and not _sem and not _warn and not _af_ruim)
+
+    # O PRODUTO ESCOLHIDO NÃO SOME (dono, 17/11). Pela cadeia: as linhas
+    # vêm de tabela_produtos, como na tela, antes e depois da variação nova.
+    _pe = E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("", "")], "l", "x")
+    _pb = E.linhas_de_produto("7891234567895", "MBLN-06", "Álbum + base", 18, [("", "")], "l", "x")
+    _ln = lambda ps: tabela_produtos([{"produto": q, "valor": 0} for q in ps])
+    _antes = _ln(_pe + _pb)
+    _nova = E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("Preto", "")], "l", "x")
+    _depois = _ln(_pe + _pb + _nova)
+    _i = [l["produto"]["id"] for l in _antes].index(_pe[0]["id"])
+    _esc1 = produto_escolhido(_antes, [_i], None, False)
+    _esc2 = produto_escolhido(_depois, [], _esc1, False, "5901234123457")
+    ok("produto escolhido: lista mudou (variação nova) e ele continua aberto, mesmo com a tabela desmarcada",
+       _esc1 == _pe[0]["id"] and assinatura_da_lista(_antes) != assinatura_da_lista(_depois)
+       and _esc2 == _pe[0]["id"])
+    ok("produto escolhido: e continua no CLIQUE SEGUINTE (o + Nova variação que não abria)",
+       produto_escolhido(_depois, [], _esc2, False, "5901234123457") == _pe[0]["id"])
+    ok("produto escolhido: desmarcou fecha; a excluída deixa aberta a irmã",
+       produto_escolhido(_antes, [], _esc1, True) is None
+       and produto_escolhido(_ln(_pb + _nova), [], _esc1, False, "5901234123457") == _nova[0]["id"])
+    _src_pn2 = _insp.getsource(_painel)
+    ok("produto escolhido: a tabela troca de chave quando a lista muda",
+       'key=f"est_tab_{sig}"' in _src_pn2 and "produto_escolhido(" in _src_pn2
+       and 'desmarcou = ss.get("est_pn_sig") == sig and bool(ss.get("est_pn_sel")) and not sel' in _src_pn2)
+    _src_nv = _insp.getsource(_nova_variacao)
+    ok("nova variação: um campo de nome só, e Cancelar",
+       "JÁ existe" not in _src_nv and "nome_antigo" not in _src_nv
+       and "on_click=_fechar_nova_variacao" in _src_nv)
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
