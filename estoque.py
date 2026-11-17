@@ -895,8 +895,8 @@ def consulta_sku(tabela, sku):
     l = tabela.get(sku)
     if not l:
         return {"achou": False, "custo": None,
-                "aviso": f"O SKU {sku} não está na aba {ABA_SKU} do Controle MS — "
-                         "o produto entra na lista «Produtos sem SKU»."}
+                "aviso": f"O SKU {sku} ainda não está na aba {ABA_SKU} do Controle MS — "
+                         "vale o custo digitado."}
     aviso = ""
     if l["qtd"] > 1:
         aviso = (f"Este SKU é de um pacote de {l['qtd']} ({l['produto'] or 'sem nome'}). "
@@ -917,8 +917,10 @@ def so_atacado(p):
 def sem_sku(produtos, tabela):
     """Os produtos para a lista «Produtos sem SKU». Pura.
 
-    Entra quem não tem SKU, e quem tem um SKU que a planilha não conhece.
-    Um por produto (as variações dividem o SKU): [(produto, motivo)].
+    Entra só quem não tem SKU NENHUM (dono, 17/11: «salvar com um SKU que
+    não tenha na planilha — ela não é atualizada na hora»). SKU que a
+    planilha ainda não conhece vale, com o custo digitado. `tabela` fica na
+    assinatura para quem chama. Um por produto: [(produto, motivo)].
     """
     fora, vistos = [], set()
     for p in ativos(produtos):
@@ -931,8 +933,6 @@ def sem_sku(produtos, tabela):
         sku = normalizar_sku(p.get("sku")) or normalizar_sku(p.get("sku_atacado"))
         if not sku:
             fora.append((p, "sem SKU"))
-        elif tabela is not None and sku not in tabela:
-            fora.append((p, f"SKU {sku} não está na planilha"))
     return fora
 
 
@@ -1627,8 +1627,8 @@ if __name__ == "__main__":
     ok("consulta_sku: SKU de PACOTE avisa para usar o da unidade",
        _pac["achou"] and "pacote de 3" in _pac["aviso"] and "UNIDADE" in _pac["aviso"])
     _nao = consulta_sku(_tab, "MS-0001")
-    ok("consulta_sku: SKU que a planilha não tem avisa que vai para «Produtos sem SKU»",
-       not _nao["achou"] and "Produtos sem SKU" in _nao["aviso"])
+    ok("consulta_sku: SKU que a planilha ainda não tem vale com o custo digitado",
+       not _nao["achou"] and "vale o custo digitado" in _nao["aviso"])
     ok("aba_de_sku: aceita com e sem acento, maiúscula ou não",
        aba_de_sku(["X", "PRECO  DE CUSTO"]) == "PRECO  DE CUSTO" and aba_de_sku(["HISTÓRICO SKU", "PREÇO DE CUSTO."]) == "PREÇO DE CUSTO."
        and aba_de_sku(["SKU"]) == "")
@@ -1636,17 +1636,16 @@ if __name__ == "__main__":
                    {**_pa, "id": "P2", "variacao": "b", "sku": "", "sku_atacado": ""},
                    {**_pa, "id": "P3", "ean": "1", "sku": "MS-0001"},
                    {**_pa, "id": "P4", "ean": "2", "sku": "MS-3500"}], _tab)
-    ok("sem_sku: o sem SKU entra uma vez (variações dividem), o de SKU desconhecido entra, o achado não",
-       [(p["id"], m) for p, m in _ss] == [(_pa["id"], "sem SKU"), ("P3", "SKU MS-0001 não está na planilha")])
+    ok("sem_sku: só o sem SKU entra, uma vez (variações dividem); SKU que a planilha não tem NÃO entra (17/11)",
+       [(p["id"], m) for p, m in _ss] == [(_pa["id"], "sem SKU")])
     ok("sem_sku: sem conseguir ler a planilha, só o vazio entra (não acusa SKU que pode estar lá)",
        [m for _p, m in sem_sku([{**_pa, "sku": "MS-0001"}, {**_pa, "ean": "9", "sku": "", "sku_atacado": ""}],
                                None)] == ["sem SKU"])
     # Só atacado (dono, 16/11): o SKU do atacado é o que vale — achado, fora
     # da lista; desconhecido, entra dizendo qual.
-    ok("sem_sku: só atacado com SKU achado fica fora; com SKU desconhecido entra dizendo qual",
+    ok("sem_sku: só atacado, com SKU achado ou não, fica fora",
        sem_sku([{**_pa, "sku": "", "sku_atacado": "MS-3500"}], _tab) == []
-       and [m for _p, m in sem_sku([{**_pa, "sku": "", "sku_atacado": "MS-0001"}], _tab)]
-       == ["SKU MS-0001 não está na planilha"])
+       and sem_sku([{**_pa, "sku": "", "sku_atacado": "MS-0001"}], _tab) == [])
     ok("so_atacado: sem varejo, com atacado e custo igual; varejo ou custo diferente não",
        so_atacado({"sku": "", "sku_atacado": "MS-1", "custo": "39.49", "custo_atacado": "39.49"})
        and not so_atacado({"sku": "MS-2", "sku_atacado": "MS-1", "custo": "39.49", "custo_atacado": "39.49"})

@@ -552,7 +552,7 @@ def main():
             pg.get_by_label("SKU (varejo)").fill("XX-404")
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)
-            _nao_achou = "SKU XX-404 não foi encontrado" in pg.inner_text("body")
+            _nao_achou = "SKU XX-404 ainda não está" in pg.inner_text("body")
             pg.get_by_label("SKU (varejo)").fill("  ms-3500 ")
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)

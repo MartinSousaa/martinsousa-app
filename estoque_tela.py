@@ -692,6 +692,14 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
         ss[pf + "painel"] = painel
         if painel:
             st.markdown("**✎ Produto** — altere o que precisar e salve tudo de uma vez no fim")
+            # O CÓDIGO À VISTA (dono, 17/11: «cadastrei sem código, o sistema
+            # gerou um, preciso vê-lo… preciso gerar um kit com ele»).
+            _cod = E.limpar_codigo(p0.get("ean"))
+            c_a, c_b = st.columns([3, 1], vertical_alignment="center")
+            c_a.markdown(f"Código de barras **{_esc(_cod)}**"
+                         + (" · gerado pelo Studio" if eh_codigo_do_studio(_cod) else ""))
+            if c_b.toggle("🖨 Etiqueta", key=f"{pf}etq"):
+                _etiqueta(_cod, E.capitalizar(p0.get("nome")))
         ini = _iniciais_ed(p0)
         # A chave leva o código: dois produtos abertos em seguida não dividem
         # o que foi digitado em um.
@@ -980,7 +988,7 @@ def resolver_custo(sku, digitado, tabela, erro_planilha=""):
     aba PREÇO DE CUSTO. Achou: vale o da planilha ("mesmo SKU quer dizer
     mesmo preço de custo"). SKU de PACOTE não entra: o custo dele é do pacote
     inteiro. Não achou, ou sem SKU: vale o digitado, e o produto vai para a
-    lista «Produtos sem SKU».
+    lista «Produtos sem SKU» só quando não tem SKU nenhum (17/11).
     """
     c = E.consulta_sku(tabela or {}, sku)
     sem_planilha = (f" (não consegui ler o Controle MS: {erro_planilha})" if erro_planilha else "")
@@ -1032,8 +1040,8 @@ def situacao_sku(sku, tabela, erro_planilha=""):
         txt = f'{c["custo"]:.2f}'.replace(".", ",")
         return ("ok", f"✓ {n} achado na planilha" + (f" ({prod})" if prod else "")
                 + f" · custo R$ {txt}", txt)
-    return ("erro", f"❌ SKU {n} não foi encontrado na aba {E.ABA_SKU} do Controle MS. "
-                    "Confira o SKU, ou digite o custo — o produto vai para «Produtos sem SKU».", None)
+    return ("aviso", f"SKU {n} ainda não está na aba {E.ABA_SKU} do Controle MS — digite o custo "
+                     "e salve: vale o digitado.", None)
 
 
 def _ao_mudar_sku(chave_sku, chave_custo):
@@ -2825,7 +2833,8 @@ def _painel(quem):
         "foto": (gdrive.url_thumbnail(E.foto_principal(l["produto"]), 120)
                  if E.foto_principal(l["produto"]) else ""),
         "Produto": nome_da_linha(l),
-        "Código": l["produto"].get("codigo_fornecedor") or l["produto"].get("ean"),
+        "Código": l["produto"].get("codigo_fornecedor") or "—",
+        "Código de barras": E.limpar_codigo(l["produto"].get("ean")) or "—",
         "Fornecedor": l["produto"].get("fornecedor") or "—",
         "SKU": E.normalizar_sku(l["produto"].get("sku")) or "—",
         "Físico": l["fisico"], "Full": l["full"],
@@ -3240,8 +3249,8 @@ if __name__ == "__main__":
            "MS-9000": {"custo": 90.0, "qtd": 3, "produto": "Pacote"}}
     ok("situacao_sku: achou — diz o produto e devolve o custo como a equipe digita",
        situacao_sku("  ms-3500 ", _tb) == ("ok", "✓ MS-3500 achado na planilha (Caneca (P) + tampa) · custo R$ 35,00", "35,00"))
-    ok("situacao_sku: não achou — diz que não foi encontrado e não inventa custo",
-       situacao_sku("MS-1", _tb)[0] == "erro" and "não foi encontrado" in situacao_sku("MS-1", _tb)[1]
+    ok("situacao_sku: não achou — avisa (não é erro: vale o digitado, 17/11) e não inventa custo",
+       situacao_sku("MS-1", _tb)[0] == "aviso" and "ainda não está" in situacao_sku("MS-1", _tb)[1]
        and situacao_sku("MS-1", _tb)[2] is None)
     ok("situacao_sku: pacote é recusado sem custo", situacao_sku("ms-9000", _tb)[0] == "erro"
        and "pacote" in situacao_sku("ms-9000", _tb)[1] and situacao_sku("ms-9000", _tb)[2] is None)
@@ -3836,6 +3845,11 @@ if __name__ == "__main__":
        E.foto_principal({"foto_id": "V", "foto_produto": "P"}) == "P" and E.foto_principal({"foto_id": "V"}) == "V"
        and "FCAPA" in ficha_entrada_html([{**prods[0], "foto_id": "V", "foto_produto": "FCAPA"}], {}, "1")
        and 'E.foto_principal(l["produto"])' in _insp.getsource(_painel))
+
+    _srcc = _insp.getsource(_painel) + _insp.getsource(_editar_produto)
+    ok("código de barras: coluna própria na lista e à vista no quadro, com etiqueta (17/11)",
+       '"Código de barras": E.limpar_codigo(l["produto"].get("ean"))' in _srcc
+       and "Código de barras **" in _srcc and "_etiqueta(_cod" in _srcc)
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
