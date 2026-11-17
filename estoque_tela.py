@@ -557,7 +557,12 @@ def _nova_variacao(variacoes, quem):
             st.error(f"Não gravei a variação — a planilha respondeu: {e}")
 
 
-def _editar_produto(variacoes, quem, sufixo="", aberto=False):
+def _fechar_ed_entrada():
+    """Fecha o «✎ editar» da entrada (Cancelar, ou depois de salvar)."""
+    st.session_state["est_ent_ed"] = None
+
+
+def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False):
     """O cadastro inteiro do produto. `sufixo` separa as chaves: o mesmo
     produto pode estar aberto na ficha E no «✎ editar» das últimas entradas
     na mesma tela (dono, 17/11) — chave repetida derruba a tela."""
@@ -600,6 +605,9 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False):
             E.atualizar_produtos(mud)
             _avisar("✓ Produto atualizado. O custo novo vale para as próximas entradas."
                     + "".join(f" · {a}" for a in avisos_c))
+            # Salvou: o «✎ editar» da entrada recolhe (dono, 17/11).
+            if fechar:
+                _fechar_ed_entrada()
             st.rerun()
         except Exception as e:
             st.error(f"Não gravei — a planilha respondeu: {e}")
@@ -1101,8 +1109,11 @@ def _edicao_da_entrada(lt, por_id, quem):
                        f'{_esc(E.origem_de(m))}')
             b.number_input("quantidade certa", min_value=0, step=1, value=E.inteiro(m.get("qtd")),
                            key=f"est_ent_q_{lt['lote']}_{i}", label_visibility="collapsed")
-        st.button("Salvar quantidade", key=f"est_ent_sv_{lt['lote']}", type="primary",
+        # Cancelar (dono, 17/11): abriu o produto errado, fecha sem gravar.
+        s1, s2, _s3 = st.columns([1.3, 1, 2])
+        s1.button("Salvar quantidade", key=f"est_ent_sv_{lt['lote']}", type="primary",
                   on_click=_salvar_correcao, args=(lt["lote"], quem, len(linhas)))
+        s2.button("Cancelar", key=f"est_ent_cx_{lt['lote']}", on_click=_fechar_ed_entrada)
         # O CADASTRO INTEIRO (dono, 17/11): «quando clicar em editar ao dar
         # entrada precisa abrir a tela completa para editar qualquer
         # informação». Um editor por código de barras do lote, já aberto.
@@ -1115,7 +1126,7 @@ def _edicao_da_entrada(lt, por_id, quem):
         for e in eans:
             vs = E.do_codigo(todos, e)
             if vs:
-                _editar_produto(vs, quem, sufixo=f"_lt{lt['lote']}", aberto=True)
+                _editar_produto(vs, quem, sufixo=f"_lt{lt['lote']}", aberto=True, fechar=True)
 
 
 def _mais_entradas():
@@ -2907,8 +2918,19 @@ if __name__ == "__main__":
     # chaves do editor levam o sufixo (ficha + entrada na mesma tela).
     _src_ee = _insp.getsource(_edicao_da_entrada)
     _src_ep = _insp.getsource(_editar_produto)
-    ok("editar entrada: abre o cadastro inteiro (_editar_produto), já aberto",
-       "_editar_produto(vs, quem, sufixo=" in _src_ee and "aberto=True" in _src_ee)
+    ok("editar entrada: abre o cadastro inteiro (_editar_produto), já aberto e recolhe ao salvar",
+       "_editar_produto(vs, quem, sufixo=" in _src_ee and "aberto=True" in _src_ee
+       and "fechar=True" in _src_ee and "if fechar:\n                _fechar_ed_entrada()" in _src_ep)
+    # Cancelar: o botão existe e FECHA de verdade (o callback, rodado).
+    _ss_cx = {"est_ent_ed": "L1"}
+    _orig_ss = st.session_state
+    try:
+        st.session_state = _ss_cx
+        _fechar_ed_entrada()
+    finally:
+        st.session_state = _orig_ss
+    ok("editar entrada: «Cancelar» chama _fechar_ed_entrada, e ela fecha",
+       'on_click=_fechar_ed_entrada' in _src_ee and _ss_cx["est_ent_ed"] is None)
     ok("editar produto: form, foto e SKU com sufixo — sem chave repetida com a ficha",
        'st.form(f"est_form_edit{sufixo}")' in _src_ep and 'key=f"est_edit_foto{sufixo}"' in _src_ep
        and "{sufixo}_" in _src_ep)
