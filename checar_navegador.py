@@ -433,7 +433,7 @@ def main():
             # PAINEL (Parte 5, 11/11): a venda sem estoque cai na lista do
             # Renan sozinha, o "comprado" fica gravado, e a busca acha o nome
             # com símbolo como TEXTO.
-            pg.get_by_text("Painel", exact=True).nth(1).click()
+            pg.get_by_text("Estoque cadastrado", exact=True).click()
             pg.wait_for_timeout(3500)
             _ptxt = pg.inner_text("body")
             _renan = "vendeu sem estoque" in _ptxt
@@ -573,7 +573,7 @@ def main():
             _btxt = pg.inner_text("body")
             _custo = "Caneca (P) + tampa§35.00§MS-3500" in _btxt
             _org = "Caneca (P) + tampa§atacado§4" in _btxt
-            pg.get_by_text("Painel", exact=True).nth(1).click()
+            pg.get_by_text("Estoque cadastrado", exact=True).click()
             pg.wait_for_timeout(3500)
             _alerta = _re.search(r"PRODUTOS SEM SKU · (\d+)", pg.inner_text("body"))
             ok = (_pacote and _custo and _org and _alerta is not None and _alerta.group(1) == "3"

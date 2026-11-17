@@ -1118,6 +1118,12 @@ def salvar_foto(dados, nome):
                                mimetype="image/jpeg")
     if erro:
         return "", erro
+    # GRAVOU, MAS NINGUÉM VÊ (dono, 17/11: «salvei a foto e não salvou»):
+    # sem leitura pública o Drive não serve a miniatura, e a tela mostrava o
+    # quadrado vazio sem dizer por quê. O id fica; o aviso sobe junto.
+    if info.get("publico") is False:
+        return info["id"], ("a foto foi gravada, mas o Drive não deixou ela pública — "
+                            "a miniatura não aparece na tela")
     return info["id"], None
 
 
@@ -1314,6 +1320,19 @@ if __name__ == "__main__":
                 _sys_t.modules.pop(k, None)
             else:
                 _sys_t.modules[k] = v
+    # Gravou mas não ficou pública: o id fica e o aviso sobe (17/11).
+    _f_gd.upload = lambda b, nome, pasta, mimetype=None: ({"id": "F2", "publico": False}, None)
+    _sys_t.modules.update(imagem=_f_img, gdrive=_f_gd)
+    try:
+        _fid2, _err2 = salvar_foto(_png.getvalue(), "0789")
+    finally:
+        for k, v in _reais.items():
+            if v is None:
+                _sys_t.modules.pop(k, None)
+            else:
+                _sys_t.modules[k] = v
+    ok("salvar_foto: gravada sem leitura pública devolve o id E o aviso",
+       _fid2 == "F2" and "não deixou ela pública" in str(_err2))
     _sai = _Im.open(_io_t.BytesIO(_enviado.get("b", b"")))
     ok("salvar_foto: passa pelo conversor, sai JPEG de até 800 px, na pasta do estoque",
        _fid == "F1" and _err is None and _enviado.get("normalizou") and _sai.format == "JPEG"
