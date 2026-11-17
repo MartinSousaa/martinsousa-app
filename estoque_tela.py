@@ -2343,7 +2343,7 @@ def _kits(quem):
     with esq:
         _criar_kit(prods, codigos, por_id, saldo, nova, quem)
     with dir_:
-        _kits_cadastrados(codigos, por_id, saldo)
+        _kits_cadastrados(codigos, por_id, saldo, prods)
 
 
 def _criar_kit(prods, codigos, por_id, saldo, nova, quem):
@@ -2400,7 +2400,7 @@ def _criar_kit(prods, codigos, por_id, saldo, nova, quem):
                 st.error(f"Não gravei o kit — a planilha respondeu: {e}")
 
 
-def _kits_cadastrados(codigos, por_id, saldo):
+def _kits_cadastrados(codigos, por_id, saldo, prods=()):
     ss = st.session_state
     st.markdown("**Kits cadastrados**")
     kits = [k for k in codigos if k.get("tipo") == "kit"]
@@ -2413,24 +2413,99 @@ def _kits_cadastrados(codigos, por_id, saldo):
             c1, c2 = st.columns(2)
             if c1.button("🖨 imprimir", key=f"est_kp_{k['codigo']}", use_container_width=True):
                 ss["est_imprimir"] = k["codigo"]
-            with c2.popover("✎ editar", use_container_width=True):
-                novo_nome = st.text_input("Nome", value=str(k.get("nome") or ""),
-                                          key=f"est_kn_{k['codigo']}")
-                st.button("Salvar nome", key=f"est_ks_{k['codigo']}", on_click=_salvar_nome_kit,
-                          args=(k["codigo"],))
+            c2.button("✎ editar", key=f"est_ke_ab_{k['codigo']}", use_container_width=True,
+                      on_click=_abrir_ed_kit, args=(k["codigo"],))
+            if ss.get("est_kit_ed") == k["codigo"]:
+                _editar_kit(k, por_id, prods)
             if ss.get("est_imprimir") == k["codigo"]:
                 _etiqueta(k["codigo"], k.get("nome"), " · ".join(
                     E.nome_completo(por_id.get(pid, {})) for pid in E.itens_do_codigo(k)))
 
 
-def _salvar_nome_kit(codigo):
-    """Callback do «Salvar nome» do kit: grava antes da passada."""
+def _abrir_ed_kit(codigo):
+    st.session_state["est_kit_ed"] = codigo
+
+
+def _fechar_ed_kit():
+    ss = st.session_state
+    ss.pop("est_kit_ed", None)
+    ss["est_kit_ek"] = int(ss.get("est_kit_ek") or 0) + 1      # campos e foto nascem limpos
+
+
+def _ch_kit(campo, codigo, extra=""):
+    return f"est_ked_{campo}_{st.session_state.get('est_kit_ek', 0)}_{codigo}{extra}"
+
+
+def receita_editada(atual, digitados, novo_pid="", novo_q=0):
+    """({produto_id: qtd}, erro) da receita depois do ✎ editar do kit. Pura.
+
+    Quantidade 0 tira o item; o item novo soma ao que já existir dele."""
+    fora = {}
+    for pid in atual:
+        q = int(digitados.get(pid, atual[pid]) or 0)
+        if q > 0:
+            fora[pid] = q
+    if novo_pid and int(novo_q or 0) > 0:
+        fora[novo_pid] = fora.get(novo_pid, 0) + int(novo_q)
+    if not fora:
+        return {}, "o kit ficou sem item nenhum."
+    return fora, ""
+
+
+def _salvar_kit(codigo, atual, opcoes):
+    """Callback: nome, foto e itens do kit, de uma vez."""
+    import json as _json
+    ss = st.session_state
+    nome = " ".join(str(ss.get(_ch_kit("nome", codigo)) or "").split())
+    if not nome:
+        _avisar("Nada foi gravado — falta o nome do kit.", True)
+        return
+    rec, erro = receita_editada(atual, {pid: ss.get(_ch_kit("q", codigo, f"_{pid}")) for pid in atual},
+                                opcoes.get(ss.get(_ch_kit("novo", codigo)) or "", ""),
+                                ss.get(_ch_kit("novo_q", codigo)) or 0)
+    if erro:
+        _avisar(f"Nada foi gravado — {erro}", True)
+        return
     try:
-        novo = str(st.session_state.get(f"est_kn_{codigo}") or "").strip()
-        E.atualizar_codigos({codigo: {"nome": novo}})
-        _avisar("✓ Nome do kit atualizado.")
+        mud = {"nome": nome, "itens": _json.dumps(rec, ensure_ascii=False)}
+        foto_id, af = foto_da_tela(ss.get(_ch_kit("foto", codigo)), f"kit_{codigo}")
+        if foto_id:
+            mud["foto_id"] = foto_id
+        E.atualizar_codigos({codigo: mud})
+        _avisar(*_com_foto("✓ Kit atualizado.", af))
+        _fechar_ed_kit()
     except Exception as e:
         _avisar(f"Não gravei — a planilha respondeu: {e}", True)
+
+
+def _editar_kit(k, por_id, prods):
+    """O ✎ editar do kit INTEIRO (dono, 17/11: «e para editar a foto do kit?
+    Eu tenho que falar absolutamente tudo?»): nome, foto e itens — quanto de
+    cada, tirar (0) e pôr um novo — com um Salvar e um Cancelar."""
+    ss = st.session_state
+    cod = k["codigo"]
+    atual = E.itens_do_codigo(k)
+    with st.container(border=True):
+        ss.setdefault(_ch_kit("nome", cod), str(k.get("nome") or ""))
+        st.text_input("Nome do kit", key=_ch_kit("nome", cod))
+        st.file_uploader("Foto do kit", type=None, key=_ch_kit("foto", cod))
+        st.markdown("**Itens** — 0 tira do kit")
+        for pid, q in atual.items():
+            a, b = st.columns([3, 1], vertical_alignment="center")
+            a.markdown(_esc(E.nome_completo(por_id.get(pid, {})) or "?"))
+            ss.setdefault(_ch_kit("q", cod, f"_{pid}"), int(q))
+            b.number_input("Qtd", min_value=0, step=1, key=_ch_kit("q", cod, f"_{pid}"),
+                           label_visibility="collapsed")
+        opcoes = {E.nome_completo(p): p["id"] for p in sorted(
+            E.ativos(prods), key=lambda p: E._sem_acento(E.nome_completo(p))) if p["id"] not in atual}
+        a, b = st.columns([3, 1], vertical_alignment="bottom")
+        a.selectbox("Pôr mais um item", [""] + list(opcoes), key=_ch_kit("novo", cod),
+                    format_func=lambda x: x or "— escolha um produto —")
+        b.number_input("Qtd", min_value=0, step=1, value=1, key=_ch_kit("novo_q", cod))
+        c1, c2 = st.columns(2)
+        c1.button("Salvar kit", key=f"est_ked_ok_{cod}", type="primary", use_container_width=True,
+                  on_click=_salvar_kit, args=(cod, atual, opcoes))
+        c2.button("Cancelar", key=f"est_ked_cx_{cod}", use_container_width=True, on_click=_fechar_ed_kit)
 
 
 # ── PAINEL (Parte 5) ─────────────────────────────────────────────────────────
@@ -3667,7 +3742,7 @@ if __name__ == "__main__":
                          and _ast_ft.unparse(x.value.func) in ("foto_da_tela", "_gravar_baixa"))]
     ok(f"foto: só foto_da_tela chama o Drive, e os {len(_usa)} campos avisam pela mensagem "
        f"({_sem}, {_warn}, {_af_ruim})",
-       _sf == ["foto_da_tela"] and len(_usa) == 4 and not _sem and not _warn and not _af_ruim)
+       _sf == ["foto_da_tela"] and len(_usa) == 5 and not _sem and not _warn and not _af_ruim)
 
     # O PRODUTO ESCOLHIDO NÃO SOME (dono, 17/11). Pela cadeia: as linhas
     # vêm de tabela_produtos, como na tela, antes e depois da variação nova.
@@ -3850,6 +3925,16 @@ if __name__ == "__main__":
     ok("código de barras: coluna própria na lista e à vista no quadro, com etiqueta (17/11)",
        '"Código de barras": E.limpar_codigo(l["produto"].get("ean"))' in _srcc
        and "Código de barras **" in _srcc and "_etiqueta(_cod" in _srcc)
+
+    # ✎ EDITAR O KIT INTEIRO (dono, 17/11): nome, foto e itens.
+    ok("kit: quantidade muda, 0 tira, item novo soma; kit vazio é recusado",
+       receita_editada({"A": 2, "B": 1}, {"A": 3, "B": 0}, "C", 4) == ({"A": 3, "C": 4}, "")
+       and receita_editada({"A": 2}, {"A": 2}, "A", 1) == ({"A": 3}, "")
+       and receita_editada({"A": 2}, {"A": 0})[1] != "")
+    _sk = _insp.getsource(_editar_kit)
+    ok("kit: o ✎ editar tem nome, FOTO, itens, Salvar e Cancelar",
+       '"Foto do kit"' in _sk and "on_click=_salvar_kit" in _sk and "on_click=_fechar_ed_kit" in _sk
+       and '"Pôr mais um item"' in _sk and "_editar_kit(k, por_id, prods)" in _insp.getsource(_kits_cadastrados))
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
