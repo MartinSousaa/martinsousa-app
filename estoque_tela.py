@@ -1675,6 +1675,35 @@ def _sem_ean(prods, saldo):
                "em «📦 Bipe da vez», com editar e excluir.")
 
 
+MODOS_BUSCA_SAIDA = ("Código", "Nome")
+
+
+def _busca_por_nome_saida(prods, saldo):
+    """«Buscar produto por: Código ou nome» logo abaixo da barra (dono, 17/11):
+    o produto TEM código, mas a etiqueta não está na caixa. Escolher o produto
+    é o mesmo que bipar o código dele — `_bipe_na_saida`, com a janela de
+    modelos, o kit e o «Bipe da vez» com editar e excluir."""
+    modo = st.segmented_control("Buscar produto por", MODOS_BUSCA_SAIDA, default="Código",
+                                key="est_sai_modo") or "Código"
+    if modo != "Nome":
+        return
+    txt = st.text_input("Nome do produto", key="est_sai_nome", label_visibility="collapsed",
+                        placeholder="🔎 nome, SKU ou código do fornecedor do produto sem etiqueta")
+    achados = [p for p in buscar_produtos(prods, txt) if E.limpar_codigo(p.get("ean"))]
+    if len(" ".join(str(txt or "").split())) >= 2 and not achados:
+        st.caption("Nenhum produto com esse nome.")
+    for p in achados:
+        ean = E.limpar_codigo(p.get("ean"))
+        mods = E.do_codigo(prods, ean) or [p]
+        est = sum(saldo.get((v["id"], E.FISICO), 0) for v in mods)
+        c0, c1, c2 = st.columns([0.6, 3.4, 1.3], vertical_alignment="center")
+        c0.markdown(foto_html(p.get("foto_id"), 44), unsafe_allow_html=True)
+        c1.markdown(f"**{_esc(E.capitalizar(p.get('nome')))}** · {_esc(ean)} · em estoque {est}"
+                    + (f" · {len(mods)} modelos" if len(mods) > 1 else ""))
+        c2.button("Dar saída", key=f"est_sai_nm_{ean}", on_click=_bipe_na_saida, args=(ean,),
+                  use_container_width=True)
+
+
 def _saida(quem):
     ss = st.session_state
     st.segmented_control("Saída para", list(DESTINOS), default="🛒 Venda", key="est_dest")
@@ -1697,6 +1726,7 @@ def _saida(quem):
     por_id = {p["id"]: p for p in prods}
     saldo = E.saldos(movs)
     lotes = _lotes_de_quem(movs, quem)
+    _busca_por_nome_saida(prods, saldo)
     vista = st.segmented_control("Ver", VISTAS_SAIDA, default=VISTAS_SAIDA[0], key="est_sai_vista",
                                  label_visibility="collapsed") or VISTAS_SAIDA[0]
     # A janela de modelos e a pergunta do kit valem em qualquer vista: o
@@ -1709,6 +1739,10 @@ def _saida(quem):
         _sem_ean(prods, saldo)
         return
     if vista == VISTAS_SAIDA[2]:
+        # A janela de modelos também aqui: «Dar saída» pela busca por nome
+        # vale em qualquer vista.
+        if variacoes:
+            _janela(variacoes, saldo, codigos, por_id, quem)
         _saida_manual(prods, saldo, quem)
         return
     principal, lateral = st.columns([1.15, 1])
@@ -2548,14 +2582,15 @@ def _abrir_ficha(ean):
 def buscar_produtos(prods, texto, limite=8):
     """Um produto por código de barras, achado pelo nome, variação, código do
     fornecedor, código de barras ou SKU (varejo e atacado), como TEXTO (o "+" e o "(" da equipe são letra). Pura."""
-    b = " ".join(str(texto or "").lower().split())
+    # Sem acento (dono, 17/11): a equipe digita «relogio» para «Relógio».
+    b = " ".join(E._sem_acento(str(texto or "")).lower().split())
     if len(b) < 2:
         return []
     vistos, fora = set(), []
     for p in E.ativos(prods):
-        alvo = " ".join(" ".join(str(x or "").lower() for x in (
+        alvo = " ".join(E._sem_acento(" ".join(str(x or "") for x in (
             p.get("nome"), p.get("variacao"), p.get("codigo_fornecedor"), p.get("ean"),
-            p.get("sku"), p.get("sku_atacado"))).split())
+            p.get("sku"), p.get("sku_atacado")))).lower().split())
         ean = E.limpar_codigo(p.get("ean"))
         if b in alvo and ean not in vistos:
             vistos.add(ean)
@@ -2849,6 +2884,27 @@ if __name__ == "__main__":
        E.sem_sku([_pat], None) == [] and len(E.sem_sku([{**_pat, "sku_atacado": ""}], None)) == 1)
     ok("só atacado: com custo de varejo digitado diferente, volta a ser «custo varejo»",
        "custo varejo" in ficha_entrada_html([{**_pat, "custo": "45"}], {}, "1"))
+
+    # BUSCAR POR NOME NA SAÍDA (dono, 17/11). Por AST: o seletor vem logo
+    # depois da barra e antes do «Ver»; o botão chama o MESMO _bipe_na_saida.
+    import ast as _ast_sn
+    _ch_sn = sorted((n.lineno, _ast_sn.unparse(n.func)) for n in
+                    _ast_sn.walk(_ast_sn.parse(_insp.getsource(_saida).lstrip()))
+                    if isinstance(n, _ast_sn.Call))
+    _ln = lambda f: [l for l, x in _ch_sn if x == f]
+    ok("saída: «Buscar produto por» logo depois da barra e antes do «Ver»",
+       _ln("_busca_por_nome_saida") and _ln("_barra")[0] < _ln("_busca_por_nome_saida")[0]
+       < _ln("st.segmented_control")[-1])
+    _src_sn = _insp.getsource(_busca_por_nome_saida)
+    ok("saída por nome: o botão dá saída pelo MESMO caminho do bipe",
+       "on_click=_bipe_na_saida" in _src_sn and "args=(ean,)" in _src_sn
+       and MODOS_BUSCA_SAIDA == ("Código", "Nome"))
+    # O pior nome real, digitado como a equipe digita: sem acento, minúscula.
+    _pj = [{**prods[0], "id": "PJ", "ean": "7908045165056", "nome": "Porta 2 Relógio + Jóias"}]
+    ok("buscar_produtos: «relogio + joias» acha «Porta 2 Relógio + Jóias» (símbolo e acento)",
+       [p["id"] for p in buscar_produtos(_pj, "relogio + joias")] == ["PJ"]
+       and [p["id"] for p in buscar_produtos(_pj, "RELÓGIO  +")] == ["PJ"]
+       and buscar_produtos(_pj, "ouro") == [])
 
     # ✎ EDITAR À VISTA (dono, 16/11): a edição existia no fim da página e o
     # dono disse que não tinha. Por AST, no bloco: o «✎ Editar produto» é
