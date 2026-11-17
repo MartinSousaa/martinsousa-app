@@ -2149,7 +2149,12 @@ if _mod_imagem_zerar is not None:
 
 # ── NAVEGAÇÃO PRINCIPAL ───────────────────────────────────────────────────────
 
-if _eh_admin:
+if auth.so_operacional(usuario_logado):
+    # ── EXPEDIÇÃO (dono, 17/11): só o Operacional, e mais nada ─────────────
+    # Antes do admin: mesmo que alguém ponha o login no ADMINS, ele continua
+    # vendo só isto.
+    gestao.pagina_operacional(usuario_logado, navegar=_navegar)
+elif _eh_admin:
     # ── ADMIN: acordeão Gestão / Indicadores / Operação ───────────────────────
     # A seção ativa vive na URL (?secao=operacao), nao so no session_state.
     # O session_state morre quando o servidor reinicia — e o Railway reinicia a
