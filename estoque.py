@@ -33,7 +33,8 @@ import secrets
 ABA_PRODUTOS = "estoque_produtos"
 COL_PRODUTOS = ["id", "ean", "codigo_fornecedor", "nome", "variacao", "custo",
                 "foto_id", "registrado_em", "registrado_por", "ativo",
-                "sku", "sku_atacado", "custo_atacado", "fornecedor"]
+                "sku", "sku_atacado", "custo_atacado", "fornecedor",
+                "foto_produto"]
 
 ABA_MOV = "estoque_movimentos"
 COL_MOV = ["id", "lote", "quando", "tipo", "local", "produto_id", "qtd",
@@ -277,6 +278,12 @@ def capitalizar(txt):
             primeira = False
         out.append(w)
     return " ".join(out)
+
+
+def foto_principal(p):
+    """A foto do PRODUTO (dono, 17/11: «alterar a foto do produto principal e
+    colocar a de 2 variações»): a de capa, se houver; senão a da variação."""
+    return str(p.get("foto_produto") or "").strip() or p.get("foto_id")
 
 
 def nome_completo(p):
@@ -1660,7 +1667,8 @@ if __name__ == "__main__":
     ok("kits_com: os kits E as quantidades que levam o produto, e só eles",
        [k["nome"] for k in kits_com(_kc, "P1")] == ["Kit A", "Kit com 3"] and kits_com(_kc, "P9") == [])
     # A coluna que a aba velha não tem: o SKU digitado na edição não pode sumir.
-    _velhoP = [c for c in COL_PRODUTOS if c not in ("sku", "sku_atacado", "custo_atacado", "fornecedor")]
+    _velhoP = [c for c in COL_PRODUTOS if c not in ("sku", "sku_atacado", "custo_atacado", "fornecedor",
+                                                     "foto_produto")]
     _abp = _AbaGrava([list(_velhoP), ["P1"] + [""] * (len(_velhoP) - 1)])
     globals()["_aba"] = lambda nome, colunas: _abp
     try:
@@ -1695,5 +1703,8 @@ if __name__ == "__main__":
        sum(q for (pid, _l), q in _zs.items() if pid == _zp[0]["id"]) == 0
        and _zs.get((_zp[1]["id"], FISICO)) == 1 and len(_zz) == 3
        and {m["custo_unit"] for m in _zz if m["origem"] == ATACADO} == {"40.00"})
+    ok("foto_principal: a de capa vence; sem ela, a da variação; vazia não conta",
+       foto_principal({"foto_id": "V", "foto_produto": "P"}) == "P"
+       and foto_principal({"foto_id": "V", "foto_produto": "  "}) == "V" and foto_principal({}) is None)
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
