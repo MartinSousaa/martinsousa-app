@@ -2225,7 +2225,9 @@ def tabela_produtos(linhas, busca=""):
         if b and b not in " ".join(alvo.split()) and E.limpar_codigo(b) != E.limpar_codigo(p.get("ean")):
             continue
         fora.append(l)
-    return sorted(fora, key=lambda l: -l["valor"])
+    # ORDEM ALFABÉTICA (dono, 17/11), sem acento e sem maiúscula: «Álbum»
+    # junto de «album», antes de «Caixa». Era pelo valor.
+    return sorted(fora, key=lambda l: E._sem_acento(E.nome_completo(l["produto"])))
 
 
 def variacao_pode_excluir(v, saldo):
@@ -3009,6 +3011,15 @@ if __name__ == "__main__":
     ok("editar produto: form, foto e SKU com sufixo — sem chave repetida com a ficha",
        'st.form(f"est_form_edit{sufixo}")' in _src_ep and 'key=f"est_edit_foto{sufixo}"' in _src_ep
        and "{sufixo}_" in _src_ep)
+
+    # ORDEM ALFABÉTICA do Estoque cadastrado (dono, 17/11), com nome da
+    # planilha (acento, maiúscula) e valor invertido de propósito.
+    _alf = [{"produto": {**prods[0], "nome": n, "variacao": ""}, "valor": v}
+            for n, v in (("Caixa para 12 Relógios", 900), ("álbum Pequeno", 10), ("Álbum Grande", 5),
+                         ("Globo Azul 14cm", 50))]
+    ok("estoque cadastrado: ordem alfabética, sem olhar acento, maiúscula ou valor",
+       [l["produto"]["nome"] for l in tabela_produtos(_alf, "")]
+       == ["Álbum Grande", "álbum Pequeno", "Caixa para 12 Relógios", "Globo Azul 14cm"])
 
     # SEM OS RISCADOS (dono, 17/11). Cadeia real: uma entrada corrigida pelo
     # ✎ editar (linhas_da_correcao) e outra excluída (linhas_que_desfazem).
