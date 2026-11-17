@@ -24,7 +24,7 @@ import streamlit as st
 import estoque as E
 
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
-         "🧩 Kits", "📊 Painel", "📱 Contagem")
+         "🧩 Kits", "📊 Estoque cadastrado", "📱 Contagem")
 EM_CONSTRUCAO = {}
 
 # O BIPE VAI PARA A BARRA, ESTEJA O CURSOR ONDE ESTIVER (dono, 11/11).
@@ -2295,6 +2295,10 @@ def _painel(quem):
     sel = list(getattr(getattr(ev, "selection", None), "rows", []) or [])
     if sel and sel[0] < len(linhas):
         p = linhas[sel[0]]["produto"]
+        # ✎ EDITAR NO ESTOQUE CADASTRADO (dono, 17/11: «cadê o botão de
+        # editar? preciso pôr foto»). O mesmo editor da Entrada, com todos
+        # os campos; sufixo próprio nas chaves.
+        _editar_produto(E.do_codigo(prods, p.get("ean")) or [p], quem, sufixo="_pn")
         st.markdown(f"**Histórico · {_esc(E.nome_completo(p))}**")
         hist = [m for m in movs if m.get("produto_id") == p["id"]][-30:]
         st.dataframe(pd.DataFrame([{"Quando": m.get("quando"), "O quê": m.get("tipo"),
@@ -2303,7 +2307,8 @@ def _painel(quem):
                                     "Obs": m.get("obs")} for m in reversed(hist)]),
                      hide_index=True, use_container_width=True)
     else:
-        st.caption("Clique numa linha para ver o histórico de entradas e saídas do produto.")
+        st.caption("Clique numa linha para ✎ editar o produto (foto, SKU, custo, nome…) "
+                   "e ver o histórico de entradas e saídas.")
 
 
 # ── CONTAGEM (Parte 6) ───────────────────────────────────────────────────────
@@ -2549,7 +2554,7 @@ def pagina(usuario_logado=None):
     if modo == "🧩 Kits":
         _kits(quem)
         return
-    if modo == "📊 Painel":
+    if modo == MODOS[4]:  # «Estoque cadastrado», antes «Painel» (dono, 17/11)
         _painel(quem)
         return
     if modo == "📱 Contagem":
@@ -2934,6 +2939,12 @@ if __name__ == "__main__":
     ok("editar produto: form, foto e SKU com sufixo — sem chave repetida com a ficha",
        'st.form(f"est_form_edit{sufixo}")' in _src_ep and 'key=f"est_edit_foto{sufixo}"' in _src_ep
        and "{sufixo}_" in _src_ep)
+
+    # ✎ EDITAR NO ESTOQUE CADASTRADO (dono, 17/11): a linha escolhida abre o
+    # MESMO _editar_produto, com sufixo próprio.
+    ok("estoque cadastrado: a linha escolhida abre o ✎ Editar produto (com sufixo)",
+       '_editar_produto(E.do_codigo(prods, p.get("ean")) or [p], quem, sufixo="_pn")'
+       in _insp.getsource(_painel))
 
     # BUSCAR POR NOME NA SAÍDA (dono, 17/11). Por AST: o seletor vem logo
     # depois da barra e antes do «Ver»; o botão chama o MESMO _bipe_na_saida.
