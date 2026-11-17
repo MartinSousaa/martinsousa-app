@@ -149,14 +149,13 @@ def cabecalho_html(variacoes, saldo, codigo):
     if E.normalizar_sku(p.get("sku_atacado")):
         sku_txt += (f' · atacado {_esc(E.normalizar_sku(p.get("sku_atacado")))} '
                     f'{_rs(E.custo_de(p, E.ATACADO))}')
-    forn_txt = f' · {_esc(p.get("fornecedor"))}' if str(p.get("fornecedor") or "").strip() else ""
     return (f'<div style="display:flex;gap:14px;align-items:center;margin:4px 0 10px">'
             f'{foto_html(p.get("foto_id"), 88)}<div>'
             f'<div style="font-size:11px;color:#4CC38A;font-weight:800;letter-spacing:.12em">'
             f'✓ JÁ CADASTRADO · {_esc(codigo)}</div>'
             f'<div style="font-size:20px;font-weight:800">{_esc(p.get("nome"))}</div>'
             f'<div style="font-size:13px;color:#9AA3AE">{_esc(p.get("codigo_fornecedor") or "—")}'
-            f'{forn_txt} · custo R$ {custo}{sku_txt}{var_txt} · em estoque: {total}</div>'
+            f' · custo R$ {custo}{sku_txt}{var_txt} · em estoque: {total}</div>'
             f'<div style="font-size:13px;color:#9AA3AE">registrado em '
             f'{_esc(str(p.get("registrado_em") or "")[:10])} · '
             f'<span style="color:#f0c060">a idade conta daqui</span></div></div></div>')
@@ -561,8 +560,7 @@ def _nova_variacao(variacoes, quem):
             novas = E.linhas_de_produto(p0.get("ean"), p0.get("codigo_fornecedor"), p0.get("nome"),
                                         E.numero(p0.get("custo")), [(nome, foto_id)], quem, _quando(),
                                         sku=p0.get("sku", ""), sku_atacado=p0.get("sku_atacado", ""),
-                                        custo_atacado=p0.get("custo_atacado", ""),
-                                        fornecedor=p0.get("fornecedor", ""))
+                                        custo_atacado=p0.get("custo_atacado", ""))
             E.gravar_produtos(novas)
             E.gravar_movimentos(E.linhas_de_entrada([(novas[0], int(qtd))], quem, _quando(),
                                                     origem=_origem_da_entrada()))
@@ -599,8 +597,6 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False):
                           if str(p0.get("custo_atacado") or "").strip() else "")})
         with st.form(f"est_form_edit{sufixo}"):
             nome = st.text_input("Produto", value=str(p0.get("nome") or ""))
-            fornecedor = st.text_input("Fornecedor", value=str(p0.get("fornecedor") or ""),
-                                       placeholder="nome do fornecedor")
             forn = st.text_input("Código do fornecedor", value=str(p0.get("codigo_fornecedor") or ""))
             alvo = st.selectbox("Trocar a foto de", [E.nome_completo(v) for v in variacoes])
             foto = st.file_uploader("Nova foto (opcional)", type=None, key=f"est_edit_foto{sufixo}")
@@ -612,8 +608,7 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False):
             st.error(erro_c)
             return
         try:
-            mud = {v["id"]: {"nome": nome.strip(), "codigo_fornecedor": forn.strip(),
-                            "fornecedor": " ".join(fornecedor.split()), **custos}
+            mud = {v["id"]: {"nome": nome.strip(), "codigo_fornecedor": forn.strip(), **custos}
                    for v in variacoes}
             foto_id, af = foto_da_tela(foto, E.limpar_codigo(p0.get("ean")))
             if foto_id:
@@ -960,7 +955,6 @@ def _cadastro(quem):
             c1, c2 = st.columns(2)
             forn = c1.text_input("Código do fornecedor", placeholder="TRES-B131", key="est_cad_forn")
             nome = c2.text_input("Produto", placeholder="Mini Yoga · conjunto", key="est_cad_nome")
-            fornecedor = st.text_input("Fornecedor", placeholder="nome do fornecedor", key="est_cad_fornecedor")
             sku, custo, sku_at, custo_at = _campos_sku("est_cad_")
             # Com variações (dono, 13/11), cada uma tem a sua quantidade: a
             # linha de quantidade única some e as linhas das variações entram.
@@ -1010,8 +1004,7 @@ def _cadastro(quem):
                                     [(v, foto_id if i == 0 else "") for i, (v, _a, _b) in enumerate(var_ok)],
                                     quem, _quando(),
                                     sku=custos["sku"], sku_atacado=custos["sku_atacado"],
-                                    custo_atacado=custos["custo_atacado"],
-                                    fornecedor=fornecedor)
+                                    custo_atacado=custos["custo_atacado"])
         E.gravar_produtos(novas)
         entrada = entrada_das_variacoes(novas, var_ok, quem, _quando())
         if entrada:
@@ -1463,7 +1456,7 @@ def bipe_atual_html(r):
         lin.append(f'Código de barras <b style="color:#E8EAED">{_esc(r["ean"])}</b>')
     if r["forn"] or r["sku"]:
         lin.append(" · ".join(x for x in (
-            f'Cód. fornecedor <b style="color:#E8EAED">{_esc(r["forn"])}</b>' if r["forn"] else "",
+            f'Fornecedor <b style="color:#E8EAED">{_esc(r["forn"])}</b>' if r["forn"] else "",
             f'SKU <b style="color:#E8EAED">{_esc(r["sku"])}</b>' if r["sku"] else
             '<span style="color:#f0c060">sem SKU</span>') if x) + chip)
     lin.append(f'Saiu <b style="color:#E8EAED">{r["q"]}</b>'
@@ -1483,10 +1476,8 @@ def ficha_entrada_html(variacoes, saldo, codigo):
     lin = [f'Código de barras {b(ean)}']
     sku = E.normalizar_sku(p.get("sku"))
     forn = str(p.get("codigo_fornecedor") or "").strip()
-    nome_forn = str(p.get("fornecedor") or "").strip()
     lin.append(" · ".join(x for x in (
-        f'Fornecedor {b(nome_forn)}' if nome_forn else "",
-        f'Cód. fornecedor {b(forn)}' if forn else "",
+        f'Fornecedor {b(forn)}' if forn else "",
         f'SKU {b(sku)}' if sku else ("só atacado" if E.so_atacado(p) else
                                      '<span style="color:#f0c060">sem SKU</span>')) if x))
     sku_at = E.normalizar_sku(p.get("sku_atacado"))
@@ -2230,8 +2221,7 @@ def tabela_produtos(linhas, busca=""):
         p = l["produto"]
         alvo = " ".join(str(x or "").lower() for x in (p.get("nome"), p.get("variacao"),
                                                        p.get("codigo_fornecedor"), p.get("ean"),
-                                                       p.get("sku"), p.get("sku_atacado"),
-                                                       p.get("fornecedor")))
+                                                       p.get("sku"), p.get("sku_atacado")))
         if b and b not in " ".join(alvo.split()) and E.limpar_codigo(b) != E.limpar_codigo(p.get("ean")):
             continue
         fora.append(l)
@@ -2381,7 +2371,6 @@ def _painel(quem):
         "foto": gdrive.url_thumbnail(l["produto"].get("foto_id"), 120) if l["produto"].get("foto_id") else "",
         "Produto": E.nome_completo(l["produto"]),
         "Código": l["produto"].get("codigo_fornecedor") or l["produto"].get("ean"),
-        "Fornecedor": l["produto"].get("fornecedor") or "—",
         "SKU": E.normalizar_sku(l["produto"].get("sku")) or "—",
         "Físico": l["fisico"], "Full": l["full"],
         "Varejo · atacado": f'{l.get("varejo", 0)} · {l.get("atacado", 0)}',
@@ -2743,7 +2732,7 @@ def buscar_produtos(prods, texto, limite=8):
     for p in E.ativos(prods):
         alvo = " ".join(E._sem_acento(" ".join(str(x or "") for x in (
             p.get("nome"), p.get("variacao"), p.get("codigo_fornecedor"), p.get("ean"),
-            p.get("sku"), p.get("sku_atacado"), p.get("fornecedor")))).lower().split())
+            p.get("sku"), p.get("sku_atacado")))).lower().split())
         ean = E.limpar_codigo(p.get("ean"))
         if b in alvo and ean not in vistos:
             vistos.add(ean)
@@ -3133,26 +3122,6 @@ if __name__ == "__main__":
     ok("Estoque cadastrado: a linha escolhida mostra ✕ e ➕ Nova variação",
        "_variacoes_do_painel(" in _src_pn and "_nova_variacao(variacoes, quem)" in _src_vp
        and "on_click=_excluir_variacao" in _src_vp and '"ativo": "0"' in _insp.getsource(_excluir_variacao))
-
-    # FORNECEDOR (dono, 17/11): o NOME de quem vende, ao lado do código dele.
-    # Pela CADEIA: o mesmo `linhas_de_produto` que o cadastro chama, com o
-    # pior nome (símbolo, acento, espaço duplo) e depois a tela que lê.
-    _fz = E.linhas_de_produto("7908045165056", "TRES-B131", "Porta 2 Relógio + Jóias", 31.5,
-                              [("", "")], "leo", "x", fornecedor="  Três  Irmãos (SP) + Cia ")
-    ok("fornecedor: gravado pelo cadastro, com espaço limpo, numa coluna da aba",
-       "fornecedor" in E.COL_PRODUTOS and _fz[0]["fornecedor"] == "Três Irmãos (SP) + Cia")
-    _ffe = ficha_entrada_html(_fz, {}, "7908045165056")
-    ok("fornecedor: a ficha da entrada mostra o NOME e o código separado",
-       "Fornecedor <b" in _ffe and "Três Irmãos (SP) + Cia" in _ffe and "Cód. fornecedor" in _ffe
-       and "TRES-B131" in _ffe)
-    ok("fornecedor: a busca acha pelo nome dele, sem acento e com símbolo",
-       [p["id"] for p in buscar_produtos(_fz, "tres irmaos (sp) +")] == [_fz[0]["id"]]
-       and len(tabela_produtos([{"produto": _fz[0]}], "irmãos (sp) + cia")) == 1)
-    _sc, _se, _sv = (_insp.getsource(x) for x in (_cadastro, _editar_produto, _nova_variacao))
-    ok("fornecedor: cadastro, edição e nova variação levam o campo até a gravação",
-       '"Fornecedor"' in _sc and "fornecedor=fornecedor" in _sc
-       and '"Fornecedor"' in _se and '"fornecedor": " ".join(fornecedor.split())' in _se
-       and 'fornecedor=p0.get("fornecedor"' in _sv)
 
     # A FOTO QUE «NÃO SALVOU» (dono, 17/11). O aviso do Drive ia para
     # st.warning e o st.rerun() logo depois o apagava: sobrava «✓ salvo».

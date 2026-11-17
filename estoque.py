@@ -33,7 +33,7 @@ import secrets
 ABA_PRODUTOS = "estoque_produtos"
 COL_PRODUTOS = ["id", "ean", "codigo_fornecedor", "nome", "variacao", "custo",
                 "foto_id", "registrado_em", "registrado_por", "ativo",
-                "sku", "sku_atacado", "custo_atacado", "fornecedor"]
+                "sku", "sku_atacado", "custo_atacado"]
 
 ABA_MOV = "estoque_movimentos"
 COL_MOV = ["id", "lote", "quando", "tipo", "local", "produto_id", "qtd",
@@ -370,7 +370,7 @@ def _id(prefixo):
 
 
 def linhas_de_produto(ean, codigo_fornecedor, nome, custo, variacoes, quem, quando,
-                      sku="", sku_atacado="", custo_atacado="", fornecedor=""):
+                      sku="", sku_atacado="", custo_atacado=""):
     """As linhas de `estoque_produtos` de um cadastro novo. Pura.
 
     `variacoes` = [(nome_da_variacao, foto_id)]; produto sem variação passa
@@ -382,9 +382,7 @@ def linhas_de_produto(ean, codigo_fornecedor, nome, custo, variacoes, quem, quan
              "custo": f"{float(custo or 0):.2f}", "foto_id": foto or "",
              "registrado_em": quando, "registrado_por": quem, "ativo": "1",
              "sku": normalizar_sku(sku), "sku_atacado": normalizar_sku(sku_atacado),
-             "custo_atacado": (f"{float(custo_atacado):.2f}" if str(custo_atacado).strip() else ""),
-             # O NOME do fornecedor (dono, 17/11) — o código dele já existia.
-             "fornecedor": " ".join(str(fornecedor or "").split())}
+             "custo_atacado": (f"{float(custo_atacado):.2f}" if str(custo_atacado).strip() else "")}
             for v, foto in variacoes]
 
 
@@ -1647,7 +1645,7 @@ if __name__ == "__main__":
     ok("kits_com: os kits E as quantidades que levam o produto, e só eles",
        [k["nome"] for k in kits_com(_kc, "P1")] == ["Kit A", "Kit com 3"] and kits_com(_kc, "P9") == [])
     # A coluna que a aba velha não tem: o SKU digitado na edição não pode sumir.
-    _velhoP = [c for c in COL_PRODUTOS if c not in ("sku", "sku_atacado", "custo_atacado", "fornecedor")]
+    _velhoP = [c for c in COL_PRODUTOS if c not in ("sku", "sku_atacado", "custo_atacado")]
     _abp = _AbaGrava([list(_velhoP), ["P1"] + [""] * (len(_velhoP) - 1)])
     globals()["_aba"] = lambda nome, colunas: _abp
     try:
@@ -1657,17 +1655,6 @@ if __name__ == "__main__":
     ok("_atualizar: a coluna que a aba ainda não tem entra no fim, e o SKU é gravado nela",
        _abp.valores[0] == _velhoP + ["sku"] and _nsk == 2
        and {"range": "K2", "values": [["MS-3500"]]} in _abp.celulas)
-    # O FORNECEDOR (17/11) nasceu depois da aba, igual ao SKU: a aba da
-    # produção não tem a coluna, e o nome digitado na edição não pode sumir.
-    _abf = _AbaGrava([list(_velhoP), ["P1"] + [""] * (len(_velhoP) - 1)])
-    globals()["_aba"] = lambda nome, colunas: _abf
-    try:
-        _nf = atualizar_produtos({"P1": {"fornecedor": "Três Irmãos (SP) + Cia"}})
-    finally:
-        globals()["_aba"] = _real_aba
-    ok("_atualizar: o fornecedor numa aba sem a coluna entra no fim e é gravado",
-       _abf.valores[0] == _velhoP + ["fornecedor"] and _nf == 1
-       and {"range": "K2", "values": [["Três Irmãos (SP) + Cia"]]} in _abf.celulas)
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
