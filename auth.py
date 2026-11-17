@@ -278,7 +278,7 @@ ADMINS_PADRAO = {"martinsousa"}
 SO_OPERACIONAL = {"expedicao"}
 
 
-def _sem_acento(txt):
+def _login_sem_acento(txt):
     import unicodedata as _ud
     return "".join(c for c in _ud.normalize("NFD", str(txt or ""))
                    if _ud.category(c) != "Mn").strip().lower()
@@ -286,7 +286,7 @@ def _sem_acento(txt):
 
 def so_operacional(usuario_logado):
     """Este login vê só o Operacional? Pura."""
-    return _sem_acento(usuario_logado) in SO_OPERACIONAL
+    return _login_sem_acento(usuario_logado) in SO_OPERACIONAL
 
 
 def eh_dono(usuario_logado):
@@ -870,6 +870,8 @@ if __name__ == "__main__":
     # EXPEDIÇÃO (dono, 17/11): o login como a pessoa digita — com e sem
     # cedilha, maiúscula, e o «ç» decomposto que o Mac manda.
     import unicodedata as _ud_t
+    ok("_login_sem_acento: tira acento, espaço e maiúscula",
+       _login_sem_acento(" Expedição ") == "expedicao" and _login_sem_acento(None) == "")
     ok("so_operacional: «Expedição» em todas as grafias; dono e equipe não",
        all(so_operacional(x) for x in ("Expedição", "expedicao", " EXPEDIÇÃO ",
                                         _ud_t.normalize("NFD", "Expedição")))
