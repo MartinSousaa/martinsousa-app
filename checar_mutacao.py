@@ -5300,8 +5300,8 @@ MUTACOES = [
     (
         'a lista de kits volta a sumir quando o kit novo esta vazio (11/11)',
         "estoque_tela.py",
-        [("    with esq:\n        _criar_kit(prods, codigos, por_id, saldo, nova, quem)\n    with dir_:\n        _kits_cadastrados(codigos, por_id, saldo)",
-          "    with esq:\n        if not st.session_state.get(\"est_kit\"):\n            return\n        _criar_kit(prods, codigos, por_id, saldo, nova, quem)\n    with dir_:\n        _kits_cadastrados(codigos, por_id, saldo)")],
+        [("    with esq:\n        _criar_kit(prods, codigos, por_id, saldo, nova, quem)\n    with dir_:\n        _kits_cadastrados(codigos, por_id, saldo, prods)",
+          "    with esq:\n        if not st.session_state.get(\"est_kit\"):\n            return\n        _criar_kit(prods, codigos, por_id, saldo, nova, quem)\n    with dir_:\n        _kits_cadastrados(codigos, por_id, saldo, prods)")],
         None,
         ["python3", "checar_navegador.py"],
     ),
