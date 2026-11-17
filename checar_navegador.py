@@ -446,7 +446,9 @@ def main():
             # A tabela é desenhada em canvas: o texto das células não chega ao
             # inner_text. Conta-se pela legenda que a tela escreve embaixo.
             _achou = _re.search(r"(\d+) produto\(s\) com «bailarina", pg.inner_text("body"))
-            ok = _renan and _cmp and _achou is not None and _achou.group(1) == "2"
+            # UMA LINHA POR PRODUTO (dono, 17/11): as duas variações da Bailarina
+            # viram uma linha só — eram 2.
+            ok = _renan and _cmp and _achou is not None and _achou.group(1) == "1"
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: painel põe a venda sem estoque na lista do Renan, "
                   f"grava o comprado e busca o nome com símbolo (renan={_renan}, comprado={_cmp}, "
@@ -550,7 +552,7 @@ def main():
             pg.get_by_label("SKU (varejo)").fill("XX-404")
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)
-            _nao_achou = "SKU XX-404 não foi encontrado" in pg.inner_text("body")
+            _nao_achou = "SKU XX-404 ainda não está" in pg.inner_text("body")
             pg.get_by_label("SKU (varejo)").fill("  ms-3500 ")
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)
