@@ -272,6 +272,23 @@ def _verificar_credencial(login, senha):
 ADMINS_PADRAO = {"martinsousa"}
 
 
+# LOGIN DE FUNÇÃO, NÃO DE PESSOA (dono, 17/11): «Expedição» vê SÓ o
+# Gestão › 📦 Operacional, inteiro. Comparado sem acento e sem maiúscula: o
+# Mac manda «ç» decomposto, e «Expedicao» digitado sem cedilha é o mesmo login.
+SO_OPERACIONAL = {"expedicao"}
+
+
+def _sem_acento(txt):
+    import unicodedata as _ud
+    return "".join(c for c in _ud.normalize("NFD", str(txt or ""))
+                   if _ud.category(c) != "Mn").strip().lower()
+
+
+def so_operacional(usuario_logado):
+    """Este login vê só o Operacional? Pura."""
+    return _sem_acento(usuario_logado) in SO_OPERACIONAL
+
+
 def eh_dono(usuario_logado):
     """O dono do Studio — não é o mesmo que ter perfil admin.
 
@@ -849,6 +866,23 @@ if __name__ == "__main__":
            all(_calcular_is_admin(x) == eh_gestor(x) for x in ("Luiz", "Renan", "MartinSousa", "")))
     finally:
         globals()["_admins_configurados"], globals()["_carregar_usuarios_sheets"] = _g_adm
+
+    # EXPEDIÇÃO (dono, 17/11): o login como a pessoa digita — com e sem
+    # cedilha, maiúscula, e o «ç» decomposto que o Mac manda.
+    import unicodedata as _ud_t
+    ok("so_operacional: «Expedição» em todas as grafias; dono e equipe não",
+       all(so_operacional(x) for x in ("Expedição", "expedicao", " EXPEDIÇÃO ",
+                                        _ud_t.normalize("NFD", "Expedição")))
+       and not any(so_operacional(x) for x in ("MartinSousa", "Renan", "", None, "Expedição 2")))
+    # E o app desvia ANTES do admin: por AST, o `if` da navegação principal
+    # pergunta so_operacional primeiro e só desenha o Operacional.
+    import ast as _ast_ex, pathlib as _pl_ex
+    _ifs = [n for n in _ast_ex.parse(_pl_ex.Path(__file__).with_name("app.py").read_text()).body
+            if isinstance(n, _ast_ex.If) and "so_operacional" in _ast_ex.unparse(n.test)]
+    ok("app: a navegação de Expedição vem antes do admin e só chama pagina_operacional",
+       len(_ifs) == 1 and [_ast_ex.unparse(x) for x in _ifs[0].body]
+       == ["gestao.pagina_operacional(usuario_logado, navegar=_navegar)"]
+       and "_eh_admin" in _ast_ex.unparse(_ifs[0].orelse[0].test))
 
     print("\nfalhas:", falhas)
     # O CÓDIGO DE SAÍDA (27/10). Sem ele este auto-teste imprimia FALHA e
