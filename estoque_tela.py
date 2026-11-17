@@ -24,7 +24,7 @@ import streamlit as st
 import estoque as E
 
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
-         "🧩 Kits", "📊 Painel", "📱 Contagem")
+         "🧩 Kits", "📊 Estoque cadastrado", "📱 Contagem")
 EM_CONSTRUCAO = {}
 
 # O BIPE VAI PARA A BARRA, ESTEJA O CURSOR ONDE ESTIVER (dono, 11/11).
@@ -2549,7 +2549,7 @@ def pagina(usuario_logado=None):
     if modo == "🧩 Kits":
         _kits(quem)
         return
-    if modo == "📊 Painel":
+    if modo == MODOS[4]:  # «Estoque cadastrado», antes «Painel» (dono, 17/11)
         _painel(quem)
         return
     if modo == "📱 Contagem":
