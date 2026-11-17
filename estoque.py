@@ -688,6 +688,19 @@ def linhas_de_ajuste(fech, quem, quando, contagem_id, movs=()):
     return fora
 
 
+def linhas_de_zerar(p, movs, quem, quando, obs):
+    """Os movimentos que ZERAM um produto em todo lugar (físico e Fulls),
+    origem a origem. Pura. Usado quando o produto sem nome ganha variações
+    (dono, 17/11: «o estoque do produto tem que zerar e passar a considerar
+    o que for informado em cada variação»)."""
+    lote = _id("L")
+    return [{"id": _id("M"), "lote": lote, "quando": quando, "tipo": AJUSTE_CONTAGEM,
+             "local": loc, "produto_id": p["id"], "qtd": str(-q),
+             "custo_unit": f"{custo_de(p, o):.2f}", "quem": quem, "obs": obs,
+             "desfaz": "", "origem": o}
+            for (pid, loc, o), q in saldos_por_origem(movs).items() if pid == p["id"] and q]
+
+
 def marcados_de(linhas):
     """{produto_id: marcado_em} da aba de compras. Pura."""
     return {str(l.get("produto_id")): l.get("marcado_em") for l in linhas if l.get("produto_id")}
@@ -1669,5 +1682,18 @@ if __name__ == "__main__":
        _abf.valores[0] == _velhoP + ["fornecedor"] and _nf == 1
        and {"range": "K2", "values": [["Três Irmãos (SP) + Cia"]]} in _abf.celulas)
 
+    # ZERAR (17/11): o produto sem nome que ganhou variações vai a zero em
+    # todo lugar, origem a origem, e só ele.
+    _zp = linhas_de_produto("7908045100001", "AP3017", "Jogo", 46.32, [("", ""), ("Verde", "")], "l", "x",
+                            custo_atacado="40")
+    _zm = (linhas_de_entrada([(_zp[0], 7), (_zp[1], 1)], "l", "x")
+           + linhas_de_entrada([(_zp[0], 3)], "l", "x", origem=ATACADO)
+           + linhas_de_entrada([(_zp[0], 2)], "l", "x", local=list(FULLS)[0]))
+    _zz = linhas_de_zerar(_zp[0], _zm, "l", "x", "zerado")
+    _zs = saldos(_zm + _zz)
+    ok("linhas_de_zerar: zera físico e Full, varejo e atacado, e não toca na variação",
+       sum(q for (pid, _l), q in _zs.items() if pid == _zp[0]["id"]) == 0
+       and _zs.get((_zp[1]["id"], FISICO)) == 1 and len(_zz) == 3
+       and {m["custo_unit"] for m in _zz if m["origem"] == ATACADO} == {"40.00"})
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)

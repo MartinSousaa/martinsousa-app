@@ -467,10 +467,6 @@ def _abrir_nova_variacao():
     st.session_state["est_nova_var"] = True
 
 
-def _fechar_nova_variacao():
-    st.session_state.pop("est_nova_var", None)
-
-
 def _ficha(variacoes, saldo, codigos, por_id, quem, movs=None):
     """A ficha do produto JÁ cadastrado (dono, 13/11): abre como o bipe da
     vez da saída — o quadro grande à esquerda, as últimas entradas à direita."""
@@ -535,43 +531,105 @@ def _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod):
     _variacoes_de_quantidade(variacoes, codigos, por_id, quem)
 
 
-def _nova_variacao(variacoes, quem):
+def blocos_de_variacao(blocos):
+    """([(nome, qtd, foto)], erro) dos quadros de variação nova. Pura.
+
+    Quadro todo vazio é ignorado (o «➕» a mais que ninguém preencheu).
+    Quadro com quantidade ou foto e sem nome é erro: a peça não tem para
+    onde ir. Nome repetido entre os quadros também.
+    """
+    fora, vistos = [], set()
+    for n, (nome, qtd, foto) in enumerate(blocos, start=1):
+        nome = " ".join(str(nome or "").split())
+        qtd = int(qtd or 0)
+        if not nome:
+            if qtd or foto is not None:
+                return [], f"Variação {n}: falta o nome."
+            continue
+        if nome.lower() in vistos:
+            return [], f"A variação «{nome}» está escrita duas vezes."
+        vistos.add(nome.lower())
+        fora.append((nome, qtd, foto))
+    if not fora:
+        return [], "Escreva o nome da variação."
+    return fora, ""
+
+
+def _ch_var(campo, i):
+    """A chave do quadro `i`. A rodada (`est_var_k`) muda ao salvar: os
+    quadros nascem vazios, inclusive o da foto, que não se apaga à mão."""
+    return f"est_var_{campo}_{st.session_state.get('est_var_k', 0)}_{i}"
+
+
+def _mais_um_quadro_de_variacao():
+    st.session_state["est_var_n"] = int(st.session_state.get("est_var_n") or 1) + 1
+
+
+def pai_sem_nome(variacoes):
+    """A linha SEM nome de um produto que tem variações com nome — o
+    «produto em si», que não é peça de verdade. None se não há. Pura."""
+    sem = [v for v in variacoes if not str(v.get("variacao") or "").strip()]
+    com = [v for v in variacoes if str(v.get("variacao") or "").strip()]
+    return sem[0] if len(sem) == 1 and (com or len(variacoes) == 1) else None
+
+
+def _zerar_pai(pai, quem):
+    """Zera o produto sem nome e o tira da lista: o estoque passa a ser o das
+    variações. Devolve o aviso. Efeito: grava. Produto que entra num kit não
+    é tocado — o kit tiraria peça de uma linha que sumiu."""
+    _p, movs, codigos = E.carregar()
+    if E.kits_com(codigos, pai["id"]):
+        return (f"«{E.nome_completo(pai)}» entra num kit: o estoque dele NÃO foi zerado — "
+                "troque o kit para as variações primeiro.")
+    zera = E.linhas_de_zerar(pai, movs, quem, _quando(), "zerado: o estoque passou para as variações")
+    if zera:
+        E.gravar_movimentos(zera)
+    E.atualizar_produtos({pai["id"]: {"ativo": "0"}})
+    n = -sum(int(m["qtd"]) for m in zera)
+    return f"o produto sem variação foi zerado ({n} peça(s)) — o estoque agora é o das variações"
+
+
+def _zerar_pai_agora(pai, quem):
+    try:
+        _avisar("✓ " + _zerar_pai(pai, quem))
+    except Exception as e:
+        _avisar(f"Não zerei — a planilha respondeu: {e}", erro=True)
+
+
+def _fechar_nova_variacao():
+    ss = st.session_state
+    ss.pop("est_nova_var", None)
+    ss["est_var_n"] = 1
+    ss["est_var_k"] = int(ss.get("est_var_k") or 0) + 1
+
+
+def _nova_variacao(variacoes, quem, sufixo_ed=""):
     # Abre pelo botão «➕ Nova variação» ou bipando o mesmo código de novo.
-    if not st.session_state.get("est_nova_var"):
+    ss = st.session_state
+    if not ss.get("est_nova_var"):
         return
     with st.container(border=True):
         st.markdown("**➕ Nova variação** — escreva o nome e tire a foto")
-        p0 = variacoes[0]
-        # UM CAMPO SÓ (dono, 17/11): «a primeira já é a variação». O produto
-        # que já existe fica como está; pedir o nome dele travava o salvar.
-        with st.form("est_form_var", clear_on_submit=True):
-            nome = st.text_input("Nome da variação (posição, cor…)")
-            foto = st.file_uploader("Foto da variação", type=None, key="est_var_foto")
-            qtd = int(st.number_input("Quantidade entrando agora", min_value=0, step=1, value=None) or 0)
-            enviar = st.form_submit_button("Salvar variação", type="primary")
+        # VÁRIAS DE UMA VEZ (dono, 17/11: «cadastrei a primeira, tem que ter
+        # um botão Nova Variação para já cadastrar a próxima sem ter que
+        # salvar e abrir novamente»). Sem `st.form`: o «➕» acrescenta um
+        # quadro sem perder o que foi digitado nos outros. Um campo de nome
+        # só: «a primeira já é a variação» — o produto que existe fica igual.
+        n = int(ss.get("est_var_n") or 1)
+        for i in range(n):
+            c1, c2, c3 = st.columns([2, 1, 2], vertical_alignment="bottom")
+            c1.text_input("Nome da variação (posição, cor…)" if i == 0 else f"Variação {i + 1}",
+                          key=_ch_var("nome", i))
+            c2.number_input("Quantidade entrando", min_value=0, step=1, value=None, key=_ch_var("qtd", i))
+            c3.file_uploader("Foto", type=None, key=_ch_var("foto", i))
+        st.button("➕ Mais uma variação", key="est_var_mais", on_click=_mais_um_quadro_de_variacao)
+        a, b = st.columns(2)
+        a.button("Salvar variação" if n == 1 else f"Salvar as {n} variações", key="est_var_salvar",
+                 type="primary", use_container_width=True,
+                 on_click=_salvar_produto, args=(variacoes, quem, sufixo_ed))
         # Clicou errado (dono, 17/11): sair sem salvar.
-        st.button("Cancelar", key="est_var_cancelar", on_click=_fechar_nova_variacao)
-        if not enviar:
-            return
-        if not str(nome).strip():
-            st.error("Escreva o nome da variação.")
-            return
-        try:
-            foto_id, af = foto_da_tela(foto, E.limpar_codigo(p0.get("ean")))
-            novas = E.linhas_de_produto(p0.get("ean"), p0.get("codigo_fornecedor"), p0.get("nome"),
-                                        E.numero(p0.get("custo")), [(nome, foto_id)], quem, _quando(),
-                                        sku=p0.get("sku", ""), sku_atacado=p0.get("sku_atacado", ""),
-                                        custo_atacado=p0.get("custo_atacado", ""),
-                                        fornecedor=p0.get("fornecedor", ""))
-            E.gravar_produtos(novas)
-            E.gravar_movimentos(E.linhas_de_entrada([(novas[0], int(qtd))], quem, _quando(),
-                                                    origem=_origem_da_entrada()))
-            _avisar(*_com_foto(f"✓ Variação «{str(nome).strip()}» criada"
-                               + (f", com {int(qtd)} peça(s)." if qtd else "."), af))
-            st.session_state.pop("est_nova_var", None)
-            st.rerun()
-        except Exception as e:
-            st.error(f"Não gravei a variação — a planilha respondeu: {e}")
+        b.button("Cancelar", key="est_var_cancelar", use_container_width=True,
+                 on_click=_fechar_nova_variacao)
 
 
 def _fechar_ed_entrada():
@@ -579,55 +637,180 @@ def _fechar_ed_entrada():
     st.session_state["est_ent_ed"] = None
 
 
+def _pf_ed(variacoes, sufixo):
+    """O prefixo das chaves do «✎ Editar» deste produto nesta tela."""
+    return f"est_ed_{E.limpar_codigo(variacoes[0].get('ean'))}{sufixo}_"
+
+
+def _iniciais_ed(p0):
+    """O que os campos do «✎ Editar» mostram ao abrir, como texto. Pura."""
+    return {"sku": str(p0.get("sku") or ""),
+            # Só atacado (dono, 16/11): o custo base É o do atacado; mostrado
+            # como «Custo varejo», parecia cadastrado sozinho.
+            "custo": ("" if E.so_atacado(p0) else f'{E.numero(p0.get("custo")):.2f}'.replace(".", ",")),
+            "sku_at": str(p0.get("sku_atacado") or ""),
+            "custo_at": (f'{E.numero(p0.get("custo_atacado")):.2f}'.replace(".", ",")
+                         if str(p0.get("custo_atacado") or "").strip() else ""),
+            "nome": str(p0.get("nome") or ""), "fornecedor": str(p0.get("fornecedor") or ""),
+            "forn": str(p0.get("codigo_fornecedor") or "")}
+
+
+def edicao_mudou(iniciais, digitados, tem_foto):
+    """O «✎ Editar» tem alguma coisa para gravar? Pura. Sem mudança, o
+    «Salvar» das variações não regrava o produto (nem cobra SKU dele)."""
+    return tem_foto or any(str(digitados.get(k) or "").strip() != str(v or "").strip()
+                           for k, v in iniciais.items())
+
+
+def _ch_foto_ed(pf):
+    return f"{pf}foto_{st.session_state.get(pf + 'k', 0)}"
+
+
 def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False):
     """O cadastro inteiro do produto. `sufixo` separa as chaves: o mesmo
     produto pode estar aberto na ficha E no «✎ editar» das últimas entradas
-    na mesma tela (dono, 17/11) — chave repetida derruba a tela."""
+    na mesma tela (dono, 17/11) — chave repetida derruba a tela.
+
+    SEM `st.form` (dono, 17/11: «coloquei a foto do produto e das variações
+    e cliquei em salvar, só salvou o da variação»). Dentro de um form o que
+    se digita só existe depois do botão DELE; agora os campos ficam na
+    sessão e os dois «Salvar» (este e o das variações) gravam tudo."""
+    ss = st.session_state
     with st.expander("✎ Editar produto — SKU varejo e atacado, custo, nome, fornecedor, foto",
                      expanded=aberto):
         p0 = variacoes[0]
+        pf = _pf_ed(variacoes, sufixo)
+        ini = _iniciais_ed(p0)
         # A chave leva o código: dois produtos abertos em seguida não dividem
         # o que foi digitado em um.
-        sku, custo, sku_at, custo_at = _campos_sku(
-            f"est_ed_{E.limpar_codigo(p0.get('ean'))}{sufixo}_",
-            {"sku": str(p0.get("sku") or ""),
-             # Só atacado (dono, 16/11): o custo base É o do atacado; mostrado
-             # como «Custo varejo», parecia cadastrado sozinho.
-             "custo": ("" if E.so_atacado(p0) else f'{E.numero(p0.get("custo")):.2f}'.replace(".", ",")),
-             "sku_at": str(p0.get("sku_atacado") or ""),
-             "custo_at": (f'{E.numero(p0.get("custo_atacado")):.2f}'.replace(".", ",")
-                          if str(p0.get("custo_atacado") or "").strip() else "")})
-        with st.form(f"est_form_edit{sufixo}"):
-            nome = st.text_input("Produto", value=str(p0.get("nome") or ""))
-            fornecedor = st.text_input("Fornecedor", value=str(p0.get("fornecedor") or ""),
-                                       placeholder="nome do fornecedor")
-            forn = st.text_input("Código do fornecedor", value=str(p0.get("codigo_fornecedor") or ""))
-            alvo = st.selectbox("Trocar a foto de", [E.nome_completo(v) for v in variacoes])
-            foto = st.file_uploader("Nova foto (opcional)", type=None, key=f"est_edit_foto{sufixo}")
-            enviar = st.form_submit_button("Salvar alterações")
-        if not enviar:
-            return
-        custos, erro_c, avisos_c = _custos_do_formulario(sku, custo, sku_at, custo_at)
-        if erro_c:
-            st.error(erro_c)
-            return
-        try:
-            mud = {v["id"]: {"nome": nome.strip(), "codigo_fornecedor": forn.strip(),
-                            "fornecedor": " ".join(fornecedor.split()), **custos}
-                   for v in variacoes}
+        _campos_sku(pf, {k: ini[k] for k in ("sku", "custo", "sku_at", "custo_at")})
+        for k in ("nome", "fornecedor", "forn"):
+            ss.setdefault(pf + k, ini[k])
+        ss[pf + "ini"] = ini
+        st.text_input("Produto", key=pf + "nome")
+        st.text_input("Fornecedor", key=pf + "fornecedor", placeholder="nome do fornecedor")
+        st.text_input("Código do fornecedor", key=pf + "forn")
+        # A chave muda com o número de variações: a lista ganha opção nova.
+        st.selectbox("Trocar a foto de", [E.nome_completo(v) for v in variacoes],
+                     key=f"{pf}alvo_{len(variacoes)}")
+        st.file_uploader("Nova foto (opcional)", type=None, key=_ch_foto_ed(pf))
+        a, b = st.columns(2)
+        a.button("Salvar alterações", key=f"{pf}salvar", type="primary", use_container_width=True,
+                 on_click=_salvar_produto, args=(variacoes, quem, sufixo, fechar))
+        # Cancelar (dono, 17/11): os campos voltam ao que está gravado.
+        b.button("Cancelar", key=f"{pf}cancelar", use_container_width=True,
+                 on_click=_cancelar_edicao, args=(pf, fechar))
+
+
+def _cancelar_edicao(pf, fechar=False):
+    """Desfaz o digitado no «✎ Editar»: as chaves saem e renascem do gravado."""
+    ss = st.session_state
+    rodada = int(ss.get(pf + "k") or 0) + 1        # lida ANTES: ela também sai abaixo
+    for k in [k for k in ss.keys() if str(k).startswith(pf)]:
+        del ss[k]
+    ss[pf + "k"] = rodada
+    if fechar:
+        _fechar_ed_entrada()
+
+
+def _edicao_pendente(variacoes, sufixo):
+    """(mud, avisos, foto, erro) do «✎ Editar» como está na tela agora.
+    mud = None quando nada mudou. Efeito: lê a planilha de SKU se mudou."""
+    ss = st.session_state
+    pf = _pf_ed(variacoes, sufixo)
+    ini = ss.get(pf + "ini")
+    if not ini:                       # o editar deste produto não está na tela
+        return None, [], None, ""
+    dig = {k: ss.get(pf + k, "") for k in ini}
+    foto = ss.get(_ch_foto_ed(pf))
+    if not edicao_mudou(ini, dig, foto is not None):
+        return None, [], None, ""
+    custos, erro_c, avisos_c = _custos_do_formulario(dig["sku"], dig["custo"], dig["sku_at"], dig["custo_at"])
+    if erro_c:
+        return None, [], None, erro_c
+    nome = " ".join(str(dig["nome"]).split())
+    if not nome:
+        return None, [], None, "Falta o nome do produto."
+    mud = {v["id"]: {"nome": nome, "codigo_fornecedor": str(dig["forn"]).strip(),
+                     "fornecedor": " ".join(str(dig["fornecedor"]).split()), **custos}
+           for v in variacoes}
+    return mud, avisos_c, foto, ""
+
+
+def _salvar_produto(variacoes, quem, sufixo="", fechar=False):
+    """UM «Salvar» para tudo do produto (dono, 17/11): o que mudou no «✎
+    Editar» E as variações novas que estiverem escritas. Callback."""
+    ss = st.session_state
+    p0 = variacoes[0]
+    mud, avisos, foto, erro = _edicao_pendente(variacoes, sufixo)
+    if erro:
+        _avisar(f"Nada foi gravado — {erro}", erro=True)
+        return
+    blocos = []
+    if ss.get("est_nova_var"):
+        lidos = [(ss.get(_ch_var("nome", i)), ss.get(_ch_var("qtd", i)), ss.get(_ch_var("foto", i)))
+                 for i in range(int(ss.get("est_var_n") or 1))]
+        if any(str(n or "").strip() or q or f is not None for n, q, f in lidos):
+            blocos, erro_v = blocos_de_variacao(lidos)
+            if erro_v:
+                _avisar(f"Nada foi gravado — {erro_v}", erro=True)
+                return
+    if mud is None and not blocos:
+        _avisar("Nada para gravar: nenhum campo mudou.", erro=True)
+        return
+    try:
+        partes, avisos_f = [], []
+        if mud is not None:
+            pf = _pf_ed(variacoes, sufixo)
             foto_id, af = foto_da_tela(foto, E.limpar_codigo(p0.get("ean")))
+            if af:
+                avisos_f.append(af)
             if foto_id:
-                v = variacoes[[E.nome_completo(x) for x in variacoes].index(alvo)]
+                alvo = ss.get(f"{pf}alvo_{len(variacoes)}")
+                nomes = [E.nome_completo(x) for x in variacoes]
+                v = variacoes[nomes.index(alvo) if alvo in nomes else 0]
                 mud[v["id"]]["foto_id"] = foto_id
             E.atualizar_produtos(mud)
-            _avisar(*_com_foto("✓ Produto atualizado. O custo novo vale para as próximas entradas."
-                               + "".join(f" · {a}" for a in avisos_c), af))
-            # Salvou: o «✎ editar» da entrada recolhe (dono, 17/11).
-            if fechar:
-                _fechar_ed_entrada()
-            st.rerun()
-        except Exception as e:
-            st.error(f"Não gravei — a planilha respondeu: {e}")
+            # Os campos voltam ao que foi gravado; a foto nasce vazia.
+            ss[pf + "k"] = int(ss.get(pf + "k") or 0) + 1
+            partes.append("✓ Produto atualizado. O custo novo vale para as próximas entradas."
+                          + "".join(f" · {a}" for a in avisos))
+        if blocos:
+            # A variação nova nasce com o produto JÁ editado (nome, custo…).
+            base = {**p0, **(mud or {}).get(p0["id"], {})}
+            linhas, ent = [], []
+            for nome, qtd, fv in blocos:
+                foto_id, af = foto_da_tela(fv, E.limpar_codigo(p0.get("ean")))
+                if af:
+                    avisos_f.append(f"{nome}: {af}")
+                nv = E.linhas_de_produto(base.get("ean"), base.get("codigo_fornecedor"), base.get("nome"),
+                                         E.numero(base.get("custo")), [(nome, foto_id)], quem, _quando(),
+                                         sku=base.get("sku", ""), sku_atacado=base.get("sku_atacado", ""),
+                                         custo_atacado=base.get("custo_atacado", ""),
+                                         fornecedor=base.get("fornecedor", ""))
+                linhas += nv
+                ent += E.linhas_de_entrada([(nv[0], qtd)], quem, _quando(), origem=_origem_da_entrada())
+            E.gravar_produtos(linhas)
+            if ent:
+                E.gravar_movimentos(ent)
+            pai = pai_sem_nome(variacoes)
+            if pai is not None:
+                avisos_z = _zerar_pai(pai, quem)
+            else:
+                avisos_z = ""
+            pecas = sum(q for _n, q, _f in blocos)
+            nomes = ", ".join(f"«{n}»" for n, _q, _f in blocos)
+            plural = len(blocos) > 1
+            partes.append(f"✓ {'Variações' if plural else 'Variação'} {nomes} {'criadas' if plural else 'criada'}"
+                          + (f", com {pecas} peça(s)." if pecas else ".")
+                          + (f" · {avisos_z}" if avisos_z else ""))
+            _fechar_nova_variacao()
+        _avisar(*_com_foto(" ".join(partes), " · ".join(avisos_f)))
+        # Salvou: o «✎ editar» da entrada recolhe (dono, 17/11).
+        if fechar:
+            _fechar_ed_entrada()
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", erro=True)
 
 
 def _etiqueta(codigo, nome, sub=""):
@@ -2218,6 +2401,55 @@ def _alerta_sem_sku(prods):
                    "mostra quem está SEM SKU, e não confere se o SKU existe na planilha.")
 
 
+def agrupar_por_produto(linhas):
+    """UMA linha por produto, as variações dentro dela (dono, 17/11: «não é
+    para cada variação duplicar a linha… vai poluir demais»). Pura.
+
+    Junta pelo código de barras (sem código, cada linha é dela mesma). Soma
+    peças e valor; a idade é a da variação mais antiga, a última saída é a
+    mais recente. `produto` é a primeira variação (foto, código, SKU), e
+    `variacoes` traz os ids de todas — o histórico e a ficha usam as todas.
+    """
+    grupos, ordem = {}, []
+    for l in linhas:
+        p = l["produto"]
+        chave = E.limpar_codigo(p.get("ean")) or p["id"]
+        if chave not in grupos:
+            grupos[chave] = []
+            ordem.append(chave)
+        grupos[chave].append(l)
+    fora = []
+    for ch in ordem:
+        ls = grupos[ch]
+        if len(ls) == 1:
+            fora.append({**ls[0], "variacoes": [ls[0]["produto"]["id"]], "n_var": 1})
+            continue
+        p0 = ls[0]["produto"]
+        por_full = {}
+        for l in ls:
+            for k, q in l.get("por_full", {}).items():
+                por_full[k] = por_full.get(k, 0) + q
+        dias = [l["dias"] for l in ls if l.get("dias") is not None]
+        saidas = [l["ultima_saida"] for l in ls if l.get("ultima_saida")]
+        custos = sorted({round(float(l.get("custo") or 0), 2) for l in ls})
+        fora.append({
+            "produto": p0, "variacoes": [l["produto"]["id"] for l in ls], "n_var": len(ls),
+            "fisico": sum(l.get("fisico", 0) for l in ls), "full": sum(l.get("full", 0) for l in ls),
+            "varejo": sum(l.get("varejo", 0) for l in ls), "atacado": sum(l.get("atacado", 0) for l in ls),
+            "por_full": por_full, "custo": custos[0], "custo_max": custos[-1],
+            "valor": sum(l.get("valor", 0) for l in ls),
+            "dias": max(dias) if dias else None,
+            "ultima_saida": max(saidas) if saidas else None})
+    return fora
+
+
+def nome_da_linha(g):
+    """«Jogo de Dardo 46cm · 2 variações», ou o nome com a variação quando é uma só. Pura."""
+    if g.get("n_var", 1) > 1:
+        return f'{E.capitalizar(g["produto"].get("nome"))} · {g["n_var"]} variações'
+    return E.nome_completo(g["produto"])
+
+
 def tabela_produtos(linhas, busca=""):
     """As linhas da tabela, filtradas pela busca como TEXTO (passo 13). Pura.
 
@@ -2236,14 +2468,26 @@ def tabela_produtos(linhas, busca=""):
             continue
         fora.append(l)
     # ORDEM ALFABÉTICA (dono, 17/11), sem acento e sem maiúscula: «Álbum»
-    # junto de «album», antes de «Caixa». Era pelo valor.
-    return sorted(fora, key=lambda l: E._sem_acento(E.nome_completo(l["produto"])))
+    # junto de «album», antes de «Caixa». Era pelo valor. A busca vale para
+    # cada variação, e o agrupamento vem depois: «preto» acha o produto.
+    return sorted(agrupar_por_produto(fora), key=lambda l: E._sem_acento(nome_da_linha(l)))
 
 
 def assinatura_da_lista(linhas):
-    """Muda quando a lista da tabela muda (linha a mais, a menos, outra ordem). Pura."""
+    """Muda quando QUALQUER coisa que a tabela mostra muda. Pura.
+
+    O Streamlit desmarca a tabela quando o DADO muda, não só quando muda a
+    lista: a variação nova troca «Embaralhador» por «Embaralhador · 2
+    variações» na mesma linha, e o produto fechava (17/11)."""
     import hashlib
-    return hashlib.md5("|".join(l["produto"]["id"] for l in linhas).encode()).hexdigest()[:10]
+    txt = "|".join(repr((l["produto"]["id"], nome_da_linha(l), l.get("fisico"), l.get("full"),
+                         l.get("varejo"), l.get("atacado"), l.get("valor"), l.get("custo"),
+                         l.get("custo_max"), sorted(l.get("por_full", {}).items()),
+                         l.get("ultima_saida"), l.get("dias"),
+                         *(l["produto"].get(k) for k in ("foto_id", "sku", "codigo_fornecedor",
+                                                         "ean", "fornecedor"))))
+                   for l in linhas)
+    return hashlib.md5(txt.encode()).hexdigest()[:10]
 
 
 def produto_escolhido(linhas, sel, guardado, desmarcou, ean_guardado=""):
@@ -2276,6 +2520,57 @@ def variacao_pode_excluir(v, saldo):
     return True, ""
 
 
+def _abrir_ed_variacao(pid):
+    st.session_state["est_pn_edvar"] = pid
+
+
+def _fechar_ed_variacao():
+    ss = st.session_state
+    ss.pop("est_pn_edvar", None)
+    ss["est_edv_k"] = int(ss.get("est_edv_k") or 0) + 1      # campos nascem limpos
+
+
+def _ch_edv(campo, pid):
+    return f"est_edv_{campo}_{st.session_state.get('est_edv_k', 0)}_{pid}"
+
+
+def _salvar_variacao(v):
+    """Callback: o nome e a foto DESTA variação."""
+    ss = st.session_state
+    nome = " ".join(str(ss.get(_ch_edv("nome", v["id"])) or "").split())
+    foto = ss.get(_ch_edv("foto", v["id"]))
+    if str(v.get("variacao") or "").strip() and not nome:
+        _avisar("Nada foi gravado — o nome da variação ficou vazio.", erro=True)
+        return
+    try:
+        mud = {}
+        if nome != str(v.get("variacao") or "").strip():
+            mud["variacao"] = nome
+        foto_id, af = foto_da_tela(foto, E.limpar_codigo(v.get("ean")))
+        if foto_id:
+            mud["foto_id"] = foto_id
+        if mud:
+            E.atualizar_produtos({v["id"]: mud})
+        _avisar(*_com_foto(f"✓ Variação «{nome or E.nome_completo(v)}» atualizada." if mud
+                           else "Nada para gravar: nenhum campo mudou.", af))
+        _fechar_ed_variacao()
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", erro=True)
+
+
+def _editar_variacao(v):
+    with st.container(border=True):
+        st.markdown(f"**✎ {_esc(E.nome_completo(v))}**")
+        st.session_state.setdefault(_ch_edv("nome", v["id"]), str(v.get("variacao") or ""))
+        st.text_input("Nome da variação", key=_ch_edv("nome", v["id"]))
+        st.file_uploader("Nova foto (opcional)", type=None, key=_ch_edv("foto", v["id"]))
+        a, b = st.columns(2)
+        a.button("Salvar variação", key=f"est_edv_ok_{v['id']}", type="primary", use_container_width=True,
+                 on_click=_salvar_variacao, args=(v,))
+        b.button("Cancelar", key=f"est_edv_cx_{v['id']}", use_container_width=True,
+                 on_click=_fechar_ed_variacao)
+
+
 def _pedir_exclusao(pid):
     st.session_state["est_pn_excluir"] = pid
 
@@ -2300,14 +2595,29 @@ def _variacoes_do_painel(variacoes, saldo, quem):
     ss = st.session_state
     st.markdown("**Variações**")
     for v in variacoes:
-        c0, c1, c2, c3 = st.columns([0.6, 3, 1.6, 0.5], vertical_alignment="center")
+        c0, c1, c2, c3, c4 = st.columns([0.6, 3, 1.6, 0.5, 0.5], vertical_alignment="center")
         c0.markdown(foto_html(v.get("foto_id"), 44), unsafe_allow_html=True)
         c1.markdown(f"**{_esc(E.nome_completo(v))}**")
         c2.markdown(_esc(estoque_txt(saldo, v["id"]).replace("em estoque: ", "")))
+        # ✎ DA VARIAÇÃO (dono, 17/11: «cadê o botão de editar a variação,
+        # pôr foto e outras coisas?»): nome e foto dela, com Cancelar.
+        c3.button("✎", key=f"est_pn_ed_{v['id']}", help="Editar esta variação (nome, foto)",
+                  on_click=_abrir_ed_variacao, args=(v["id"],))
         # A última não tem ✕: excluir a única variação é excluir o produto.
         if len(variacoes) > 1:
-            c3.button("✕", key=f"est_pn_x_{v['id']}", help="Excluir esta variação",
+            c4.button("✕", key=f"est_pn_x_{v['id']}", help="Excluir esta variação",
                       on_click=_pedir_exclusao, args=(v["id"],))
+        if ss.get("est_pn_edvar") == v["id"]:
+            _editar_variacao(v)
+    # O QUE JÁ FOI CADASTRADO ANTES (17/11): produto sem nome COM estoque ao
+    # lado das variações — as peças contam duas vezes. Um clique arruma.
+    pai = pai_sem_nome(variacoes) if len(variacoes) > 1 else None
+    if pai is not None:
+        q_pai = sum(n for (pid, _l), n in saldo.items() if pid == pai["id"])
+        st.warning(f"«{E.nome_completo(pai)}» (sem variação) ainda tem {q_pai} peça(s) somando com as "
+                   "variações. Com variações, o estoque é só o delas.")
+        st.button(f"Zerar «{E.nome_completo(pai)}» e tirar da lista", key="est_pn_zerar_pai",
+                  on_click=_zerar_pai_agora, args=(pai, quem))
     alvo = next((v for v in variacoes if v["id"] == ss.get("est_pn_excluir")), None)
     if alvo is not None:
         nome = E.nome_completo(alvo)
@@ -2322,7 +2632,7 @@ def _variacoes_do_painel(variacoes, saldo, quem):
                      on_click=_excluir_variacao, args=(alvo["id"], nome))
             b.button("Cancelar", key="est_pn_x_nao", use_container_width=True, on_click=_cancelar_exclusao)
     st.button("➕ Nova variação", key="est_pn_nova_var", on_click=_abrir_nova_variacao)
-    _nova_variacao(variacoes, quem)
+    _nova_variacao(variacoes, quem, sufixo_ed="_pn")
 
 
 def _painel(quem):
@@ -2379,7 +2689,7 @@ def _painel(quem):
     linhas = tabela_produtos(pn["linhas"], busca)
     df = pd.DataFrame([{
         "foto": gdrive.url_thumbnail(l["produto"].get("foto_id"), 120) if l["produto"].get("foto_id") else "",
-        "Produto": E.nome_completo(l["produto"]),
+        "Produto": nome_da_linha(l),
         "Código": l["produto"].get("codigo_fornecedor") or l["produto"].get("ean"),
         "Fornecedor": l["produto"].get("fornecedor") or "—",
         "SKU": E.normalizar_sku(l["produto"].get("sku")) or "—",
@@ -2387,7 +2697,8 @@ def _painel(quem):
         "Varejo · atacado": f'{l.get("varejo", 0)} · {l.get("atacado", 0)}',
         "Full por conta": " · ".join(f'{E.FULLS[k].replace("Full ", "")} {q}'
                                      for k, q in l.get("por_full", {}).items()) or "—",
-        "Custo": _rs(l["custo"]), "Valor": _r0(l["valor"]),
+        "Custo": (_rs(l["custo"]) if l.get("custo_max", l["custo"]) == l["custo"]
+                  else f'{_rs(l["custo"])} a {_rs(l["custo_max"])}'), "Valor": _r0(l["valor"]),
         "No estoque há": _meses_txt(l["dias"]),
         "Última saída": l["ultima_saida"].strftime("%d/%m") if l["ultima_saida"] else "—",
     } for l in linhas])
@@ -2419,9 +2730,14 @@ def _painel(quem):
         # VARIAÇÕES AQUI TAMBÉM (dono, 17/11): «cadê o botão de cadastrar
         # variação?» e «um X para excluir a variação».
         _variacoes_do_painel(_vs_pn, E.saldos(movs), quem)
-        st.markdown(f"**Histórico · {_esc(E.nome_completo(p))}**")
-        hist = [m for m in movs if m.get("produto_id") == p["id"]][-30:]
-        st.dataframe(pd.DataFrame([{"Quando": m.get("quando"), "O quê": m.get("tipo"),
+        # Uma linha por produto: o histórico é o de TODAS as variações dele.
+        _ids_pn = {v["id"]: v for v in _vs_pn}
+        _multi = len(_vs_pn) > 1
+        st.markdown(f"**Histórico · {_esc(E.capitalizar(p.get('nome')) if _multi else E.nome_completo(p))}**")
+        hist = [m for m in movs if m.get("produto_id") in _ids_pn][-30:]
+        st.dataframe(pd.DataFrame([{**({"Variação": E.capitalizar(str(_ids_pn[m["produto_id"]].get("variacao")
+                                                                    or "—"))} if _multi else {}),
+                                    "Quando": m.get("quando"), "O quê": m.get("tipo"),
                                     "Onde": E.NOME_LOCAL.get(m.get("local"), m.get("local")),
                                     "Qtd": E.inteiro(m.get("qtd")), "Quem": m.get("quem"),
                                     "Obs": m.get("obs")} for m in reversed(hist)]),
@@ -2978,7 +3294,7 @@ if __name__ == "__main__":
     _linhas = [{"produto": p, "valor": 1.0} for p in prods + _real]
     ok("tabela_produtos: busca o nome REAL com + como texto, e por código bipado",
        [l["produto"]["nome"] for l in tabela_produtos(_linhas, "relógio + jóias")] == ["Porta 2 Relógio + Jóias"]
-       and len(tabela_produtos(_linhas, "7891 234567895")) == 2 and len(tabela_produtos(_linhas, "")) == 3
+       and len(tabela_produtos(_linhas, "7891 234567895")) == 1 and len(tabela_produtos(_linhas, "")) == 2
        and tabela_produtos(_linhas, "(P/M) ?") == [])
     _bp = (E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("", "")], "l", "x")
            + E.linhas_de_produto("9", "PRJ-2", "Porta 2 Relógio + Jóias", 31.5, [("", "")], "l", "x"))
@@ -3045,7 +3361,8 @@ if __name__ == "__main__":
     _src_ep = _insp.getsource(_editar_produto)
     ok("editar entrada: abre o cadastro inteiro (_editar_produto), já aberto e recolhe ao salvar",
        "_editar_produto(vs, quem, sufixo=" in _src_ee and "aberto=True" in _src_ee
-       and "fechar=True" in _src_ee and "if fechar:\n                _fechar_ed_entrada()" in _src_ep)
+       and "fechar=True" in _src_ee and "args=(variacoes, quem, sufixo, fechar)" in _src_ep
+       and "if fechar:\n            _fechar_ed_entrada()" in _insp.getsource(_salvar_produto))
     # Cancelar: o botão existe e FECHA de verdade (o callback, rodado).
     _ss_cx = {"est_ent_ed": "L1"}
     _orig_ss = st.session_state
@@ -3056,13 +3373,16 @@ if __name__ == "__main__":
         st.session_state = _orig_ss
     ok("editar entrada: «Cancelar» chama _fechar_ed_entrada, e ela fecha",
        'on_click=_fechar_ed_entrada' in _src_ee and _ss_cx["est_ent_ed"] is None)
-    ok("editar produto: form, foto e SKU com sufixo — sem chave repetida com a ficha",
-       'st.form(f"est_form_edit{sufixo}")' in _src_ep and 'key=f"est_edit_foto{sufixo}"' in _src_ep
-       and "{sufixo}_" in _src_ep)
+    ok("editar produto: toda chave com o prefixo do produto E do sufixo — sem chave repetida com a ficha",
+       "pf = _pf_ed(variacoes, sufixo)" in _src_ep and "{sufixo}_" in _insp.getsource(_pf_ed)
+       and "st.form(" not in __import__("ast").unparse(__import__("ast").parse(_src_ep.lstrip()))
+       and all("key=pf" in ln or "key=f'{pf}" in ln or "key=_ch_foto_ed(pf)" in ln or "key=f\"{pf}" in ln
+               for ln in _src_ep.splitlines() if "key=" in ln))
 
     # ORDEM ALFABÉTICA do Estoque cadastrado (dono, 17/11), com nome da
     # planilha (acento, maiúscula) e valor invertido de propósito.
-    _alf = [{"produto": {**prods[0], "nome": n, "variacao": ""}, "valor": v}
+    _alf = [{"produto": {**prods[0], "id": f"A{v}", "ean": f"78900000{v:05d}", "nome": n, "variacao": ""},
+             "valor": v}
             for n, v in (("Caixa para 12 Relógios", 900), ("álbum Pequeno", 10), ("Álbum Grande", 5),
                          ("Globo Azul 14cm", 50))]
     ok("estoque cadastrado: ordem alfabética, sem olhar acento, maiúscula ou valor",
@@ -3131,7 +3451,7 @@ if __name__ == "__main__":
     _src_pn = _insp.getsource(_painel)
     _src_vp = _insp.getsource(_variacoes_do_painel)
     ok("Estoque cadastrado: a linha escolhida mostra ✕ e ➕ Nova variação",
-       "_variacoes_do_painel(" in _src_pn and "_nova_variacao(variacoes, quem)" in _src_vp
+       "_variacoes_do_painel(" in _src_pn and '_nova_variacao(variacoes, quem, sufixo_ed="_pn")' in _src_vp
        and "on_click=_excluir_variacao" in _src_vp and '"ativo": "0"' in _insp.getsource(_excluir_variacao))
 
     # FORNECEDOR (dono, 17/11): o NOME de quem vende, ao lado do código dele.
@@ -3148,11 +3468,12 @@ if __name__ == "__main__":
     ok("fornecedor: a busca acha pelo nome dele, sem acento e com símbolo",
        [p["id"] for p in buscar_produtos(_fz, "tres irmaos (sp) +")] == [_fz[0]["id"]]
        and len(tabela_produtos([{"produto": _fz[0]}], "irmãos (sp) + cia")) == 1)
-    _sc, _se, _sv = (_insp.getsource(x) for x in (_cadastro, _editar_produto, _nova_variacao))
+    _sc, _se, _sv = (_insp.getsource(x) for x in (_cadastro, _editar_produto, _salvar_produto))
+    _se += _insp.getsource(_edicao_pendente)
     ok("fornecedor: cadastro, edição e nova variação levam o campo até a gravação",
        '"Fornecedor"' in _sc and "fornecedor=fornecedor" in _sc
-       and '"Fornecedor"' in _se and '"fornecedor": " ".join(fornecedor.split())' in _se
-       and 'fornecedor=p0.get("fornecedor"' in _sv)
+       and '"Fornecedor"' in _se and '"fornecedor": " ".join(str(dig["fornecedor"]).split())' in _se
+       and 'fornecedor=base.get("fornecedor"' in _sv)
 
     # A FOTO QUE «NÃO SALVOU» (dono, 17/11). O aviso do Drive ia para
     # st.warning e o st.rerun() logo depois o apagava: sobrava «✓ salvo».
@@ -3203,7 +3524,9 @@ if __name__ == "__main__":
     _pb = E.linhas_de_produto("7891234567895", "MBLN-06", "Álbum + base", 18, [("", "")], "l", "x")
     _ln = lambda ps: tabela_produtos([{"produto": q, "valor": 0} for q in ps])
     _antes = _ln(_pe + _pb)
-    _nova = E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("Preto", "")], "l", "x")
+    # Agora a variação nova não muda a lista (uma linha por produto); quem
+    # muda é um produto novo — e a ✕ de uma variação que abre a linha.
+    _nova = E.linhas_de_produto("7890000000017", "CX", "Caixa nova", 42, [("", "")], "l", "x")
     _depois = _ln(_pe + _pb + _nova)
     _i = [l["produto"]["id"] for l in _antes].index(_pe[0]["id"])
     _esc1 = produto_escolhido(_antes, [_i], None, False)
@@ -3213,9 +3536,16 @@ if __name__ == "__main__":
        and _esc2 == _pe[0]["id"])
     ok("produto escolhido: e continua no CLIQUE SEGUINTE (o + Nova variação que não abria)",
        produto_escolhido(_depois, [], _esc2, False, "5901234123457") == _pe[0]["id"])
+    _ir = E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42, [("Preto", "")], "l", "x")
     ok("produto escolhido: desmarcou fecha; a excluída deixa aberta a irmã",
        produto_escolhido(_antes, [], _esc1, True) is None
-       and produto_escolhido(_ln(_pb + _nova), [], _esc1, False, "5901234123457") == _nova[0]["id"])
+       and produto_escolhido(_ln(_pb + _ir), [], _esc1, False, "5901234123457") == _ir[0]["id"])
+    _comvar = _ln(_pe + _pb + E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42,
+                                                  [("Preto", "")], "l", "x"))
+    _foto = _ln([{**_pe[0], "foto_id": "F1"}] + _pb)
+    ok("produto escolhido: variação nova ou foto nova na MESMA linha também trocam a tabela",
+       [l["produto"]["id"] for l in _comvar] == [l["produto"]["id"] for l in _antes]
+       and len({assinatura_da_lista(x) for x in (_antes, _comvar, _foto)}) == 3)
     _src_pn2 = _insp.getsource(_painel)
     ok("produto escolhido: a tabela troca de chave quando a lista muda",
        'key=f"est_tab_{sig}"' in _src_pn2 and "produto_escolhido(" in _src_pn2
@@ -3224,6 +3554,99 @@ if __name__ == "__main__":
     ok("nova variação: um campo de nome só, e Cancelar",
        "JÁ existe" not in _src_nv and "nome_antigo" not in _src_nv
        and "on_click=_fechar_nova_variacao" in _src_nv)
+
+    # UMA LINHA POR PRODUTO (dono, 17/11). Pela cadeia: E.painel monta as
+    # linhas por variação, como na tela, e tabela_produtos agrupa.
+    import datetime as _dt_g
+    _gv = E.linhas_de_produto("7908045165056", "APBL17018", "Jogo de Dardo Magnético 46cm", 75.68,
+                              [("Creme", ""), ("Branco (P)", "")], "l", "10/11/2026 10:00")
+    _gs = E.linhas_de_produto("7891234567895", "AP3012", "Álbum + base", 38.4, [("", "")], "l", "15/11/2026 10:00")
+    _gm = (E.linhas_de_entrada([(_gv[0], 4), (_gv[1], 2), (_gs[0], 1)], "l", "15/11/2026 11:00")
+           + E.linhas_de_entrada([(_gv[1], 3)], "l", "15/11/2026 11:00", origem=E.ATACADO))
+    _gp = E.painel(_gv + _gs, _gm, _dt_g.date(2026, 11, 17))
+    _gt = tabela_produtos(_gp["linhas"])
+    _gd = next(g for g in _gt if g["n_var"] == 2)
+    ok("lista: uma linha por produto, as variações somadas dentro dela",
+       len(_gt) == 2 and [nome_da_linha(g) for g in _gt]
+       == ["Álbum + Base", "Jogo de Dardo Magnético 46cm · 2 variações"]
+       and _gd["fisico"] == 9 and _gd["varejo"] == 6 and _gd["atacado"] == 3
+       and abs(_gd["valor"] - sum(l["valor"] for l in _gp["linhas"] if l["produto"]["ean"] == "7908045165056")) < 0.01
+       and set(_gd["variacoes"]) == {_gv[0]["id"], _gv[1]["id"]} and _gd["dias"] == 7)
+    _gb = tabela_produtos(_gp["linhas"], "branco (p)")
+    ok("lista: a busca pelo nome da VARIAÇÃO acha o produto (uma linha só)",
+       len(_gb) == 1 and _gb[0]["produto"]["ean"] == "7908045165056")
+    _src_hist = _insp.getsource(_painel)
+    ok("lista: o histórico do produto aberto é o de todas as variações",
+       'm.get("produto_id") in _ids_pn' in _src_hist and '"Produto": nome_da_linha(l)' in _src_hist)
+
+    # VÁRIAS VARIAÇÕES DE UMA VEZ (dono, 17/11), com o pior nome real.
+    _bv, _be = blocos_de_variacao([("  Porta 2 Relógio + Jóias (P) ", 2, None), ("", None, None),
+                                   ("Verde", 0, "foto")])
+    ok("variações: os quadros preenchidos entram, o vazio é ignorado",
+       _be == "" and _bv == [("Porta 2 Relógio + Jóias (P)", 2, None), ("Verde", 0, "foto")])
+    ok("variações: sem nome com peça, nome repetido e nada escrito são recusados",
+       blocos_de_variacao([("", 3, None)])[1] == "Variação 1: falta o nome."
+       and "duas vezes" in blocos_de_variacao([("Verde", 0, None), ("verde", 1, None)])[1]
+       and blocos_de_variacao([("", None, None)])[1] == "Escreva o nome da variação.")
+    import ast as _ast_nv
+    _src_nv2 = _ast_nv.unparse(_ast_nv.parse(_insp.getsource(_nova_variacao)))   # sem comentário
+    ok("variações: «➕ Mais uma variação» no quadro, sem st.form, salvar por callback",
+       "on_click=_mais_um_quadro_de_variacao" in _src_nv2 and "st.form" not in _src_nv2
+       and "on_click=_salvar_produto" in _src_nv2 and "st.rerun" not in _src_nv2)
+
+    # UM SALVAR PARA TUDO (dono, 17/11: «coloquei a foto do produto e das
+    # variações, só salvou o da variação»).
+    _ini = _iniciais_ed({**prods[0], "sku": "MS-3500", "fornecedor": "Três Irmãos"})
+    ok("salvar tudo: sem mudança o produto não é regravado; nome, SKU ou foto mudados são",
+       not edicao_mudou(_ini, dict(_ini), False)
+       and not edicao_mudou(_ini, {**_ini, "nome": " " + _ini["nome"] + " "}, False)
+       and edicao_mudou(_ini, {**_ini, "nome": "Outro"}, False)
+       and edicao_mudou(_ini, {**_ini, "sku": "MS-9"}, False) and edicao_mudou(_ini, dict(_ini), True))
+    ok("salvar tudo: o «Salvar» do editar e o das variações são o MESMO, e ele lê os dois quadros",
+       "on_click=_salvar_produto" in _insp.getsource(_editar_produto)
+       and "on_click=_salvar_produto" in _insp.getsource(_nova_variacao)
+       and "_edicao_pendente(variacoes, sufixo)" in _insp.getsource(_salvar_produto)
+       and "blocos_de_variacao(lidos)" in _insp.getsource(_salvar_produto))
+
+    # COM VARIAÇÃO, O ESTOQUE É SÓ O DELAS (dono, 17/11): o caso da tela —
+    # «Jogo de Dardo 34cm» com 10, Marrom 9 e Verde 1 somavam 20.
+    _jd = E.linhas_de_produto("7908045100001", "AP3017", "Jogo de Dardo Magnético 34cm", 46.32,
+                              [("", "")], "l", "x", custo_atacado="46.32")
+    _jv = E.linhas_de_produto("7908045100001", "AP3017", "Jogo de Dardo Magnético 34cm", 46.32,
+                              [("Marrom", ""), ("Verde", "")], "l", "x")
+    _jm = (E.linhas_de_entrada([(_jd[0], 7)], "l", "x") + E.linhas_de_entrada([(_jd[0], 3)], "l", "x", origem=E.ATACADO)
+           + E.linhas_de_entrada([(_jd[0], 2)], "l", "x", local=list(E.FULLS)[0])
+           + E.linhas_de_entrada([(_jv[0], 9), (_jv[1], 1)], "l", "x"))
+    _jz = E.linhas_de_zerar(_jd[0], _jm, "l", "x", "zerado")
+    _js = E.saldos(_jm + _jz)
+    ok("zerar: o produto sem nome vai a zero no físico E no Full, origem a origem; as variações ficam",
+       sum(q for (pid, _l), q in _js.items() if pid == _jd[0]["id"]) == 0
+       and _js.get((_jv[0]["id"], E.FISICO)) == 9 and _js.get((_jv[1]["id"], E.FISICO)) == 1
+       and len(_jz) == 3 and all(m["obs"] == "zerado" for m in _jz))
+    ok("zerar: o produto sem nome só é «pai» quando é UM, e ao lado de variações com nome",
+       pai_sem_nome(_jd + _jv) == _jd[0] and pai_sem_nome(_jd) == _jd[0] and pai_sem_nome(_jv) is None
+       and pai_sem_nome(_jd + [{**_jd[0], "id": "X"}] + _jv) is None)
+    ok("zerar: salvar variação nova zera o pai, e o Estoque cadastrado oferece o clique para o antigo",
+       "_zerar_pai(pai, quem)" in _insp.getsource(_salvar_produto)
+       and "on_click=_zerar_pai_agora" in _insp.getsource(_variacoes_do_painel)
+       and 'E.atualizar_produtos({pai["id"]: {"ativo": "0"}})' in _insp.getsource(_zerar_pai)
+       and "E.kits_com(codigos, pai[\"id\"])" in _insp.getsource(_zerar_pai))
+
+    # ✎ DA VARIAÇÃO e CANCELAR (dono, 17/11).
+    _orig_ss2 = st.session_state
+    try:
+        st.session_state = {"est_ed_1_pn_nome": "x", "est_ed_1_pn_k": 3, "est_ed_1_pn_foto_3": "F", "outra": 1}
+        _cancelar_edicao("est_ed_1_pn_")
+        _cx = dict(st.session_state)
+    finally:
+        st.session_state = _orig_ss2
+    ok("cancelar edição: o digitado sai e a foto nasce vazia (rodada nova)",
+       _cx == {"outra": 1, "est_ed_1_pn_k": 4})
+    _src_vp2 = _insp.getsource(_variacoes_do_painel)
+    ok("variação: cada linha tem ✎ (nome e foto) e o quadro tem Cancelar",
+       "on_click=_abrir_ed_variacao" in _src_vp2 and "_editar_variacao(v)" in _src_vp2
+       and "on_click=_fechar_ed_variacao" in _insp.getsource(_editar_variacao)
+       and "on_click=_salvar_variacao" in _insp.getsource(_editar_variacao))
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
