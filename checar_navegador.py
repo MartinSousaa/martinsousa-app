@@ -433,13 +433,16 @@ def main():
             # PAINEL (Parte 5, 11/11): a venda sem estoque cai na lista do
             # Renan sozinha, o "comprado" fica gravado, e a busca acha o nome
             # com símbolo como TEXTO.
-            pg.get_by_text("Estoque cadastrado", exact=True).click()
+            # A lista do Renan mora na aba «📈 Painel» desde 17/11 (dono).
+            pg.get_by_text("Painel", exact=True).last.click()
             pg.wait_for_timeout(3500)
             _ptxt = pg.inner_text("body")
             _renan = "vendeu sem estoque" in _ptxt
             pg.get_by_role("button", name="marcar comprado").first.click()
             pg.wait_for_timeout(3000)
             _cmp = "✓ comprado" in pg.inner_text("body")
+            pg.get_by_text("Estoque cadastrado", exact=True).click()
+            pg.wait_for_timeout(3500)
             pg.get_by_placeholder("🔎 nome, código ou bipe").fill("bailarina (p/m) + base")
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)

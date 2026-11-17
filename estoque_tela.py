@@ -24,7 +24,7 @@ import streamlit as st
 import estoque as E
 
 MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
-         "🧩 Kits", "📊 Estoque cadastrado", "📱 Contagem")
+         "🧩 Kits", "📊 Estoque cadastrado", "📱 Contagem", "📈 Painel")
 EM_CONSTRUCAO = {}
 
 # O BIPE VAI PARA A BARRA, ESTEJA O CURSOR ONDE ESTIVER (dono, 11/11).
@@ -2891,15 +2891,15 @@ def _variacoes_do_painel(variacoes, saldo, quem, pf):
     _nova_variacao(variacoes, quem, sufixo_ed="_pn", botoes=False)
 
 
-def _painel(quem):
-    import gdrive
-    import pandas as pd
+def _painel_resumo(quem):
+    """A aba «📈 Painel» (dono, 17/11): os quadros de valor, o tempo parado e
+    a lista do Renan saíram do Estoque cadastrado — «o painel ainda vamos
+    desenvolver o que quero ver», então ficam aqui por enquanto."""
     import placar_core as _pc
     ss = st.session_state
     aviso = ss.pop("est_aviso", None)
     if aviso:
         (st.error if aviso[1] else st.success)(aviso[0])
-    _mostrar_desconhecido()
     try:
         prods, movs, codigos = E.carregar()
         marcados = E.marcados_de(E.compras())
@@ -2938,6 +2938,23 @@ def _painel(quem):
                          args=(p["id"], quem), use_container_width=True)
         st.caption("Entra sozinho quando vende sem estoque ou um kit trava. Sai sozinho quando a "
                    "mercadoria dá entrada.")
+
+
+def _painel(quem):
+    import gdrive
+    import pandas as pd
+    import placar_core as _pc
+    ss = st.session_state
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    _mostrar_desconhecido()
+    try:
+        prods, movs, codigos = E.carregar()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    pn = E.painel(prods, movs, _pc.agora_br().date())
     _alerta_sem_sku(prods)
     st.markdown("**Todos os produtos**")
     busca = st.text_input("Buscar", key="est_busca", placeholder="🔎 nome, código ou bipe",
@@ -3260,6 +3277,9 @@ def pagina(usuario_logado=None):
     if modo == "📱 Contagem":
         _contagem(quem)
         return
+    if modo == MODOS[6]:
+        _painel_resumo(quem)
+        return
     _entrada(quem)
 
 
@@ -3512,7 +3532,15 @@ if __name__ == "__main__":
     ok("câmera em TODA tela que bipa: a barra tem a câmera, e as cinco telas usam a barra",
        "_CAMERA" in _insp.getsource(_barra)
        and all("_barra(" in _insp.getsource(f) for f in (_entrada, _saida, _baixas, _kits, _tela_contar)))
-    ok("modos: as seis partes aprovadas e prontas", len(MODOS) == 6 and EM_CONSTRUCAO == {})
+    ok("modos: as seis partes aprovadas e prontas", len(MODOS) == 7 and EM_CONSTRUCAO == {})
+    # O PAINEL À PARTE (dono, 17/11): quadros, tempo parado e lista do Renan
+    # saem do Estoque cadastrado e vão para a última aba.
+    _src_pr = _insp.getsource(_painel_resumo)
+    _src_pc = _insp.getsource(_painel)
+    ok("Painel: aba última; quadros, tempo parado e lista do Renan nela e NÃO no Estoque cadastrado",
+       MODOS[-1] == "📈 Painel" and "_painel_resumo(quem)" in _insp.getsource(pagina)
+       and all(t in _src_pr for t in ("topo_painel_html(pn)", "faixas_html(pn)", "E.lista_de_compra("))
+       and not any(t in _src_pc for t in ("topo_painel_html(", "faixas_html(", "E.lista_de_compra(")))
     ok("câmera: entrega o código à MESMA barra do leitor, e não repete a etiqueta parada",
        ".st-key-est_bipe input" in _CAMERA and "agora - visto < 1200" in _CAMERA and "location" not in _CAMERA
        and "html5-qrcode@2.3.8" in _CAMERA)
