@@ -1134,10 +1134,18 @@ def _mais_entradas():
     ss["est_ent_n"] = int(ss.get("est_ent_n") or PASSO_ENTRADAS) + PASSO_ENTRADAS
 
 
+def entradas_visiveis(movs, n):
+    """As últimas `n` entradas que valem — sem as excluídas/corrigidas. Pura."""
+    return [lt for lt in E.ultimos_lotes(movs, E.ENTRADA, len(movs) + 1) if not lt["desfeito"]][:n]
+
+
 def _ultimas(movs, por_id, quem):
     n = int(st.session_state.get("est_ent_n") or PASSO_ENTRADAS)
     # Um a mais do que mostra: é assim que se sabe se a seta tem o que abrir.
-    lotes = E.ultimos_lotes(movs, E.ENTRADA, n + 1)
+    # SEM OS RISCADOS (dono, 17/11): entrada excluída ou corrigida não
+    # aparece — o «✎ editar» grava um lote novo e desfaz o velho, e o velho
+    # riscado na lista parecia entrada a mais.
+    lotes = entradas_visiveis(movs, n + 1)
     if not lotes:
         return
     st.markdown(f'<div style="font-size:12px;letter-spacing:.14em;font-weight:800;color:#9AA3AE">'
@@ -2939,6 +2947,18 @@ if __name__ == "__main__":
     ok("editar produto: form, foto e SKU com sufixo — sem chave repetida com a ficha",
        'st.form(f"est_form_edit{sufixo}")' in _src_ep and 'key=f"est_edit_foto{sufixo}"' in _src_ep
        and "{sufixo}_" in _src_ep)
+
+    # SEM OS RISCADOS (dono, 17/11). Cadeia real: uma entrada corrigida pelo
+    # ✎ editar (linhas_da_correcao) e outra excluída (linhas_que_desfazem).
+    _mv_e = E.linhas_de_entrada([(prods[0], 2)], "my", "16/11/2026 10:00")
+    _lt_a = str(_mv_e[0]["lote"])
+    _corr, _novo = linhas_da_correcao(_lt_a, _mv_e, {0: 3}, "my", "16/11/2026 10:05")
+    _mv_e = _mv_e + _corr
+    _vis = entradas_visiveis(_mv_e, 5)
+    ok("últimas entradas: a corrigida some, só a nova aparece (sem riscado)",
+       [lt["lote"] for lt in _vis] == [str(_novo)] and not any(lt["desfeito"] for lt in _vis))
+    _mv_x = _mv_e + E.linhas_que_desfazem(str(_novo), _mv_e, "my", "16/11/2026 10:06")
+    ok("últimas entradas: a excluída também some", entradas_visiveis(_mv_x, 5) == [])
 
     # ✎ EDITAR NO ESTOQUE CADASTRADO (dono, 17/11): a linha escolhida abre o
     # MESMO _editar_produto, com sufixo próprio.
