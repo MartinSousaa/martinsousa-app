@@ -284,6 +284,28 @@ def main():
                     f"não tenta.")
     print(f"ok    {total} campo(s) de imagem varrido(s)")
 
+    # ── 1-ter. O TOKEN DA TV NÃO VAI PARA A TELA (dono, 18/11) ──────────────
+    # O rodapé do Painel de Metas escrevia «?tv=<token>»: quem lia copiava a
+    # chave que abre o painel sem senha. Por AST: texto montado (f-string)
+    # com `_TV_TOKEN` dentro. A comparação `params.get("tv") == _TV_TOKEN`
+    # não é texto, e continua valendo.
+    import ast as _ast_tv
+    _tv = []
+    for _nome in _arquivos():
+        try:
+            _arv = _ast_tv.parse(open(_nome, encoding="utf-8").read())
+        except SyntaxError:
+            continue
+        for _no in _ast_tv.walk(_arv):
+            if isinstance(_no, _ast_tv.JoinedStr) and any(
+                    isinstance(n, _ast_tv.Name) and n.id == "_TV_TOKEN" for n in _ast_tv.walk(_no)):
+                _tv.append(f"{_nome}:{_no.lineno}")
+    if _tv:
+        reprova(f"o token da TV vai para um texto da tela em {', '.join(_tv)} — "
+                "quem lê copia a chave que abre o painel sem senha")
+    else:
+        print("ok    o token da TV não aparece em texto nenhum")
+
     # ── 1-bis. TODA CHAMADA AO MOTOR LEVA O TIPO E AS REFERENCIAS ──────────
     #
     # ACHADO EM PRODUCAO, 05/10, e e a Forma 1 na forma mais cara: a

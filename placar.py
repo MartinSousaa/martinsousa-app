@@ -3354,7 +3354,10 @@ def pagina_placar(usuario_logado, headless=False):
         # Rodapé normal com dica de TV
         if _TV_TOKEN:
             st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 4px 0;"/>',unsafe_allow_html=True)
-            st.caption(f"📺 Para TV: adicione **?tv={_TV_TOKEN}** no final da URL · {agora.strftime('%d/%m/%Y %H:%M')}")
+            # O TOKEN NÃO APARECE (dono, 18/11: «pode esconder»): quem lia o
+            # rodapé copiava a chave que abre o painel sem senha. Ele mora
+            # no Railway, em [tv] token.
+            st.caption(f"📺 Modo TV ativo — o endereço está no Railway ([tv] token) · {agora.strftime('%d/%m/%Y %H:%M')}")
         else:
             st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 4px 0;"/>',unsafe_allow_html=True)
             st.caption(f"📺 Configure **[tv] token** no Secrets para ativar modo TV · {agora.strftime('%d/%m/%Y %H:%M')}")

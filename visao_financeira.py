@@ -374,6 +374,22 @@ def html_equilibrio(eq):
             "#E8EAED" if res is None or res >= 0 else RUIM)
 
 
+def rotulo_da_base(base_mes, hoje):
+    """O texto embaixo do FATURAMENTO no mês corrente. Pura. Diz até que dia
+    a BASE DE VENDAS tem venda — e não a data de hoje (dono, 18/11: a base
+    parou em 04/11 e o painel dizia «até 18/11», e R$ 27 mil parecia o mês)."""
+    from datetime import date as _date
+    ult = str((base_mes or {}).get("ultima") or "")
+    if not ult:
+        return "BASE DE VENDAS"
+    d = _date.fromisoformat(ult)
+    txt = "BASE DE VENDAS · até " + d.strftime("%d/%m")
+    parada = (hoje - d).days
+    if parada >= 2:
+        txt += f" · ⚠️ base sem venda há {parada} dias"
+    return txt
+
+
 def html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas, lpv, parcial, compromissos=None,
                 fat_sub="BASE DE VENDAS", faixa_mp="", eq=None):
     """O layout A aprovado (05/11): placar, para onde foi o dinheiro e onde o
@@ -593,7 +609,7 @@ def mostrar(ano, mes, mes_txt, valores, fontes, lpv):
         eq = {"erro": f"não consegui calcular: {type(e).__name__}"}
     st.markdown(html_painel(mes_txt, ano, entrou, saiu, saiu_ant, d, saidas,
                             lpv.get(int(mes)), parcial, comp,
-                            fat_sub=("BASE DE VENDAS · até " + _hj.strftime("%d/%m")) if corrente
+                            fat_sub=rotulo_da_base(d.get("base_mes"), _hj) if corrente
                             else "BASE DE VENDAS", faixa_mp=faixa, eq=eq),
                 unsafe_allow_html=True)
     if corrente:
@@ -732,6 +748,17 @@ if __name__ == "__main__":
        "_ch.do_mes(" in _insp.getsource(previsto_do_mes)
        and "a_vencer" not in _insp.getsource(previsto_do_mes))
 
+    # A BASE PARADA (dono, 18/11): pela cadeia — o resumo da base real diz
+    # a última venda, e o rótulo usa ELA, não o dia de hoje.
+    from datetime import date as _dt_r
+    _rm_r = _vf.resumo_mensal([{"Data": "2026-11-01", "FAT TOTAL": 10},
+                               {"Data": "2026-11-04", "FAT TOTAL": 5}], 2026, 20.0).get(11)
+    ok("rótulo do faturamento: «até 04/11» e o aviso de base parada, e não «até 18/11»",
+       _rm_r["ultima"] == "2026-11-04"
+       and rotulo_da_base(_rm_r, _dt_r(2026, 11, 18)) == "BASE DE VENDAS · até 04/11 · ⚠️ base sem venda há 14 dias"
+       and rotulo_da_base(_rm_r, _dt_r(2026, 11, 5)) == "BASE DE VENDAS · até 04/11"
+       and rotulo_da_base(None, _dt_r(2026, 11, 5)) == "BASE DE VENDAS"
+       and 'rotulo_da_base(d.get("base_mes"), _hj)' in __import__("inspect").getsource(mostrar))
     # FATURAMENTO (dono, 13/11): o número cheio, FAT TOTAL da cadeia real.
     ok("o painel mostra o FATURAMENTO cheio do mês (FAT TOTAL, antes das devoluções)",
        "FATURAMENTO" in _h and _dinheiro(_rm["fat_total"]) in _h and _rm["fat_total"] == 300.0)
