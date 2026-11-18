@@ -1021,7 +1021,11 @@ MUTACOES = [
     (
         "as duas contas do mesmo numero voltam a poder discordar",
         "placar.py",
-        [('        d["pts_equipe"]+=pt\n', '        d["pts_equipe"]+=pt+1\n')],
+        # Desde 18/11 as duas telas chamam o MESMO laço (`contar_cartoes`):
+        # o jeito de discordarem é o Placar passar outra coisa para ele — aqui,
+        # ignorar o mês e pontuar o ano inteiro.
+        [("        listas, cards, membros_map, id_p, id_t, id_i, filtro_mes,\n        tempos=_tempos_tv",
+          "        listas, cards, membros_map, id_p, id_t, id_i, None,\n        tempos=_tempos_tv")],
         None,
         ["python3", "placar_core.py"],
     ),

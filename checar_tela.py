@@ -1236,20 +1236,28 @@ def _queda_de_pontos(conta):
         _pc.TRELLO_KEY = _guardado
         _pl.TRELLO_KEY = _guardado
 
-    for nome, _acoes_fn, _board_fn in casos:
-        _falso = instalar()
-        _pl.st = _falso
-        _pc._buscar_acoes_board = _acoes_fn
-        _pc._buscar_board = _board_fn
-        _pc._num = lambda c, i: 50
-        _falso.session_state["qp_rodar"] = True
-        try:
-            _pl.bloco_queda_de_pontos(_agora)
-            conta(nome, True, "")
-        except (_Rerun, _Parou):
-            conta(nome, True, "")
-        except Exception as e:
-            conta(nome, False, f"{type(e).__name__}: {e}")
+    # O QUE SE TROCA AQUI VOLTA NO FIM (18/11). O `_num` falso («todo cartão
+    # vale 50») ficava no `placar_core` para o resto da conferência; enquanto o
+    # Placar tinha a cópia dele do laço, ninguém via. Com UM laço só, o teste
+    # de `cards_pts` mais abaixo passou a somar 150 em vez de 160.
+    _g_qp = (_pc._buscar_acoes_board, _pc._buscar_board, _pc._num)
+    try:
+        for nome, _acoes_fn, _board_fn in casos:
+            _falso = instalar()
+            _pl.st = _falso
+            _pc._buscar_acoes_board = _acoes_fn
+            _pc._buscar_board = _board_fn
+            _pc._num = lambda c, i: 50
+            _falso.session_state["qp_rodar"] = True
+            try:
+                _pl.bloco_queda_de_pontos(_agora)
+                conta(nome, True, "")
+            except (_Rerun, _Parou):
+                conta(nome, True, "")
+            except Exception as e:
+                conta(nome, False, f"{type(e).__name__}: {e}")
+    finally:
+        _pc._buscar_acoes_board, _pc._buscar_board, _pc._num = _g_qp
 
 
 def _conferencia_de_pontos(conta):

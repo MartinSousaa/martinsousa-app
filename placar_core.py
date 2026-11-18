@@ -3123,21 +3123,42 @@ def _calcular_fila(listas, cards, membros_map):
         p["eta_min"] = acum
     return pendentes
 
-def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
+def contar_cartoes(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None, *,
+                   tempos, conclusoes, janela_ini, entradas, prioridade_de,
+                   labels_de=None, regra_placar=False):
+    """O LAÇO DE PONTOS, UM SÓ (dono, 18/11). Pura sobre o que recebe.
+
+    Até aqui a mesma conta morava em dois lugares — `placar._processar` (o
+    Placar, o chat, a conferência) e `placar_core._processar` (o Painel de
+    Metas e o BÔNUS) — desde 03/08, quando foi copiada. Já discordaram em 330
+    pontos. Agora as duas telas chamam ESTE laço; o que cada uma busca no
+    Trello (e a janela de cada busca) continua com quem chama, para o Placar
+    não pagar as consultas extras do Painel.
+
+    `regra_placar` liga as TRÊS regras em que as duas telas ainda respondem
+    diferente — escritas aqui uma vez, em vez de copiadas, para o dono
+    decidir qual vale (nenhuma toca pontos nem penalidades):
+      1. «em andamento»: o Placar não conta cartão com etiqueta de pausa, e o
+         lista à parte (`pausados_lista`); o Painel conta;
+      2. tempo da coluna: o Placar usa o tempo MEDIDO antes do campo manual,
+         e põe a coluna de análise junto; o Painel usa o MANUAL primeiro,
+         separa a análise e reparte por pessoa;
+      3. `labels_de`: o Placar tira espaço do fim do nome da etiqueta.
+
+    Devolve o dicionário das duas telas juntas (as chaves de uma a mais não
+    atrapalham a outra).
     """
-    filtro_mes=(year,month) filtra APENAS:
-      - pontuação de cartões concluídos  (pts_equipe / pts_membro)
-      - penalidades
-    Cartões abertos/pendentes são exibidos SEMPRE, independente do mês.
-    """
+    labels_de = labels_de or _labels
     d = {
         "pts_equipe": 0.0, "pen_total": 0.0,
         "pts_membro": {u: 0.0 for u in MEMBROS_ATIVOS},
         "pen_membro": {u: 0.0 for u in MEMBROS_ATIVOS},
         "abertos": 0, "urgentes": 0, "atrasados": 0, "atrasados_pri": 0,
         "atrasados_pri_lista": [], "em_andamento": 0,
-        "falta_conf": 0, "falta_info": 0, "sem_membro": 0, "falta_pts": 0,
+        "falta_conf": 0, "falta_info": 0, "sem_membro": 0, "sem_membro_lista": [],
+        "falta_pts": 0,
         "pts_pendentes": 0.0, "pend_sem_pts": 0, "pen_cards": [], "andamento_lista": [],
+        "pausados_lista": [],
         "tempo_lista": {}, "desativar": 0, "reativar": 0, "pend_lista": {},
         "qtd_membro": {u: 0 for u in MEMBROS_ATIVOS},  # cartões concluídos por membro
         "pts_lista": {},   # pontos por coluna (cartões concluídos com pontuação)
@@ -3149,13 +3170,6 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         # Busca de demanda, na mesma forma e fora das contas de execucao.
         "analise_lista": {},
         "analise_membro_lista": {},
-        # Demandas que cada pessoa ABRIU no mes: quantas, quantos pontos e em
-        # que coluna pararam.
-        "demandas_criadas": {},
-        # membro -> [(ini, fim)] com cartao EM ANDAMENTO. E a linha do tempo que
-        # a ociosidade precisa: sem ela so da para subtrair totais, e as folgas
-        # de 10 e de 5 minutos exigem saber QUANDO cada buraco aconteceu.
-        "intervalos_membro": {},
         # Entregas de cada pessoa, abertas por DIA e por COLUNA.
         #
         # A data de conclusao de cada cartao ja era calculada aqui para decidir o
@@ -3166,61 +3180,27 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         #   membro -> {"dias":    {"AAAA-MM-DD": {"qtd": n, "pts": p}},
         #              "colunas": {nome_da_coluna: {"qtd": n, "pts": p}}}
         "entregas_membro": {},
-        # membro -> {"AAAA-MM-DD": {"iniciados", "interrompidos", "ativos",
-        # "minutos"}}. Ver atividade_por_dia().
-        "atividade_dia": {},
-        # membro -> {"AAAA-MM-DD": [{"card","ini","fim","min"}]}.
-        # Ver execucoes_por_dia().
-        "execucoes_dia": {},
+        # Os cartões que SOMAM, um a um: é esta lista que o retrato diário do
+        # Placar congela, e a diferença entre dois retratos que transforma
+        # "por que caiu 300?" em subtração.
+        "cards_pts": [],
     }
-
-    # O rateio entre cartões simultâneos precisa enxergar o board inteiro, então
-    # os tempos são calculados de uma vez, antes do laço.
-    _desde = _desde_padrao()
-    _tempos = tempos_do_board(cards, membros_map, _desde)
-    # A consulta de movimentacao e a mais volumosa de um board ativo. Limitada em
-    # paginas: perder o registro de conclusao de um cartao muito antigo apenas o
-    # deixa de fora do mes, que ja e o comportamento seguro.
-    _acoes_mov = acoes_movimento(_desde, max_paginas=5)
-    _acoes_board = _buscar_acoes_board(_desde)
-    d["intervalos_membro"] = intervalos_por_membro(cards, _acoes_board,
-                                                   membros_map, listas=listas)
-    # Dia a dia de cada pessoa: cartoes iniciados, interrompidos e o tempo de
-    # execucao. E o que separa um dia sem entrega de um dia sem trabalho — os
-    # dois apareciam iguais, porque so o concluido era contado.
-    d["atividade_dia"] = atividade_por_dia(cards, _acoes_board, membros_map)
-    # As mesmas execucoes, sem somar: cada cartao com a hora em que comecou e
-    # terminou. E o que a linha do tempo do dia precisa.
-    d["execucoes_dia"] = execucoes_por_dia(cards, _acoes_board, membros_map,
-                                          listas=listas)
-    # Quem abriu cada demanda, quanto ela valeu e onde ela parou. A coluna e a
-    # de agora: a demanda nasce na triagem e e movida quando o gestor pontua.
-    try:
-        d["demandas_criadas"] = demandas_criadas(
-            cards, listas, membros_map, criadores_de_cartao(_desde),
-            filtro_mes=filtro_mes, id_pontos=id_p)
-    except Exception:
-        # Uma consulta a mais ao Trello nunca pode derrubar a tela inteira.
-        d["demandas_criadas"] = {}
-    _conclusoes = datas_de_conclusao(_acoes_mov)
-    _entradas = entradas_na_coluna(_acoes_mov)
-    try:
-        _janela_ini = datetime.fromisoformat(_desde.replace("Z", "+00:00"))
-    except Exception:
-        _janela_ini = None
+    if regra_placar:
+        _pausas = [LABEL_FIM_EXPEDIENTE, "FIM DO EXPEDIENTE",
+                   LABEL_INTERROMPIDO_MS, LABEL_INTERROMPIDO]
 
     for card in cards:
         nl = listas.get(card["idList"], "")
         if nl == "TABELA DE PONTUAÇÃO":
             continue
-        lb = _labels(card)
+        lb = labels_de(card)
         us = _users(card, membros_map)
         ok = card.get("dueComplete", False)
         pt = _num(card, id_p)
         tempo = _num(card, id_t)
         interr = _num(card, id_i) or 0
 
-        # ── PENALIDADES ────────────────────────────────────────────────────────
+        # ── PENALIDADES: contam no mês em que foram CRIADAS ───────────────────
         if coluna_em(nl, LISTAS_PENALIDADE):
             if filtro_mes:
                 mc = _mes_card_criacao(card)  # data de CRIAÇÃO — não vaza penalidades antigas
@@ -3235,26 +3215,33 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
                         d["pen_membro"][u] += v
             continue
 
-        # ── EM ANDAMENTO ───────────────────────────────────────────────────────
-        if "EM ANDAMENTO" in lb:
+        # ── EM ANDAMENTO (regra 1 do docstring) ───────────────────────────────
+        if regra_placar:
+            # Cartao com INTERROMPIDO, INTERROMPIDO MS ou FIM DE EXPEDIENTE nao
+            # esta em execucao agora, mesmo com EM ANDAMENTO ainda colada nele.
+            _pausa = next((x for x in _pausas if x in lb), "")
+            if "EM ANDAMENTO" in lb and not _pausa:
+                d["em_andamento"] += 1
+                d["andamento_lista"].append({"card": card["name"], "lista": nl, "membros": us})
+            elif _pausa:
+                d["pausados_lista"].append({"card": card["name"], "lista": nl,
+                                            "membros": us, "motivo": _pausa})
+        elif "EM ANDAMENTO" in lb:
             d["em_andamento"] += 1
             d["andamento_lista"].append({"card": card["name"], "lista": nl, "membros": us})
 
-        # ── CARTÕES ABERTOS/PENDENTES ──────────────────────────────────────────
+        # ── CARTÕES ABERTOS/PENDENTES: nunca filtrados por mês ────────────────
         if not ok:
             d["abertos"] += 1
             if "URGENTE" in lb or "URGENTES" in nl.upper():
                 d["urgentes"] += 1
-            # Atraso, agora com dois criterios. So o tempo de execucao nao
-            # bastava: cartao que ninguem tocou tem tempo zero e nunca ficava
-            # atrasado, mesmo aberto ha semanas.
-            if _card_atrasado(card, nl, _tempos, _entradas):
+            # Atraso, com dois criterios: tempo de execucao e tempo parado na
+            # coluna. So o tempo nao bastava — cartao que ninguem tocou tem tempo
+            # zero e nunca ficava atrasado, mesmo aberto ha semanas.
+            if _card_atrasado(card, nl, tempos, entradas):
                 d["atrasados"] += 1
-                # A meta fala em "prioritarios P8-P10", mas o numero usado era o
-                # de TODOS os cartoes atrasados. Rotulo e conta mediam coisas
-                # diferentes, e a barra ficava vermelha por atraso em coluna de
-                # prioridade baixa.
-                if int(cfg_coluna(nl).get("prioridade", 5) or 5) >= 8:
+                # A meta fala em "prioritarios P8-P10", e nao no board inteiro.
+                if int(prioridade_de(nl) or 5) >= 8:
                     d["atrasados_pri"] += 1
                     d["atrasados_pri_lista"].append({"nome": card["name"], "lista": nl})
             if "FALTA CONFERÊNCIA" in lb:
@@ -3264,6 +3251,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             if not us:
                 if not filtro_mes or _mes_card_criacao(card) == filtro_mes:
                     d["sem_membro"] += 1  # data de CRIAÇÃO — conta no mês em que o cartão foi aberto
+                    d["sem_membro_lista"].append({"nome": card["name"], "lista": nl})
             if pt is None:
                 d["falta_pts"] += 1
             if "PENDENTE" in lb:
@@ -3271,8 +3259,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
                 if pt:
                     d["pts_pendentes"] += pt
                 else:
-                    # Pendente sem o campo PONTOS no Trello. E o que explica a
-                    # soma zerada com cartoes na fila.
+                    # Pendente sem o campo PONTOS no Trello: é o que explica a
+                    # soma zerada com cartões na fila.
                     d["pend_sem_pts"] = d.get("pend_sem_pts", 0) + 1
             if "DESATIVAR" in nl.upper():
                 d["desativar"] += 1
@@ -3280,70 +3268,68 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
                 d["reativar"] += 1
             continue
 
-        # ── CARTÃO CONCLUÍDO ───────────────────────────────────────────────────
+        # ── CARTÃO CONCLUÍDO ──────────────────────────────────────────────────
         if filtro_mes:
             # Sem mes de conclusao confiavel, o cartao fica FORA do mes
             # analisado. Errar para menos e melhor que pontuar duas vezes.
-            if _mes_card(card, _conclusoes, _janela_ini) != filtro_mes:
+            if _mes_card(card, conclusoes, janela_ini) != filtro_mes:
                 continue
 
-        _t = _tempos.get(card["id"], {})
-        if tempo and tempo > 0:
-            # Quem preencheu TEMPO ACUMULADO à mão manda.
-            minutos = max(tempo - interr, 0)
-            por_membro = {u: minutos for u in us if u in MEMBROS_ATIVOS}
+        # ── TEMPO DA COLUNA (regra 2 do docstring) ────────────────────────────
+        _t = tempos.get(card["id"]) or {}
+        if regra_placar:
+            # O MEDIDO primeiro (ele já desconta as pausas); o campo manual é
+            # reserva, para o cartão sem trecho medido.
+            _medido = _t.get("total", 0.0)
+            if _medido and _medido > 0:
+                d["tempo_lista"].setdefault(nl, []).append(_medido)
+            elif tempo and tempo > 0:
+                d["tempo_lista"].setdefault(nl, []).append(max(tempo - interr, 0))
         else:
-            minutos = _t.get("total", 0.0)
-            # A atribuição segue quem estava no cartão NA ÉPOCA, não quem está
-            # agora: em vídeo, quem filma sai do cartão e o editor entra depois.
-            por_membro = {u: v for u, v in _t.get("por_membro", {}).items()
-                          if u in MEMBROS_ATIVOS}
-
-        # Busca de demanda tem contabilidade propria. Ela e trabalho, e por isso
-        # aparece na linha do tempo, mas nao e execucao de DEMANDA: somada junto
-        # faria a media de quem passou a manha procurando parecer alta, e o alvo
-        # de tempo do mes seria cobrado sobre uma conta que nao e a dele.
-        #
-        # Na pratica o cartao dessa coluna quase nunca e concluido -- fica
-        # alternando EM ANDAMENTO e INTERROMPIDO --, e por isso raramente
-        # chegava ate aqui. "Raramente" nao e "nunca": basta alguem marcar o
-        # cartao como concluido uma vez para o mes inteiro sair torto.
-        _destino = "analise_lista" if coluna_em(nl, LISTAS_ANALISE) else "tempo_lista"
-        _destino_mb = ("analise_membro_lista" if coluna_em(nl, LISTAS_ANALISE)
-                       else "tempo_membro_lista")
-        if minutos > 0:
-            d.setdefault(_destino, {}).setdefault(nl, []).append(minutos)
-        for u, v in por_membro.items():
-            if v > 0:
-                (d.setdefault(_destino_mb, {}).setdefault(u, {})
-                  .setdefault(nl, []).append(v))
+            if tempo and tempo > 0:
+                # Quem preencheu TEMPO ACUMULADO à mão manda.
+                minutos = max(tempo - interr, 0)
+                por_membro = {u: minutos for u in us if u in MEMBROS_ATIVOS}
+            else:
+                minutos = _t.get("total", 0.0)
+                # A atribuição segue quem estava no cartão NA ÉPOCA, não quem
+                # está agora: em vídeo, quem filma sai e o editor entra depois.
+                por_membro = {u: v for u, v in _t.get("por_membro", {}).items()
+                              if u in MEMBROS_ATIVOS}
+            # Busca de demanda tem contabilidade propria: e trabalho (aparece na
+            # linha do tempo), mas nao e execucao de DEMANDA — somada junto,
+            # cobraria o alvo de tempo do mes sobre uma conta que nao e a dele.
+            _destino = "analise_lista" if coluna_em(nl, LISTAS_ANALISE) else "tempo_lista"
+            _destino_mb = ("analise_membro_lista" if coluna_em(nl, LISTAS_ANALISE)
+                           else "tempo_membro_lista")
+            if minutos > 0:
+                d.setdefault(_destino, {}).setdefault(nl, []).append(minutos)
+            for u, v in por_membro.items():
+                if v > 0:
+                    (d.setdefault(_destino_mb, {}).setdefault(u, {})
+                      .setdefault(nl, []).append(v))
 
         # Contagem de concluídos para retrabalho
         d["total_concl"] += 1
         if nl == "CORREÇÃO DE FOTOS: 0 PONTOS":
             d["correcao_concl"] += 1
 
-        # Registra a entrega por dia e por coluna. Conta o cartao mesmo sem
-        # pontuacao: a pergunta "onde essa pessoa trabalhou" nao depende de o
-        # cartao pontuar, e coluna sem pontos e justamente onde se descobre que
-        # alguem esta fazendo o que nao deveria. Os pontos entram rateados entre
-        # quem estava no cartao, igual ao pts_membro.
+        # Entrega por dia e por coluna. Conta o cartao mesmo sem pontuacao: a
+        # pergunta "onde essa pessoa trabalhou" nao depende de o cartao pontuar.
+        # Os pontos entram rateados entre quem estava no cartao, igual ao
+        # pts_membro.
         _mem_ok = [u for u in us if u in MEMBROS_ATIVOS]
         if _mem_ok:
-            _dt_conc = _conclusoes.get(card["id"])
+            _dt_conc = conclusoes.get(card["id"])
             _dia = _dt_conc.astimezone(FUSO).strftime("%Y-%m-%d") if _dt_conc else None
             _cada_pt = (pt or 0) / len(_mem_ok)
             for u in _mem_ok:
                 _e = d["entregas_membro"].setdefault(u, {"dias": {}, "colunas": {}})
                 if _dia:
-                    _dd = _e["dias"].setdefault(_dia, {"qtd": 0, "pts": 0.0,
-                                                       "ids": []})
+                    _dd = _e["dias"].setdefault(_dia, {"qtd": 0, "pts": 0.0, "ids": []})
                     _dd["qtd"] += 1
                     _dd["pts"] += _cada_pt
-                    # Quais cartoes fecharam no dia, e nao so quantos. Sem os
-                    # ids a linha do tempo nao tinha como saber que aquele bloco
-                    # amarelo e o mesmo cartao que a linha de baixo ja contou
-                    # como concluido.
+                    # Quais cartoes fecharam no dia, e nao so quantos.
                     _dd["ids"].append(card["id"])
                 _cc = _e["colunas"].setdefault(nl, {"qtd": 0, "pts": 0.0})
                 _cc["qtd"] += 1
@@ -3353,19 +3339,78 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         if not us:
             d["concluido_sem_membro"].append({"card": card["name"], "lista": nl})
 
+        # ── PONTUAÇÃO: somente concluídos no mês ──────────────────────────────
         if pt is None:
             continue
         if coluna_em(nl, LISTAS_SEM_PONTUACAO):
             continue
         d["pts_equipe"] += pt
-        d["pts_lista"][nl]  = d["pts_lista"].get(nl, 0.0)  + pt
-        d["qtd_lista"][nl]  = d["qtd_lista"].get(nl, 0)    + 1
+        d["pts_lista"][nl] = d["pts_lista"].get(nl, 0.0) + pt
+        d["qtd_lista"][nl] = d["qtd_lista"].get(nl, 0) + 1
+        d["cards_pts"].append({"id": card["id"], "card": card["name"],
+                               "lista": nl, "pts": pt, "membros": us})
         ma = [u for u in us if u in MEMBROS_ATIVOS]
         if ma:
             cada = pt / len(ma)
             for u in ma:
                 d["pts_membro"][u] += cada
                 d["qtd_membro"][u] = d["qtd_membro"].get(u, 0) + 1
+    return d
+
+
+def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
+    """O Painel de Metas e o BÔNUS. A conta de cada cartão é `contar_cartoes`
+    — o mesmo laço do Placar; aqui ficam só as consultas que o Placar não
+    paga (ações do board, criadores) e o que sai delas.
+
+    filtro_mes=(year,month) filtra APENAS:
+      - pontuação de cartões concluídos  (pts_equipe / pts_membro)
+      - penalidades
+    Cartões abertos/pendentes são exibidos SEMPRE, independente do mês.
+    """
+    # O rateio entre cartões simultâneos precisa enxergar o board inteiro, então
+    # os tempos são calculados de uma vez, antes do laço.
+    _desde = _desde_padrao()
+    _tempos = tempos_do_board(cards, membros_map, _desde)
+    # A consulta de movimentacao e a mais volumosa de um board ativo. Limitada em
+    # paginas: perder o registro de conclusao de um cartao muito antigo apenas o
+    # deixa de fora do mes, que ja e o comportamento seguro.
+    _acoes_mov = acoes_movimento(_desde, max_paginas=5)
+    _acoes_board = _buscar_acoes_board(_desde)
+    _conclusoes = datas_de_conclusao(_acoes_mov)
+    _entradas = entradas_na_coluna(_acoes_mov)
+    try:
+        _janela_ini = datetime.fromisoformat(_desde.replace("Z", "+00:00"))
+    except Exception:
+        _janela_ini = None
+    d = contar_cartoes(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes,
+                       tempos=_tempos, conclusoes=_conclusoes, janela_ini=_janela_ini,
+                       entradas=_entradas,
+                       prioridade_de=lambda nl: cfg_coluna(nl).get("prioridade", 5),
+                       labels_de=_labels, regra_placar=False)
+    # membro -> [(ini, fim)] com cartao EM ANDAMENTO. E a linha do tempo que
+    # a ociosidade precisa: sem ela so da para subtrair totais, e as folgas
+    # de 10 e de 5 minutos exigem saber QUANDO cada buraco aconteceu.
+    d["intervalos_membro"] = intervalos_por_membro(cards, _acoes_board,
+                                                   membros_map, listas=listas)
+    # Dia a dia de cada pessoa: cartoes iniciados, interrompidos e o tempo de
+    # execucao. E o que separa um dia sem entrega de um dia sem trabalho.
+    # membro -> {"AAAA-MM-DD": {"iniciados", "interrompidos", "ativos", "minutos"}}
+    d["atividade_dia"] = atividade_por_dia(cards, _acoes_board, membros_map)
+    # As mesmas execucoes, sem somar: cada cartao com a hora em que comecou e
+    # terminou. E o que a linha do tempo do dia precisa.
+    # membro -> {"AAAA-MM-DD": [{"card","ini","fim","min"}]}
+    d["execucoes_dia"] = execucoes_por_dia(cards, _acoes_board, membros_map,
+                                          listas=listas)
+    # Demandas que cada pessoa ABRIU no mes: quantas, quantos pontos e em que
+    # coluna pararam.
+    try:
+        d["demandas_criadas"] = demandas_criadas(
+            cards, listas, membros_map, criadores_de_cartao(_desde),
+            filtro_mes=filtro_mes, id_pontos=id_p)
+    except Exception:
+        # Uma consulta a mais ao Trello nunca pode derrubar a tela inteira.
+        d["demandas_criadas"] = {}
     return d
 
 
@@ -3811,11 +3856,13 @@ if __name__ == "__main__":
                 return _ast_mc.get_source_segment(_src, _no)
         return None
     _mc_core = _fonte_topo(__file__, "_mes_card_criacao")
-    ok("_mes_card_criacao do placar e do core são idênticas",
+    # Desde 18/11 a cópia do placar.py saiu (o laço é um só): a guarda passa
+    # a exigir UMA, e não duas iguais.
+    ok("_mes_card_criacao existe só no core (a cópia do placar saiu com o laço único)",
        _mc_core is not None
-       and _mc_core == _fonte_topo(
+       and _fonte_topo(
            _os_cred.path.join(_os_cred.path.dirname(_os_cred.path.abspath(
-               __file__)), "placar.py"), "_mes_card_criacao"))
+               __file__)), "placar.py"), "_mes_card_criacao") is None)
     # O dia da entrega também: `.astimezone()` sem argumento usa o fuso do
     # container, que no Railway é UTC.
     _src_proc = _fonte_topo(__file__, "_processar") or ""
@@ -3869,13 +3916,24 @@ if __name__ == "__main__":
     # percorre a LISTA DE CARTÕES, um cartão por volta. Somar duas vezes
     # exigiria o mesmo cartão duas vezes na lista do Trello.
     import ast as _ast_dup
-    _arv_proc = _ast_dup.parse(_insp_pc.getsource(_pl_diag._processar).lstrip())
+    # Desde 18/11 o laço é UM (`contar_cartoes`), e as duas telas o chamam.
+    _arv_proc = _ast_dup.parse(_insp_pc.getsource(contar_cartoes).lstrip())
     _laco_por_card = any(
         isinstance(_x, _ast_dup.For)
         and isinstance(_x.target, _ast_dup.Name) and _x.target.id == "card"
         for _x in _ast_dup.walk(_arv_proc))
     ok("a soma percorre os CARTÕES, um por volta — duplicar é impossível",
        _laco_por_card)
+    # UM LAÇO, DUAS TELAS: nenhuma das duas `_processar` tem laço próprio
+    # sobre os cartões; as duas chamam `contar_cartoes`.
+    def _tem_laco(fn):
+        return any(isinstance(_x, _ast_dup.For) and isinstance(_x.target, _ast_dup.Name)
+                   and _x.target.id == "card"
+                   for _x in _ast_dup.walk(_ast_dup.parse(_insp_pc.getsource(fn).lstrip())))
+    ok("Placar e Painel de Metas chamam o MESMO laço (contar_cartoes), sem cópia",
+       "contar_cartoes(" in _insp_pc.getsource(_pl_diag._processar)
+       and "contar_cartoes(" in _insp_pc.getsource(_processar)
+       and not _tem_laco(_pl_diag._processar) and not _tem_laco(_processar))
 
     # A ETIQUETA NÃO ENCOSTA NA PONTUAÇÃO. Ela conta tempo e trabalho em
     # andamento; quem paga é a coluna, o campo PONTOS e o `dueComplete`.
@@ -4377,7 +4435,10 @@ if __name__ == "__main__":
                                          "idp", "idt", "idi", _mes_d)
                 _aqui = _pc_vis._processar(_LISTAS_D, _cards_d, _MEMBROS_D,
                                            "idp", "idt", "idi", _mes_d)
-                _comuns = set(_la) & set(_aqui)
+                # `pausados_lista` é da regra 1 de `contar_cartoes` (o
+                # Placar separa os pausados; o Painel não): diferença
+                # declarada, e não divergência.
+                _comuns = (set(_la) & set(_aqui)) - {"pausados_lista"}
                 _medidas += len(_comuns)
                 for _k in sorted(_comuns):
                     if _la[_k] != _aqui[_k]:

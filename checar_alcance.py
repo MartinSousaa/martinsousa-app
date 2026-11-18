@@ -186,7 +186,6 @@ def _conferir_isentos():
 # em 28/09. Ficam aqui nomeadas para que a lista nao cresca em silencio.
 GEMEAS_TOLERADAS = {
     "_req_get": "identicas, byte a byte",
-    "_mes_card_criacao": "identicas, byte a byte",
     "_fmt_tempo": "mesma resposta em 12 entradas",
     "_labels": "mesma resposta em 4 entradas",
     "_users": "mesma resposta em 5 entradas",
