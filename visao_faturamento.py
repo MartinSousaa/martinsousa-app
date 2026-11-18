@@ -147,8 +147,13 @@ def resumo_mensal(linhas, ano, lpv_reserva):
             continue
         r = fora.setdefault(m, {"fat_total": 0.0, "fat_liq": 0.0, "dev": 0.0,
                                 "lb": 0.0, "mc": 0.0, "vendas": 0.0, "uc_total": 0.0,
-                                "linhas": 0, "sem_sku": 0, "sem_custo": 0})
+                                "linhas": 0, "sem_sku": 0, "sem_custo": 0, "ultima": ""})
         r["linhas"] += 1
+        # A ÚLTIMA VENDA do mês na base (18/11): o painel dizia «até 18/11»
+        # pela data de HOJE com a base parada em 04/11.
+        _d = _data(l.get("Data"))
+        if _d and _d.isoformat() > r["ultima"]:
+            r["ultima"] = _d.isoformat()
         r["fat_total"] += _num(l.get("FAT TOTAL"))
         r["fat_liq"] += _num(l.get("FAT - DEV"))
         r["dev"] += _num(l.get("DEVOLUÇÃO"))
