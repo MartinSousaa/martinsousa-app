@@ -668,7 +668,7 @@ def _ch_foto_ed(pf):
     return f"{pf}foto_{st.session_state.get(pf + 'k', 0)}"
 
 
-def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, saldo=None):
+def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, saldo=None, entrada=None):
     """O cadastro inteiro do produto. `sufixo` separa as chaves: o mesmo
     produto pode estar aberto na ficha E no «✎ editar» das últimas entradas
     na mesma tela (dono, 17/11) — chave repetida derruba a tela.
@@ -683,13 +683,19 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
     # final»): produto, foto de capa, cada variação (nome e foto) e as
     # variações novas — um «Salvar tudo».
     painel = saldo is not None
-    caixa = (st.container(border=True) if painel else
+    # A QUANTIDADE DA ENTRADA DENTRO DO QUADRO (dono, 18/11: «abre o campo de
+    # estoque em cima… eu desço para o campo das informações e não acho o
+    # estoque»): no «✎ editar» da Entrada, quantidade e produto num quadro só,
+    # com um «Salvar» só.
+    caixa = (st.container(border=True) if painel or entrada else
              st.expander("✎ Editar produto — SKU varejo e atacado, custo, nome, fornecedor, foto",
                          expanded=aberto))
     with caixa:
         p0 = variacoes[0]
         pf = _pf_ed(variacoes, sufixo)
         ss[pf + "painel"] = painel
+        if entrada:
+            _quantidades_da_entrada(entrada)
         if painel:
             st.markdown("**✎ Produto** — altere o que precisar e salve tudo de uma vez no fim")
             # O CÓDIGO À VISTA (dono, 17/11: «cadastrei sem código, o sistema
@@ -721,10 +727,36 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
         a, b = st.columns(2)
         a.button("💾 Salvar tudo" if painel else "Salvar alterações", key=f"{pf}salvar", type="primary",
                  use_container_width=True,
-                 on_click=_salvar_produto, args=(variacoes, quem, sufixo, fechar))
+                 on_click=_salvar_produto, args=(variacoes, quem, sufixo, fechar, entrada))
         # Cancelar (dono, 17/11): os campos voltam ao que está gravado.
         b.button("Cancelar", key=f"{pf}cancelar", use_container_width=True,
                  on_click=_cancelar_edicao, args=(pf, fechar))
+
+
+def _ch_qe(lote, i):
+    return f"est_ent_q_{lote}_{i}"
+
+
+def _quantidades_da_entrada(entrada):
+    """As quantidades desta entrada, no topo do quadro do produto."""
+    lote, linhas = entrada
+    st.markdown("**✎ Quantidade que entrou** — 0 tira a linha da entrada")
+    for i, m, p in linhas:
+        onde = E.NOME_LOCAL.get(m.get("local"), "físico") if m.get("local") != E.FISICO else "físico"
+        a, b = st.columns([3, 1.2], vertical_alignment="center")
+        a.markdown(f'{_esc(E.nome_completo(p) or "produto apagado")} · {_esc(onde)} · '
+                   f'{_esc(E.origem_de(m))}')
+        b.number_input("quantidade certa", min_value=0, step=1, value=E.inteiro(m.get("qtd")),
+                       key=_ch_qe(lote, i), label_visibility="collapsed")
+    st.markdown("**✎ Produto**")
+
+
+def quantidades_mudadas(linhas, digitados):
+    """{índice: nova} só das linhas cuja quantidade digitada mudou. Pura.
+    Campo que não está na tela não entra: ausente NÃO é zero (zero tira a
+    linha da entrada)."""
+    return {i: int(digitados[i]) for i, m, _p in linhas
+            if digitados.get(i) is not None and int(digitados[i]) != E.inteiro(m.get("qtd"))}
 
 
 def _cancelar_edicao(pf, fechar=False):
@@ -809,7 +841,7 @@ def _edicao_pendente(variacoes, sufixo):
     return mud, avisos_c, foto, ""
 
 
-def _salvar_produto(variacoes, quem, sufixo="", fechar=False):
+def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
     """UM «Salvar» para tudo do produto (dono, 17/11): o que mudou no «✎
     Editar» E as variações novas que estiverem escritas. Callback."""
     ss = st.session_state
@@ -853,12 +885,25 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False):
                     + (" já está cadastrada" if len(rep) == 1 else " já estão cadastradas")
                     + " neste produto. Se acabou de salvar, ela já entrou: confira a lista.", erro=True)
             return
-    if mud is None and not blocos and not var_mud and not var_fotos and not ajustes:
+    qtd_ent = {}
+    if entrada:
+        qtd_ent = quantidades_mudadas(entrada[1], {i: ss.get(_ch_qe(entrada[0], i)) for i, _m, _p in entrada[1]})
+    if mud is None and not blocos and not var_mud and not var_fotos and not ajustes and not qtd_ent:
         _avisar("Nada para gravar: nenhum campo mudou.", erro=True)
         return
     try:
         partes, avisos_f = [], []
         tudo = {}
+        if qtd_ent:
+            _pc, movs_c, _cc = E.carregar()
+            lin_c, novo_c = linhas_da_correcao(entrada[0], movs_c, qtd_ent, quem, _quando())
+            if not lin_c:
+                _avisar("Nada foi gravado — essa entrada já tinha sido excluída.", erro=True)
+                return
+            E.gravar_movimentos(lin_c)
+            tot = sum(E.inteiro(m["qtd"]) for m in lin_c if str(m.get("lote")) == str(novo_c))
+            partes.append(f"✎ Entrada corrigida: agora {tot} peça(s)." if novo_c else
+                          "↶ Entrada excluída: todas as quantidades ficaram zero.")
         if mud is not None:
             foto_id, af = foto_da_tela(foto, E.limpar_codigo(p0.get("ean")))
             if af:
@@ -1407,7 +1452,7 @@ def _salvar_correcao(lote, quem, n):
     ss = st.session_state
     try:
         _p, movs, _c = E.carregar()
-        novas = {i: ss.get(f"est_ent_q_{lote}_{i}") for i in range(n)}
+        novas = {i: ss[_ch_qe(lote, i)] for i in range(n) if ss.get(_ch_qe(lote, i)) is not None}
         linhas, novo = linhas_da_correcao(lote, movs, novas, quem, _quando())
         if not linhas:
             _avisar("Essa entrada já tinha sido excluída.", True)
@@ -1422,35 +1467,35 @@ def _salvar_correcao(lote, quem, n):
 
 
 def _edicao_da_entrada(lt, por_id, quem):
-    """Uma quantidade por linha do lote, já com a que foi gravada."""
+    """A entrada aberta: cada produto dela num quadro com a QUANTIDADE e o
+    cadastro juntos (dono, 18/11). Linha de produto apagado (sem código)
+    fica num quadro só de quantidade."""
     linhas = [m for m in lt["linhas"] if m.get("tipo") != E.DESFEITO]
-    with st.container(border=True):
-        for i, m in enumerate(linhas):
-            p = por_id.get(str(m.get("produto_id")), {})
-            onde = E.NOME_LOCAL.get(m.get("local"), "físico") if m.get("local") != E.FISICO else "físico"
-            a, b = st.columns([3, 1.2], vertical_alignment="center")
-            a.markdown(f'{_esc(E.nome_completo(p) or "produto apagado")} · {_esc(onde)} · '
-                       f'{_esc(E.origem_de(m))}')
-            b.number_input("quantidade certa", min_value=0, step=1, value=E.inteiro(m.get("qtd")),
-                           key=f"est_ent_q_{lt['lote']}_{i}", label_visibility="collapsed")
-        # Cancelar (dono, 17/11): abriu o produto errado, fecha sem gravar.
-        s1, s2, _s3 = st.columns([1.3, 1, 2])
-        s1.button("Salvar quantidade", key=f"est_ent_sv_{lt['lote']}", type="primary",
-                  on_click=_salvar_correcao, args=(lt["lote"], quem, len(linhas)))
-        s2.button("Cancelar", key=f"est_ent_cx_{lt['lote']}", on_click=_fechar_ed_entrada)
-        # O CADASTRO INTEIRO (dono, 17/11): «quando clicar em editar ao dar
-        # entrada precisa abrir a tela completa para editar qualquer
-        # informação». Um editor por código de barras do lote, já aberto.
-        todos = list(por_id.values())
-        eans = []
-        for m in linhas:
-            e = E.limpar_codigo(por_id.get(str(m.get("produto_id")), {}).get("ean"))
-            if e and e not in eans:
-                eans.append(e)
-        for e in eans:
-            vs = E.do_codigo(todos, e)
-            if vs:
-                _editar_produto(vs, quem, sufixo=f"_lt{lt['lote']}", aberto=True, fechar=True)
+    todos = list(por_id.values())
+    por_ean, soltas = {}, []
+    for i, m in enumerate(linhas):
+        p = por_id.get(str(m.get("produto_id")), {})
+        e = E.limpar_codigo(p.get("ean"))
+        vs = E.do_codigo(todos, e) if e else []
+        if vs:
+            por_ean.setdefault(e, (vs, []))[1].append((i, m, p))
+        else:
+            soltas.append((i, m, p))
+    for e, (vs, lin) in por_ean.items():
+        _editar_produto(vs, quem, sufixo=f"_lt{lt['lote']}", aberto=True, fechar=True,
+                        entrada=(lt["lote"], lin))
+    if soltas:
+        with st.container(border=True):
+            for i, m, p in soltas:
+                a, b = st.columns([3, 1.2], vertical_alignment="center")
+                a.markdown(f'{_esc(E.nome_completo(p) or "produto apagado")} · {_esc(E.origem_de(m))}')
+                b.number_input("quantidade certa", min_value=0, step=1, value=E.inteiro(m.get("qtd")),
+                               key=_ch_qe(lt["lote"], i), label_visibility="collapsed")
+            # Cancelar (dono, 17/11): abriu o produto errado, fecha sem gravar.
+            s1, s2, _s3 = st.columns([1.3, 1, 2])
+            s1.button("Salvar quantidade", key=f"est_ent_sv_{lt['lote']}", type="primary",
+                      on_click=_salvar_correcao, args=(lt["lote"], quem, len(linhas)))
+            s2.button("Cancelar", key=f"est_ent_cx_{lt['lote']}", on_click=_fechar_ed_entrada)
 
 
 def _mais_entradas():
@@ -3653,7 +3698,7 @@ if __name__ == "__main__":
     _src_ep = _insp.getsource(_editar_produto)
     ok("editar entrada: abre o cadastro inteiro (_editar_produto), já aberto e recolhe ao salvar",
        "_editar_produto(vs, quem, sufixo=" in _src_ee and "aberto=True" in _src_ee
-       and "fechar=True" in _src_ee and "args=(variacoes, quem, sufixo, fechar)" in _src_ep
+       and "fechar=True" in _src_ee and "args=(variacoes, quem, sufixo, fechar, entrada)" in _src_ep
        and "if fechar:\n            _fechar_ed_entrada()" in _insp.getsource(_salvar_produto))
     # Cancelar: o botão existe e FECHA de verdade (o callback, rodado).
     _ss_cx = {"est_ent_ed": "L1"}
@@ -3664,7 +3709,42 @@ if __name__ == "__main__":
     finally:
         st.session_state = _orig_ss
     ok("editar entrada: «Cancelar» chama _fechar_ed_entrada, e ela fecha",
-       'on_click=_fechar_ed_entrada' in _src_ee and _ss_cx["est_ent_ed"] is None)
+       'on_click=_fechar_ed_entrada' in _src_ee and _ss_cx["est_ent_ed"] is None
+       and "if fechar:\n        _fechar_ed_entrada()" in _insp.getsource(_cancelar_edicao))
+    # QUANTIDADE DENTRO DO QUADRO (dono, 18/11). Pela CADEIA: a entrada de
+    # verdade (linhas_de_entrada), o quadro passa a entrada, e o «Salvar»
+    # do produto grava a correção — mesmo sem nada do produto mudar.
+    _pq = E.linhas_de_produto("7908045165056", "PR-2", "Porta 2 Relógio + Jóias", 10,
+                              [("Rosa", ""), ("Azul", "")], "l", "x")
+    _eq = E.linhas_de_entrada([(_pq[0], 6), (_pq[1], 18)], "l", "x")
+    _lote_q = _eq[0]["lote"]
+    _lin_q = [(i, m, _pq[i]) for i, m in enumerate(_eq)]
+    ok("quantidades_mudadas: só a que mudou; campo ausente NÃO vira zero",
+       quantidades_mudadas(_lin_q, {0: 6, 1: 24}) == {1: 24}
+       and quantidades_mudadas(_lin_q, {1: None}) == {} and quantidades_mudadas(_lin_q, {0: 0}) == {0: 0})
+    _db_q = {"m": list(_eq)}
+    _av_q, _orig_q = [], (E.carregar, E.gravar_movimentos, _avisar, st.session_state)
+    try:
+        E.carregar = lambda: (list(_pq), list(_db_q["m"]), [])
+        E.gravar_movimentos = lambda l: _db_q["m"].extend(l)
+        globals()["_avisar"] = lambda msg, erro=False: _av_q.append((msg, erro))
+        _pf_q = _pf_ed(_pq, f"_lt{_lote_q}")
+        st.session_state = {**{_pf_q + k: v for k, v in _iniciais_ed(_pq[0]).items()},
+                            _ch_qe(_lote_q, 1): 24, "est_ent_ed": _lote_q}
+        _salvar_produto(_pq, "leo", f"_lt{_lote_q}", True, (_lote_q, _lin_q))
+        _ss_q = st.session_state
+    finally:
+        E.carregar, E.gravar_movimentos = _orig_q[:2]
+        globals()["_avisar"] = _orig_q[2]
+        st.session_state = _orig_q[3]
+    _sq = E.saldos(_db_q["m"])
+    ok("editar entrada: o «Salvar» do quadro grava a quantidade (Rosa 6, Azul 18→24) e fecha",
+       _sq.get((_pq[0]["id"], E.FISICO)) == 6 and _sq.get((_pq[1]["id"], E.FISICO)) == 24
+       and _av_q and not _av_q[0][1] and "agora 30 peça(s)" in _av_q[0][0] and _ss_q.get("est_ent_ed") is None)
+    ok("editar entrada: a quantidade mora DENTRO do quadro do produto (antes era um quadro em cima)",
+       "        if entrada:\n            _quantidades_da_entrada(entrada)\n" in _src_ep
+       and "entrada=(lt[\"lote\"], lin)" in _insp.getsource(_edicao_da_entrada)
+       and "on_click=_salvar_correcao" in _insp.getsource(_edicao_da_entrada).split("if soltas:")[1])
     ok("editar produto: toda chave com o prefixo do produto E do sufixo — sem chave repetida com a ficha",
        "pf = _pf_ed(variacoes, sufixo)" in _src_ep and "{sufixo}_" in _insp.getsource(_pf_ed)
        and "st.form(" not in __import__("ast").unparse(__import__("ast").parse(_src_ep.lstrip()))
