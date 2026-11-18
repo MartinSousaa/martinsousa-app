@@ -115,7 +115,50 @@ def com_apelido(linha, palavra):
                      + [str(palavra).strip().upper()])
 
 
-def cobrancas_no_mes(linha, lancamentos_do_mes):
+def donos_das_cobrancas(linhas, lancamentos):
+    """{id(lançamento): {item}} das cobranças que casam com MAIS DE UM item —
+    e quem fica com ela. Pura.
+
+    UMA COBRANÇA, UM ITEM (dono, 18/11). O plano do Claude («ANTHROPIC* CLAUDE
+    SUB», R$ 587) casava com o «Claude» E com o «Anthropic (API)», cujo nome
+    no extrato é só «ANTHROPIC» — e era somado nos dois. Fica com o item cujo
+    nome casou MAIS LONGO, que é o mais específico. Empate fica com os dois:
+    escolher às cegas esconderia a cobrança de um deles.
+
+    O CUSTO POR PASSADA: a tela de desvio desenha isto a cada clique, para
+    quatro meses. O casamento é a MESMA regra de `assinaturas._casa` (palavra
+    inteira sobre o texto normalizado), mas com o texto de cada lançamento
+    normalizado UMA vez e cada nome compilado UMA vez — chamar `_casa` item a
+    item normalizava o mesmo texto quarenta vezes (medido: +0,6 s por clique).
+    """
+    import re as _re
+    import assinaturas as _as
+    pads = []
+    for l in linhas or []:
+        item = str(l.get("item") or "").strip()
+        if not item:
+            continue
+        for n in nomes_do_item(l):
+            alvo = _as._chave(n)
+            if alvo:
+                pads.append((item, len(n), _re.compile(
+                    r"(?<![A-Z0-9])" + _re.escape(alvo) + r"(?![A-Z0-9])")))
+    fora = {}
+    for lanc in lancamentos or []:
+        if _num(lanc.get("valor")) >= 0:
+            continue
+        texto = _as._chave(lanc.get("descricao")) + " " + _as._chave(lanc.get("favorecido"))
+        esp = {}
+        for item, tam, pad in pads:
+            if tam > esp.get(item, 0) and pad.search(texto):
+                esp[item] = tam
+        if len(esp) > 1:
+            m = max(esp.values())
+            fora[id(lanc)] = {i for i, e in esp.items() if e == m}
+    return fora
+
+
+def cobrancas_no_mes(linha, lancamentos_do_mes, donos=None):
     """[lançamento] de SAÍDA que casam com este item no mês. Pura.
 
     Uma regra só para "este lançamento é deste item": `cobrado_no_mes` soma
@@ -126,8 +169,13 @@ def cobrancas_no_mes(linha, lancamentos_do_mes):
     nomes = nomes_do_item(linha)
     if not nomes:
         return []
+    item = str(linha.get("item") or "").strip()
     fora = []
     for l in (lancamentos_do_mes or []):
+        # `donos` (de `donos_das_cobrancas`): a cobrança que casa com mais de
+        # um item fica só com o mais específico.
+        if donos and id(l) in donos and item not in donos[id(l)]:
+            continue
         if any(_as._casa(l, {"favorecido": n}) for n in nomes):
             # SÓ SAÍDA: nos lançamentos gravados a saída é negativa, no
             # extrato e na fatura (`fatura_pdf.py:152`). `assinaturas.
@@ -137,13 +185,13 @@ def cobrancas_no_mes(linha, lancamentos_do_mes):
     return fora
 
 
-def cobrado_no_mes(linha, lancamentos_do_mes):
+def cobrado_no_mes(linha, lancamentos_do_mes, donos=None):
     """Quanto saiu para este item no mês. None quando não apareceu.
 
     Casa por "Como aparece no extrato" e pelo nome do item com 5+ letras
     (`nomes_do_item`). Sem nenhum dos dois também é None.
     """
-    achadas = cobrancas_no_mes(linha, lancamentos_do_mes)
+    achadas = cobrancas_no_mes(linha, lancamentos_do_mes, donos)
     if not achadas:
         return None
     return round(sum(-_num(l.get("valor")) for l in achadas), 2)
@@ -157,11 +205,12 @@ def divergencias(grade, linhas, ano, mes, lancamentos_do_mes, cadastro_de):
     """
     fora = []
     alvo = f"{int(ano):04d}-{int(mes):02d}"
+    donos = donos_das_cobrancas(linhas, lancamentos_do_mes)
     for l in (linhas or []):
         item = str(l.get("item") or "").strip()
         if not item:
             continue
-        cob = cobrado_no_mes(l, lancamentos_do_mes)
+        cob = cobrado_no_mes(l, lancamentos_do_mes, donos)
         if cob is None:
             continue
         cad = round(float(cadastro_de(l) or 0.0), 2)
@@ -311,10 +360,11 @@ def itens_cobrados(lancamentos, linhas_cf, linhas_as):
     custo fixo neste arquivo" de "achei, e bateu com o cadastro".
     """
     fora = []
+    donos = donos_das_cobrancas(list(linhas_cf or []) + list(linhas_as or []), lancamentos)
     for grade, linhas in (("custo_fixo", linhas_cf), ("assinaturas", linhas_as)):
         for l in (linhas or []):
             item = str(l.get("item") or "").strip()
-            if item and cobrado_no_mes(l, lancamentos) is not None:
+            if item and cobrado_no_mes(l, lancamentos, donos) is not None:
                 fora.append((grade, item))
     return fora
 
@@ -565,5 +615,33 @@ if __name__ == "__main__":
        [x["valor"] for x in cobrancas_no_mes(_cc, _lc)] == [-500.0, -310.0])
     ok("e cobrado_no_mes é a soma delas",
        cobrado_no_mes(_cc, _lc) == 810.0 and cobrado_no_mes(_cc, _lc[2:]) is None)
+    # UMA COBRANÇA, UM ITEM (dono, 18/11), com as descrições da fatura real.
+    _ant = {"item": "Anthropic (API)", "favorecido": "ANTHROPIC"}
+    _clp = {"item": "Claude", "favorecido": "ANTHROPIC* CLAUDE SUB"}
+    _fat = [{"descricao": "ANTHROPIC", "favorecido": "", "valor": -54.53},
+            {"descricao": "ANTHROPIC* CLAUDE SUB", "favorecido": "", "valor": -586.83}]
+    _dn = donos_das_cobrancas([_ant, _clp], _fat)
+    ok("o plano do Claude fica SÓ no Claude; a recarga da API, no Anthropic (API)",
+       cobrado_no_mes(_ant, _fat, _dn) == 54.53 and cobrado_no_mes(_clp, _fat, _dn) == 586.83
+       and cobrado_no_mes(_ant, _fat) == 641.36)
+    # Item com DOIS nomes (`;`): vale o MAIS LONGO que casou, e não o último.
+    _cl2 = {"item": "Claude", "favorecido": "ANTHROPIC* CLAUDE SUB; CLAUDE"}
+    _ap2 = {"item": "Anthropic (API)", "favorecido": "ANTHROPIC* CLAUDE"}
+    ok("item com dois nomes: conta o mais longo que casou",
+       donos_das_cobrancas([_cl2, _ap2], _fat[1:]) == {id(_fat[1]): {"Claude"}})
+    ok("empate de nome fica com os dois (escolher às cegas esconderia um)",
+       len(donos_das_cobrancas([{"item": "A", "favorecido": "X"}, {"item": "B", "favorecido": "X"}],
+                               [{"descricao": "X", "valor": -1.0}])
+           .popitem()[1]) == 2)
+    # PELA CADEIA: a tela de desvio e a conferência de assinaturas usam a regra.
+    import desvio_item as _dvi
+    import assinaturas as _asi
+    _fx, _ = _dvi.fixos([], [{**_ant, "valor_mensal": 70}, {**_clp, "valor_mensal": 587}], {},
+                        [(2026, 11)], {(2026, 11): _fat})
+    _por = {x["item"]: x["cobrado"] for x in _fx}
+    _cf_as = _asi.conferir([{**_ant, "valor_mensal": 54.53, "periodicidade": "mensal"},
+                            {**_clp, "valor_mensal": 586.83, "periodicidade": "mensal"}], _fat)
+    ok("desvio item a item e conferência de assinaturas: cada cobrança num item só",
+       _por == {"Anthropic (API)": 54.53, "Claude": 586.83} and not _cf_as["divergentes"])
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)

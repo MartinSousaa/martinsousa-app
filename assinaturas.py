@@ -338,6 +338,11 @@ def conferir(cadastro, lancamentos_do_mes):
     lancs = list(lancamentos_do_mes or [])
 
     divergentes, sumidas, usados = [], [], set()
+    import custo_real as _cr_d
+    # Uma cobrança, uma assinatura (18/11): a mesma regra de
+    # `custo_real.cobrancas_no_mes` — a que casa com duas fica com a mais
+    # específica.
+    donos = _cr_d.donos_das_cobrancas(cad, lancs)
     for linha in cad:
         # OS NOMES DO ITEM, pela mesma regra de "Conferido nos extratos"
         # (`custo_real.nomes_do_item`): a coluna tem vários nomes separados
@@ -345,8 +350,10 @@ def conferir(cadastro, lancamentos_do_mes):
         # como "não apareceu" ao lado da tabela que a achava (dono, 19/10).
         import custo_real as _cr
         nomes = _cr.nomes_do_item(linha)
+        _item = str(linha.get("item") or "").strip()
         achados = [(i, l) for i, l in enumerate(lancs)
-                   if any(_casa(l, {"favorecido": n}) for n in nomes)]
+                   if not (id(l) in donos and _item not in donos[id(l)])
+                   and any(_casa(l, {"favorecido": n}) for n in nomes)]
         if not achados:
             if not str(linha.get("periodicidade", "")).lower().startswith("anu"):
                 sumidas.append({"item": linha.get("item", ""),

@@ -168,6 +168,10 @@ def itens_provisionados(grade_cf, ajustes_df, assinaturas, ano, mes, mapa,
     fora = []
     d = pd.DataFrame(grade_cf)
     por_item = _aj.por_item(ajustes_df)
+    # Uma cobrança, um item (18/11): a que casa com dois fica com o mais
+    # específico — o plano do Claude não soma também no «Anthropic (API)».
+    _donos = _cr.donos_das_cobrancas(
+        [dict(r) for _, r in (d.iterrows() if not d.empty else [])] + list(assinaturas or []), lancs)
     for _, r in (d.iterrows() if not d.empty else []):
         item = str(r.get("item", "") or "").strip()
         if not item:
@@ -176,7 +180,7 @@ def itens_provisionados(grade_cf, ajustes_df, assinaturas, ano, mes, mapa,
                                por_item.get(("custo_fixo", item)), ano, mes)
         fora.append(("Custo fixo", item, r.get("dia_debito"),
                      _cr.valor_do_mes("custo_fixo", item, ano, mes, cad, mapa),
-                     _cr.cobrado_no_mes(dict(r), lancs)))
+                     _cr.cobrado_no_mes(dict(r), lancs, _donos)))
     for a in (assinaturas or []):
         item = str(a.get("item") or "").strip()
         if not item:
@@ -184,7 +188,7 @@ def itens_provisionados(grade_cf, ajustes_df, assinaturas, ano, mes, mapa,
         fora.append(("Assinaturas", item, "",
                      _cr.valor_do_mes("assinaturas", item, ano, mes,
                                       _as.custo_mensal(a), mapa),
-                     _cr.cobrado_no_mes(a, lancs)))
+                     _cr.cobrado_no_mes(a, lancs, _donos)))
     linhas = []
     for quadro, item, dia, valor, saiu in fora:
         try:
@@ -538,6 +542,18 @@ if __name__ == "__main__":
     ok("Resumo Mensal é a aba antes de Custos fixos",
        "📊 Resumo Mensal" in _abas
        and _abas.index("📊 Resumo Mensal") + 1 == _abas.index("🧱 Custos fixos"))
+
+    # UMA COBRANÇA, UM ITEM (18/11), pela cadeia: o plano do Claude não
+    # aparece «pago» também no Anthropic (API).
+    _its = itens_provisionados(
+        [], None,
+        [{"item": "Anthropic (API)", "favorecido": "ANTHROPIC", "valor_mensal": 70},
+         {"item": "Claude", "favorecido": "ANTHROPIC* CLAUDE SUB", "valor_mensal": 587}],
+        2026, 11, {},
+        [{"descricao": "ANTHROPIC* CLAUDE SUB", "favorecido": "", "valor": -586.83}])
+    _saiu = {x["item"]: x["saiu no extrato"] for x in _its}
+    ok("resumo: o plano do Claude sai só no Claude; o Anthropic (API) segue a pagar",
+       _saiu == {"Claude": 586.83, "Anthropic (API)": None})
 
     print("\nfalhas:", falhas)
     sys.exit(1 if falhas else 0)
