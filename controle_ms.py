@@ -157,9 +157,12 @@ def url_de_download(link):
         return t
     if "sharepoint.com" in baixo:
         return t + ("&" if "?" in t else "?") + "download=1"
+    # OneDrive PESSOAL também aceita `download=1` (medido em 18/11 com o
+    # link do dono: HTTP 200 e o .xlsx). O atalho `api.onedrive.com/shares/
+    # u!…` que valia antes passou a responder 401 — e o dono teve de colar o
+    # `?download=1` à mão no Railway.
     if "1drv.ms" in baixo or "onedrive.live.com" in baixo:
-        b64 = base64.urlsafe_b64encode(t.encode("utf-8")).decode("ascii")
-        return f"https://api.onedrive.com/v1.0/shares/u!{b64.rstrip('=')}/root/content"
+        return t + ("&" if "?" in t else "?") + "download=1"
     # Desconhecido: devolve como veio. Se for um link direto, funciona; se não
     # for, o erro aparece na tela de conferência com o endereço na mão.
     return t
@@ -341,6 +344,13 @@ def limpar():
             f.clear()
         except Exception:
             pass
+    # A cópia de SKU do Estoque é feita EM CIMA desta (18/11): sem limpar a
+    # dela, o «Reler agora» relia o arquivo e o Estoque seguia com 10 min.
+    try:
+        import estoque as _est
+        _est.tabela_de_sku_da_planilha.clear()
+    except Exception:
+        pass
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -378,16 +388,11 @@ if __name__ == "__main__":
     # ── O link de compartilhamento vira endereço de ARQUIVO ───────────────
     # Sem isto, o download traz a pagina do visualizador e o openpyxl acusa
     # "arquivo corrompido" — mandando procurar defeito onde nao ha.
-    _pess = "https://1drv.ms/x/s!AbCdEf123456"
-    _u = url_de_download(_pess)
-    ok("link do OneDrive pessoal vira endereco de conteudo",
-       _u.startswith("https://api.onedrive.com/v1.0/shares/u!")
-       and _u.endswith("/root/content"))
-    ok("o base64 do link nao leva '=' no fim (a API recusa)",
-       "=" not in _u.split("u!")[1].split("/")[0])
-    ok("o link original esta dentro, e da para voltar dele",
-       base64.urlsafe_b64decode(
-           _u.split("u!")[1].split("/")[0] + "==").decode() == _pess)
+    _pess = "https://1drv.ms/x/c/13434b38465af1ff/IQAEKLtk"
+    ok("link do OneDrive pessoal ganha download=1 (o atalho u! responde 401 desde 11/2026)",
+       url_de_download(_pess) == _pess + "?download=1"
+       and url_de_download(_pess + "?e=abc") == _pess + "?e=abc&download=1"
+       and url_de_download(_pess + "?download=1") == _pess + "?download=1")
 
     _corp = "https://empresa-my.sharepoint.com/:x:/g/personal/leo/Documento.xlsx"
     ok("SharePoint ganha download=1",
@@ -485,6 +490,20 @@ if __name__ == "__main__":
             _os_t.environ.pop(SECRET_URL, None)
         else:
             _os_t.environ[SECRET_URL] = _g_env
+
+    # «Reler agora» limpa TAMBÉM a cópia de SKU do Estoque (18/11).
+    import estoque as _est_t
+    _lim = []
+    _orig_tb = _est_t.tabela_de_sku_da_planilha
+    class _C:
+        def clear(self):
+            _lim.append(1)
+    try:
+        _est_t.tabela_de_sku_da_planilha = _C()
+        limpar()
+    finally:
+        _est_t.tabela_de_sku_da_planilha = _orig_tb
+    ok("limpar() joga fora a cópia de SKU do Estoque", _lim == [1])
 
     print("\nfalhas:", falhas)
     # O CÓDIGO DE SAÍDA: sem ele, o `conferir.py` e o `checar_mutacao.py`

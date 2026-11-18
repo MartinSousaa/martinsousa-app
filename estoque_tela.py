@@ -1099,10 +1099,34 @@ def situacao_sku(sku, tabela, erro_planilha=""):
                      "e salve: vale o digitado.", None)
 
 
+RELER_SKU_SEG = 30
+
+
+def precisa_reler_sku(sku, tabela, relidos, agora):
+    """O SKU digitado não está na cópia guardada: vale ler a planilha de
+    novo? Pura. Uma vez por SKU a cada RELER_SKU_SEG — são ~24 MB, e o
+    mesmo SKU errado não pode baixar a planilha a cada Enter."""
+    n = E.normalizar_sku(sku)
+    if not n or tabela is None or n in tabela:
+        return False
+    return agora - float((relidos or {}).get(n, 0)) >= RELER_SKU_SEG
+
+
 def _ao_mudar_sku(chave_sku, chave_custo):
-    """Digitou o SKU: achou na planilha, o custo se preenche sozinho."""
+    """Digitou o SKU: achou na planilha, o custo se preenche sozinho. NÃO
+    achou: lê a planilha de novo na hora, uma vez — o SKU acabou de ser
+    cadastrado lá e a cópia guardada tem até 10 min (dono, 18/11)."""
+    import time as _t_sku
     ss = st.session_state
     tab, err = _tabela_sku()
+    relidos = ss.setdefault("est_sku_relidos", {})
+    agora = _t_sku.time()
+    if precisa_reler_sku(ss.get(chave_sku, ""), tab, relidos, agora):
+        relidos[E.normalizar_sku(ss.get(chave_sku, ""))] = agora
+        try:
+            tab, err = E.tabela_de_sku_agora()
+        except Exception as e:
+            tab, err = None, str(e)[:140]
     _t, _m, custo = situacao_sku(ss.get(chave_sku, ""), tab, err)
     if custo is not None:
         ss[chave_custo] = custo
@@ -3711,6 +3735,36 @@ if __name__ == "__main__":
     ok("editar entrada: «Cancelar» chama _fechar_ed_entrada, e ela fecha",
        'on_click=_fechar_ed_entrada' in _src_ee and _ss_cx["est_ent_ed"] is None
        and "if fechar:\n        _fechar_ed_entrada()" in _insp.getsource(_cancelar_edicao))
+    # SKU RECÉM-CADASTRADO NA PLANILHA (dono, 18/11). Pela cadeia: a cópia
+    # guardada não tem o SKU, a planilha de agora tem — o callback relê UMA
+    # vez e preenche o custo; o mesmo SKU de novo em 30 s não baixa de novo.
+    ok("precisa_reler_sku: só quando falta, uma vez a cada 30 s, nome real normalizado",
+       precisa_reler_sku(" ms-1430 ", {"MS-2800": {}}, {}, 1000.0)
+       and not precisa_reler_sku("MS-1430", {"MS-1430": {}}, {}, 1000.0)
+       and not precisa_reler_sku("MS-1430", {}, {"MS-1430": 990.0}, 1000.0)
+       and precisa_reler_sku("MS-1430", {}, {"MS-1430": 960.0}, 1000.0)
+       and not precisa_reler_sku("MS-1430", None, {}, 1000.0) and not precisa_reler_sku("  ", {}, {}, 1.0))
+    _velha_sku = E.tabela_de_sku(["SKU", "PRODUTO", "QUANTIDADE", "CUSTO"],
+                                 [{"SKU": "MS-2800", "PRODUTO": "X", "QUANTIDADE": 1, "CUSTO": 10}])
+    _nova_sku = E.tabela_de_sku(["SKU", "PRODUTO", "QUANTIDADE", "CUSTO"],
+                                [{"SKU": "MS-2800", "PRODUTO": "X", "QUANTIDADE": 1, "CUSTO": 10},
+                                 {"SKU": "MS-1430", "PRODUTO": "BANCO INFANTIL UNITÁRIO", "QUANTIDADE": 1,
+                                  "CUSTO": 14.3}])
+    _releu = []
+    _orig_sk = (E.tabela_de_sku_da_planilha, E.tabela_de_sku_agora, st.session_state)
+    try:
+        E.tabela_de_sku_da_planilha = lambda: (_velha_sku, "")
+        E.tabela_de_sku_agora = lambda: _releu.append(1) or (_nova_sku, "")
+        st.session_state = {"k_sku": "ms-1430", "k_custo": ""}
+        _ao_mudar_sku("k_sku", "k_custo")
+        _custo_1 = st.session_state["k_custo"]
+        st.session_state["k_custo"] = ""
+        E.tabela_de_sku_agora = lambda: _releu.append(1) or (_velha_sku, "")
+        _ao_mudar_sku("k_sku", "k_custo")
+    finally:
+        E.tabela_de_sku_da_planilha, E.tabela_de_sku_agora, st.session_state = _orig_sk
+    ok("SKU que não está na cópia guardada: relê a planilha uma vez e preenche o custo (14,30)",
+       _custo_1 == "14,30" and len(_releu) == 1)
     # QUANTIDADE DENTRO DO QUADRO (dono, 18/11). Pela CADEIA: a entrada de
     # verdade (linhas_de_entrada), o quadro passa a entrada, e o «Salvar»
     # do produto grava a correção — mesmo sem nada do produto mudar.

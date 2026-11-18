@@ -1006,6 +1006,19 @@ def _limpar_cache():
             pass
 
 
+def tabela_de_sku_agora():
+    """A aba de SKU lida AGORA: joga fora as duas cópias de 10 min (a do
+    arquivo e a da tabela). Para o SKU que não foi achado (dono, 18/11:
+    «quando cadastro na planilha é porque já estou dando entrada»)."""
+    import controle_ms as _cms
+    _cms.limpar()
+    try:
+        tabela_de_sku_da_planilha.clear()
+    except Exception:
+        pass
+    return tabela_de_sku_da_planilha()
+
+
 def carregar_agora():
     """A planilha de AGORA (joga o cache de 2 min fora antes). Para o que
     decide se grava: o segundo clique precisa ver o que o primeiro gravou."""
@@ -1723,5 +1736,22 @@ if __name__ == "__main__":
     finally:
         globals()["_limpar_cache"], globals()["carregar"] = _orig_ca
     ok("carregar_agora: limpa o cache e só DEPOIS lê", _ordem_ca == ["limpa", "le"] and _r_ca == ("P", "M", "C"))
+    # tabela_de_sku_agora: as DUAS cópias saem antes da leitura (18/11).
+    import controle_ms as _cms_t
+    _ord_sk = []
+    _orig_sk = (_cms_t.limpar, globals()["tabela_de_sku_da_planilha"])
+    class _Cache:
+        def clear(self):
+            _ord_sk.append("tabela")
+        def __call__(self):
+            _ord_sk.append("le")
+            return ({}, "")
+    try:
+        _cms_t.limpar = lambda: _ord_sk.append("arquivo")
+        globals()["tabela_de_sku_da_planilha"] = _Cache()
+        tabela_de_sku_agora()
+    finally:
+        _cms_t.limpar, globals()["tabela_de_sku_da_planilha"] = _orig_sk
+    ok("tabela_de_sku_agora: limpa o arquivo E a tabela, e só DEPOIS lê", _ord_sk == ["arquivo", "tabela", "le"])
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
