@@ -109,6 +109,9 @@ def texto_do_pdf(dados):
     return texto, ""
 
 
+_FINAL_CARTAO = re.compile(r"\bFINAL\s+(\d{4})\b", re.I)
+
+
 def lancamentos_do_texto(texto, ano_padrao=None):
     """Os lançamentos que a forma comum de fatura deixa reconhecer.
 
@@ -117,12 +120,20 @@ def lancamentos_do_texto(texto, ano_padrao=None):
     mostra para a pessoa conferir se perdeu alguma coisa.
     """
     fora, ignoradas = [], []
+    # O CARTÃO DE CADA LINHA (18/11). A fatura do Itaú traz vários cartões no
+    # mesmo PDF, cada bloco aberto por «NOME - FINAL 6777». Guardar o cartão é
+    # o que deixa reconhecer a mesma linha numa fatura baixada de novo — o
+    # nome do arquivo muda a cada download, o cartão não.
+    cartao = ""
     for bruta in str(texto or "").splitlines():
         linha = " ".join(bruta.split())
         if not linha:
             continue
         m = _LINHA.match(linha)
         if not m:
+            mf = _FINAL_CARTAO.search(linha)
+            if mf:
+                cartao = mf.group(1)
             ignoradas.append(linha)
             continue
         mes = _mes(m.group("mes"))
@@ -154,6 +165,7 @@ def lancamentos_do_texto(texto, ano_padrao=None):
             "parcela_n": int(p.group(1)) if p else None,
             "parcela_de": int(p.group(2)) if p else None,
             "pagamento": eh_pgto,
+            "cartao": cartao,
         })
     return fora, ignoradas
 
