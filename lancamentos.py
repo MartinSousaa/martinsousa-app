@@ -114,6 +114,27 @@ def ids_gravados():
     return {l["id"] for l in carregar()}
 
 
+def carregar_ou_erro():
+    """Todos os lançamentos, lidos AGORA, e LEVANTA se a planilha falhar.
+
+    Para quem decide o que é repetido (18/11). `carregar()` devolve [] em
+    qualquer falha — bom para desenhar tela, e péssimo para decidir: com a
+    leitura falhando, "nada está gravado" e o arquivo inteiro entrava de novo.
+    """
+    registros = _aba().get_all_records()
+    fora = []
+    for r in registros:
+        if not str(r.get("id", "")).strip():
+            continue
+        try:
+            valor = float(str(r.get("valor", 0) or 0).replace(",", "."))
+        except ValueError:
+            valor = 0.0
+        fora.append({**{c: str(r.get(c, "") or "") for c in COLUNAS},
+                     "valor": valor})
+    return fora
+
+
 def gravar(lancamentos, conta="", usuario="", pular=None):
     """Acrescenta o que ainda não existe. (novos, repetidos, erro).
 
@@ -126,7 +147,7 @@ def gravar(lancamentos, conta="", usuario="", pular=None):
     if not itens:
         return 0, 0, ""
     try:
-        ja = ids_gravados()
+        ja = {l["id"] for l in carregar_ou_erro()}
     except Exception as e:
         return 0, 0, f"Não consegui ler o que já está gravado: {str(e)[:120]}"
     pular = set(pular or ())
@@ -202,13 +223,28 @@ def apagar(ids):
         apagados = len(registros) - len(ficam)
         if not apagados:
             return 0, "Nenhuma dessas linhas está gravada."
-        aba.clear()
+        # ESCREVE PRIMEIRO, LIMPA DEPOIS (18/11). Antes: `clear()` e depois
+        # `update()` — se a segunda falhasse, a aba ficava VAZIA. Agora o que
+        # fica é escrito por cima, e só então as linhas que sobraram embaixo
+        # são limpas: falhou no meio, sobra linha repetida, nunca aba vazia.
         aba.update([COLUNAS] + [[r.get(c, "") for c in COLUNAS] for r in ficam],
-                   value_input_option="RAW")
+                   "A1", value_input_option="RAW")
+        ini, fim = len(ficam) + 2, len(registros) + 1
+        if fim >= ini:
+            aba.batch_clear([f"A{ini}:{_letra(len(COLUNAS))}{fim}"])
     except Exception as e:
         return 0, str(e)[:200]
     carregar.clear()
     return apagados, f"{apagados} lançamento(s) apagado(s)."
+
+
+def _letra(n):
+    """1 → A, 12 → L, 27 → AA. Pura."""
+    s = ""
+    while n:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
 
 
 # A observacao que a tela ADS-Cross grava em cada parte da quebra da fatura do
@@ -413,6 +449,130 @@ def preparar_fatura(lancs, competencia):
     return fora
 
 
+def chave_de_fatura(l):
+    """O que é o MESMO lançamento de fatura, sem olhar o nome do arquivo. Pura.
+    Mês do caixa (`tipo`), data, valor e descrição (que já leva a parcela)."""
+    return (str(l.get("tipo") or "").strip(), _txt_data(l.get("data")),
+            f"{float(l.get('valor') or 0):.2f}",
+            " ".join(str(l.get("descricao") or "").upper().split()))
+
+
+def final_da_conta(conta):
+    """'cartão · final 6777' → '6777'; nome de arquivo → ''. Pura."""
+    import re as _re
+    m = _re.search(r"\bfinal (\d{4})\b", str(conta or ""), _re.I)
+    return m.group(1) if m else ""
+
+
+def conta_do_cartao(l, conta_arquivo):
+    """A conta da linha: o CARTÃO quando a fatura diz qual é; senão a do
+    arquivo, como antes. Pura."""
+    c = str(l.get("cartao") or "").strip()
+    return f"{CONTA_CARTAO}final {c}" if c else conta_arquivo
+
+
+def ja_gravados_na_fatura(itens, gravados):
+    """{índice dos itens que JÁ estão gravados}. Pura.
+
+    A FATURA REPETIDA (dono, 18/11): a identidade da linha levava o NOME DO
+    ARQUIVO, e o banco dá um nome novo a cada download
+    («FaturacartaoBusiness_181120261712.pdf») — anexar a mesma fatura de novo
+    gravava tudo outra vez. As 12 recargas da Anthropic estavam três vezes.
+
+    Aqui o mesmo lançamento é reconhecido pelo CONTEÚDO (`chave_de_fatura`),
+    contado como multiconjunto: duas compras iguais na mesma fatura são duas, e
+    só saem se já houver duas gravadas. Cartão diferente não casa — quando os
+    dois lados dizem o cartão; linha antiga (conta = arquivo) casa com qualquer
+    um, porque não diz.
+    """
+    from collections import defaultdict
+    pool = defaultdict(list)
+    for g in gravados or []:
+        if str(g.get("conta") or "").startswith(CONTA_CARTAO):
+            pool[chave_de_fatura(g)].append(final_da_conta(g.get("conta")))
+    ja = set()
+    for i, it in enumerate(itens or []):
+        cands = pool.get(chave_de_fatura(it))
+        if not cands:
+            continue
+        fin = final_da_conta(it.get("conta"))
+        for j, fg in enumerate(cands):
+            if not fin or not fg or fin == fg:
+                ja.add(i)
+                del cands[j]
+                break
+    return ja
+
+
+SOBREPOSICAO_MINIMA = 0.8
+
+
+def repetidos_de_fatura(gravados):
+    """[{id, conta, data, descricao, valor, tipo, editada}] — as linhas de fatura
+    gravadas MAIS DE UMA VEZ, para o dono apagar (18/11). Pura. NÃO apaga.
+
+    Duas «contas» de cartão do mesmo mês são a MESMA fatura anexada duas vezes
+    quando dividem pelo menos 80% das linhas (pelo conteúdo, `chave_de_fatura`).
+    Coincidência entre cartões diferentes — o mesmo IOF de R$ 1,07 no mesmo dia
+    — não junta duas contas: com 80%, só a fatura inteira repetida junta.
+
+    Em cada grupo, de cada lançamento ficam tantas cópias quanto a conta que
+    mais tem dele (duas compras iguais na mesma fatura são duas); o resto sai.
+    Fica primeiro a cópia que o dono mexeu (fixada ou com observação).
+    """
+    from collections import Counter, defaultdict
+    por_tipo = defaultdict(lambda: defaultdict(list))
+    for g in gravados or []:
+        if not str(g.get("conta") or "").startswith(CONTA_CARTAO):
+            continue
+        t = str(g.get("tipo") or "").strip()
+        if not t:
+            continue
+        por_tipo[t][str(g.get("conta"))].append(g)
+    fora = []
+    for _t, contas in por_tipo.items():
+        nomes = sorted(contas)
+        cont = {c: Counter(chave_de_fatura(l) for l in contas[c]) for c in nomes}
+        # Grupos de contas que são a mesma fatura (componentes ligados).
+        pai = {c: c for c in nomes}
+
+        def raiz(c):
+            while pai[c] != c:
+                pai[c] = pai[pai[c]]
+                c = pai[c]
+            return c
+        for i, a in enumerate(nomes):
+            for b in nomes[i + 1:]:
+                if final_da_conta(a) and final_da_conta(b) and final_da_conta(a) != final_da_conta(b):
+                    continue
+                comum = sum((cont[a] & cont[b]).values())
+                menor = min(sum(cont[a].values()), sum(cont[b].values()))
+                if menor >= 3 and comum >= SOBREPOSICAO_MINIMA * menor:
+                    pai[raiz(a)] = raiz(b)
+        grupos = defaultdict(list)
+        for c in nomes:
+            grupos[raiz(c)].append(c)
+        for membros in grupos.values():
+            if len(membros) < 2:
+                continue
+            por_chave = defaultdict(list)
+            for c in membros:
+                for l in contas[c]:
+                    por_chave[chave_de_fatura(l)].append(l)
+            for k, ls in por_chave.items():
+                fica = max(cont[c][k] for c in membros)
+                if len(ls) <= fica:
+                    continue
+                ls = sorted(ls, key=lambda l: (not (_eh_fixada(l) or str(l.get("observacao") or "").strip()),
+                                               str(l.get("atualizado_em") or ""), str(l.get("id"))))
+                for l in ls[fica:]:
+                    fora.append({"id": l["id"], "conta": l.get("conta", ""), "data": l.get("data", ""),
+                                 "descricao": l.get("descricao", ""), "valor": l.get("valor", 0.0),
+                                 "tipo": l.get("tipo", ""),
+                                 "editada": bool(_eh_fixada(l) or str(l.get("observacao") or "").strip())})
+    return sorted(fora, key=lambda x: (x["tipo"], x["data"], x["descricao"]))
+
+
 def gravar_fatura(lancs, conta, competencia, usuario=""):
     """Grava a fatura no mês do caixa. (novos, repetidos, marcados, erro).
 
@@ -426,30 +586,47 @@ def gravar_fatura(lancs, conta, competencia, usuario=""):
         return 0, 0, 0, ""
     tipo = TIPO_FATURA + str(competencia)[:7]
     try:
-        por_id = {l["id"]: l for l in carregar()}
+        gravados = carregar_ou_erro()
     except Exception as e:
         return 0, 0, 0, f"Não consegui ler o que já está gravado: {str(e)[:120]}"
-    marcar, pular = {}, set()
-    for velho, novo in zip(com_identidade(lancs, conta),
-                           com_identidade(itens, conta)):
-        g = por_id.get(novo["id"])
-        if g is None and velho["id"] != novo["id"]:
-            antigo = por_id.get(velho["id"])
-            # Só é a mesma linha se ainda não tem mês, ou se já tem ESTE mês.
-            # Com outro mês é a parcela seguinte da mesma compra: mesma data,
-            # mesmo valor, mesmo nome — e outra fatura.
-            if antigo is not None and str(antigo.get("tipo") or "").strip() in ("", tipo):
-                g = antigo
-        if g is None:
-            continue
-        pular.add(novo["id"])
-        if str(g.get("tipo") or "").strip() != tipo:
-            marcar[g["id"]] = tipo
-    novos, repetidos, erro = gravar(itens, conta, usuario, pular=pular)
-    if erro:
-        return novos, repetidos, 0, erro
+    por_id = {l["id"]: l for l in gravados}
+    # Cada linha na conta do CARTÃO dela (a fatura do Itaú traz dois ou três
+    # cartões no mesmo PDF), e não na do arquivo.
+    contas = [conta_do_cartao(l, conta) for l in lancs]
+    for it, c in zip(itens, contas):
+        it["conta"] = c
+    repetidas = ja_gravados_na_fatura(itens, gravados)
+    marcar, novos_t, repetidos_t = {}, 0, 0
+    for c in dict.fromkeys(contas):
+        idx = [i for i, ci in enumerate(contas) if ci == c]
+        sub_l = [lancs[i] for i in idx]
+        sub_i = [itens[i] for i in idx]
+        pular = set()
+        for k, (velho, novo) in enumerate(zip(com_identidade(sub_l, c),
+                                              com_identidade(sub_i, c))):
+            if idx[k] in repetidas:
+                pular.add(novo["id"])
+                continue
+            g = por_id.get(novo["id"])
+            if g is None and velho["id"] != novo["id"]:
+                antigo = por_id.get(velho["id"])
+                # Só é a mesma linha se ainda não tem mês, ou se já tem ESTE
+                # mês. Com outro mês é a parcela seguinte da mesma compra:
+                # mesma data, mesmo valor, mesmo nome — e outra fatura.
+                if antigo is not None and str(antigo.get("tipo") or "").strip() in ("", tipo):
+                    g = antigo
+            if g is None:
+                continue
+            pular.add(novo["id"])
+            if str(g.get("tipo") or "").strip() != tipo:
+                marcar[g["id"]] = tipo
+        novos, repetidos, erro = gravar(sub_i, c, usuario, pular=pular)
+        if erro:
+            return novos_t + novos, repetidos_t + repetidos, 0, erro
+        novos_t += novos
+        repetidos_t += repetidos + len(pular)
     marcados, erro = marcar_tipo(marcar)
-    return novos, repetidos + len(pular), marcados, erro
+    return novos_t, repetidos_t, marcados, erro
 
 
 def marcar_tipo(por_id):
@@ -579,7 +756,9 @@ if __name__ == "__main__":
             self.linhas = [COLUNAS]
 
         def get_all_records(self):
-            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+            # Como o gspread: linha toda vazia não vira registro.
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]
+                    if any(str(c).strip() for c in l)]
 
         def clear(self):
             self.linhas = []
@@ -589,8 +768,19 @@ if __name__ == "__main__":
             if range_name and range_name.startswith("A") and ":" in range_name:
                 i = int(range_name.split(":")[0][1:]) - 1
                 self.linhas[i] = [str(c) for c in values[0]]
+            elif range_name == "A1":
+                # Escreve POR CIMA a partir da 1ª linha; o que está abaixo fica.
+                novas = [[str(c) for c in v] for v in values]
+                self.linhas = novas + self.linhas[len(novas):]
             else:
                 self.linhas = [[str(c) for c in v] for v in values]
+
+        def batch_clear(self, faixas):
+            for f in faixas:
+                ini, fim = f.split(":")
+                a_, b_ = int("".join(ch for ch in ini if ch.isdigit())), int("".join(ch for ch in fim if ch.isdigit()))
+                for i in range(a_ - 1, min(b_, len(self.linhas))):
+                    self.linhas[i] = [""] * len(COLUNAS)
 
         def append_row(self, linha, **kw):
             self.linhas.append([str(c) for c in linha])
@@ -824,5 +1014,111 @@ if __name__ == "__main__":
     falhas += not _ok
     print(("ok    " if _ok else "FALHA ")
           + "aplicar_cadastro: gravado sem finalidade ganha a regra do nome; a gravada fica")
+    # ══ A FATURA ANEXADA DE NOVO (dono, 18/11) ═══════════════════════════
+    # Pela CADEIA: o texto passa pelo leitor de PDF de verdade (que agora diz
+    # o cartão de cada linha) e por `gravar_fatura`, com a aba falsa.
+    import fatura_pdf as _fpdf_t
+    _txt_6777 = ("LEONARDO M BESERRA - FINAL 6777\n"
+                 "21/09   ANTHROPIC                 R$ 54,53\n"
+                 "21/09   ANTHROPIC                 R$ 54,53\n"
+                 "23/10   IOF COMPRA INTERNACIONA   R$ 3,73\n")
+    _txt_1705 = "LEONARDO M BESERRA - FINAL 1705\n23/10   IOF COMPRA INTERNACIONA   R$ 3,73\n"
+    _l6777, _ = _fpdf_t.lancamentos_do_texto(_txt_6777, 2026)
+    _l1705, _ = _fpdf_t.lancamentos_do_texto(_txt_1705, 2026)
+    _aba_falsa.linhas = [COLUNAS]
+    carregar.clear()
+    _r1 = gravar_fatura(_l6777, "cartão · FaturacartaoBusiness_181120261712.pdf", "2026-11", "leo")
+    _r2 = gravar_fatura(_l6777, "cartão · FaturacartaoBusiness_181120261806.pdf", "2026-11", "leo")
+    _r3 = gravar_fatura(_l1705, "cartão · FaturacartaoBusiness_181120261713.pdf", "2026-11", "leo")
+    _grav = carregar_ou_erro()
+    ok("fatura: o leitor diz o cartão de cada linha",
+       [x["cartao"] for x in _l6777] == ["6777"] * 3 and _l1705[0]["cartao"] == "1705")
+    ok("fatura anexada de novo com OUTRO nome de arquivo não grava nada (as duas iguais seguem duas)",
+       _r1[0] == 3 and _r2[0] == 0 and _r2[1] == 3
+       and sum(1 for g in _grav if "ANTHROPIC" in g["descricao"]) == 2)
+    ok("o mesmo IOF no mesmo dia em OUTRO cartão é outra compra, e entra",
+       _r3[0] == 1 and sum(1 for g in _grav if "IOF" in g["descricao"]) == 2
+       and {g["conta"] for g in _grav} == {"cartão · final 6777", "cartão · final 1705"})
+    # FATURA SEM NÚMERO DE CARTÃO (a do Inter, em CSV) e linha ANTIGA gravada
+    # pelo nome do arquivo: aqui só o conteúdo reconhece. Era exatamente o
+    # caso das 12 recargas gravadas três vezes.
+    _sem_cartao = [{**x, "cartao": ""} for x in _l6777]
+    _aba_falsa.linhas = [COLUNAS]
+    carregar.clear()
+    _s1 = gravar_fatura(_sem_cartao, "cartão · Fatura_1712.pdf", "2026-11", "leo")
+    _s2 = gravar_fatura(_sem_cartao, "cartão · Fatura_1806.pdf", "2026-11", "leo")
+    _s3 = gravar_fatura(_l6777, "cartão · Fatura_1900.pdf", "2026-11", "leo")
+    ok("sem cartão na fatura (ou gravada pelo nome antigo): anexar de novo, com outro nome, não grava",
+       _s1[0] == 3 and _s2[0] == 0 and _s3[0] == 0 and len(carregar_ou_erro()) == 3)
+    _aba_falsa.linhas = [COLUNAS]
+    carregar.clear()
+    gravar_fatura(_l6777, "cartão · FaturacartaoBusiness_181120261712.pdf", "2026-11", "leo")
+    gravar_fatura(_l1705, "cartão · FaturacartaoBusiness_181120261713.pdf", "2026-11", "leo")
+    # Linha antiga (conta = nome do arquivo, sem cartão) casa com a nova.
+    ok("ja_gravados_na_fatura: linha antiga sem cartão casa; cartão diferente não; contagem por cópia",
+       ja_gravados_na_fatura(
+           [{"tipo": "fatura 2026-11", "data": "2026-09-21", "valor": -54.53,
+             "descricao": "ANTHROPIC", "conta": "cartão · final 6777"}] * 2,
+           [{"tipo": "fatura 2026-11", "data": "2026-09-21", "valor": -54.53,
+             "descricao": "ANTHROPIC", "conta": "cartão · velho.pdf"}]) == {0}
+       and ja_gravados_na_fatura(
+           [{"tipo": "fatura 2026-11", "data": "2026-09-21", "valor": -54.53,
+             "descricao": "ANTHROPIC", "conta": "cartão · final 1705"}],
+           [{"tipo": "fatura 2026-11", "data": "2026-09-21", "valor": -54.53,
+             "descricao": "ANTHROPIC", "conta": "cartão · final 6777"}]) == set())
+    # A planilha que não responde NÃO é «nada gravado»: antes, `carregar()`
+    # devolvia [] na falha e a fatura inteira entrava de novo.
+    class _AbaQuebrada:
+        def get_all_records(self):
+            raise RuntimeError("APIError 503")
+    _guard_aba = globals()["_aba"]
+    globals()["_aba"] = lambda: _AbaQuebrada()
+    try:
+        _rq = gravar_fatura(_l6777, "cartão · outro.pdf", "2026-11", "leo")
+    finally:
+        globals()["_aba"] = _guard_aba
+    ok("planilha sem resposta: a fatura NÃO é gravada de novo, e a tela recebe o erro",
+       _rq[0] == 0 and "503" in _rq[3] and len(carregar_ou_erro()) == 4)
+
+    # ══ OS REPETIDOS JÁ GRAVADOS: a lista para o dono apagar ═══════════════
+    def _lf(i, conta, desc="ANTHROPIC", valor=-54.0, data=None, **kw):
+        return {"id": f"{conta[-5:]}-{i}", "conta": conta, "tipo": "fatura 2026-11",
+                "data": data or f"2026-10-{i + 1:02d}", "descricao": desc, "valor": valor,
+                "fixada": "", "observacao": "", "atualizado_em": "2026-11-0" + str(1 + len(conta) % 9), **kw}
+    _A = [_lf(i, "cartão · a.pdf") for i in range(12)]
+    _B = [_lf(i, "cartão · b.pdf") for i in range(12)]
+    _B[0]["fixada"] = "sim"
+    _C = [_lf(i, "cartão · c.pdf") for i in range(9)]
+    # Outro cartão: um IOF igual por coincidência, e o resto diferente.
+    _D = [_lf(0, "cartão · d.pdf", desc="IOF", valor=-1.07, data="2026-10-05"),
+          _lf(1, "cartão · d.pdf", desc="LOJA X"), _lf(2, "cartão · d.pdf", desc="LOJA Y"),
+          _lf(3, "cartão · d.pdf", desc="LOJA Z")]
+    _A.append(_lf(20, "cartão · a.pdf", desc="IOF", valor=-1.07, data="2026-10-05"))
+    _rep = repetidos_de_fatura(_A + _B + _C + _D)
+    ok("repetidos: 12 + 12 + 9 da mesma fatura → 21 a mais; o IOF igual de outro cartão fica",
+       len(_rep) == 21 and all(r["descricao"] == "ANTHROPIC" for r in _rep))
+    ok("repetidos: a cópia mexida à mão (fixada) é a que FICA",
+       "b.pdf-0" not in {r["id"] for r in _rep})
+    ok("repetidos: sem repetição, lista vazia", repetidos_de_fatura(_A + _D) == [])
+
+    # ══ APAGAR NUNCA DEIXA A ABA VAZIA ═══════════════════════════════════
+    class _AbaFalhaNoUpdate(_AbaFalsa):
+        def update(self, values, range_name=None, **kw):
+            raise RuntimeError("quota")
+    _af = _AbaFalhaNoUpdate()
+    _af.linhas = [COLUNAS] + [[f"x{i}"] + [""] * (len(COLUNAS) - 1) for i in range(3)]
+    globals()["_aba"] = lambda: _af
+    try:
+        _n_ap, _m_ap = apagar(["x1"])
+    finally:
+        globals()["_aba"] = _guard_aba
+    ok("apagar: se a escrita falha, NADA some (antes a aba era limpa primeiro)",
+       _n_ap == 0 and len(_af.get_all_records()) == 3)
+    _aba_falsa.linhas = [COLUNAS] + [[f"y{i}"] + [""] * (len(COLUNAS) - 1) for i in range(4)]
+    carregar.clear()
+    _n_ap2, _ = apagar(["y1", "y3"])
+    ok("apagar: tira só as pedidas e não deixa linha velha embaixo",
+       _n_ap2 == 2 and [r["id"] for r in _aba_falsa.get_all_records()] == ["y0", "y2"])
+
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)

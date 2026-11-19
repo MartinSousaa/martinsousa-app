@@ -182,6 +182,57 @@ def resumo_cartoes(linhas_do_mes):
     }
 
 
+def _apagar_repetidos(ids_vistos):
+    """Callback do botão. Relê a planilha AGORA e apaga só o que continua
+    repetido E estava na lista que o dono viu — nada além disso."""
+    import lancamentos as _lan
+    try:
+        agora = {r["id"] for r in _lan.repetidos_de_fatura(_lan.carregar_ou_erro())}
+    except Exception as e:
+        st.session_state["fat_rep_msg"] = (f"Não apaguei nada — a planilha respondeu: {str(e)[:120]}", True)
+        return
+    alvo = agora & set(ids_vistos)
+    if not alvo:
+        st.session_state["fat_rep_msg"] = ("Nada a apagar: os repetidos já não estão lá.", False)
+        return
+    n, msg = _lan.apagar(alvo)
+    st.session_state["fat_rep_msg"] = ((f"✓ {n} lançamento(s) repetido(s) apagado(s)." if n else msg), not n)
+
+
+def _faturas_repetidas():
+    """FATURA ANEXADA MAIS DE UMA VEZ (dono, 18/11: as 12 recargas da Anthropic
+    estavam três vezes, e o «Anthropic (API)» dizia R$ 2.396 em vez de R$ 657).
+    A tela mostra cada linha a mais e o dono apaga num clique — o Studio não
+    apaga dado financeiro sozinho."""
+    import lancamentos as _lan
+    import pandas as pd
+    msg = st.session_state.pop("fat_rep_msg", None)
+    if msg:
+        (st.error if msg[1] else st.success)(msg[0])
+    rep = _lan.repetidos_de_fatura(_lan.carregar())
+    if not rep:
+        return
+    tot = sum(-float(r["valor"] or 0) for r in rep if float(r["valor"] or 0) < 0)
+    with st.container(border=True):
+        st.markdown(f"**⚠️ {len(rep)} lançamento(s) de fatura gravado(s) mais de uma vez** — "
+                    f"a mesma fatura foi anexada de novo com outro nome de arquivo. "
+                    f"Somam {_dinheiro_rep(tot)} a mais nos gastos.")
+        st.dataframe(pd.DataFrame([{
+            "Mês": str(r["tipo"]).replace(_lan.TIPO_FATURA, ""), "Data": r["data"],
+            "Descrição": r["descricao"], "Valor": r["valor"], "Arquivo": r["conta"],
+            "Mexida à mão": "sim" if r["editada"] else ""} for r in rep]),
+            hide_index=True, use_container_width=True)
+        if any(r["editada"] for r in rep):
+            st.caption("«Mexida à mão»: essa cópia tem finalidade travada ou observação. A cópia "
+                       "que fica também existe — confira se a sua mudança está nela.")
+        st.button(f"🗑 Apagar os {len(rep)} repetidos", key="fat_rep_apagar", type="primary",
+                  on_click=_apagar_repetidos, args=([r["id"] for r in rep],))
+
+
+def _dinheiro_rep(v):
+    return "R$ " + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def pagina_faturas(usuario_logado=None):
     """Anexar faturas de cartão e ver o cartão do mês."""
     import favorecidos as _fv
@@ -191,6 +242,7 @@ def pagina_faturas(usuario_logado=None):
     import placar_core as _pc
 
     st.markdown("#### 🧾 Faturas dos cartões")
+    _faturas_repetidas()
     arquivos = st.file_uploader(
         "Fatura do cartão", type=["csv", "pdf"], accept_multiple_files=True,
         key="fat_up", label_visibility="collapsed")
@@ -1961,8 +2013,27 @@ if __name__ == "__main__":
     ok("a aba Faturas resume o cartao do mes pela mesma regra da meta",
        _r_f["pago"] == 80.94 and _r_f["compras_total"] == 80.94
        and _r_f["sem_detalhe"] == 0.0
-       and _r_f["por_fatura"] == {"t.csv": (80.94, 2)}
+       # Por CARTÃO desde 18/11 (o nome do arquivo muda a cada download).
+       and _r_f["por_fatura"] == {"final 1924": (80.94, 2)}
        and _r_f["por_finalidade"] == {"MERCADORIA": 80.94})
+    # O BOTÃO DOS REPETIDOS (18/11): relê a planilha na hora e só apaga o que
+    # continua repetido E estava na lista que o dono viu.
+    import lancamentos as _lan_rp
+    _apagou = []
+    _g_rp = (_lan_rp.repetidos_de_fatura, _lan_rp.carregar_ou_erro, _lan_rp.apagar, st.session_state)
+    try:
+        _lan_rp.carregar_ou_erro = lambda: []
+        _lan_rp.repetidos_de_fatura = lambda g: [{"id": "a"}, {"id": "b"}, {"id": "novo"}]
+        _lan_rp.apagar = lambda ids: _apagou.append(set(ids)) or (len(ids), "")
+        st.session_state = {}
+        _apagar_repetidos(["a", "b", "ja-nao-repetido"])
+        _msg_rp = st.session_state.get("fat_rep_msg")
+    finally:
+        (_lan_rp.repetidos_de_fatura, _lan_rp.carregar_ou_erro, _lan_rp.apagar,
+         st.session_state) = _g_rp
+    ok("repetidos: o botão apaga só o que o dono viu E continua repetido",
+       _apagou == [{"a", "b"}] and _msg_rp and "2 lançamento" in _msg_rp[0]
+       and "_faturas_repetidas()" in _insp.getsource(pagina_faturas))
     ok("sem fatura lancada, o pago aparece sem detalhe",
        resumo_cartoes([{"data": "2026-10-01", "valor": -50.0, "conta": "inter",
                         "finalidade": "FATURA DO CARTÃO"}])["sem_detalhe"] == 50.0)

@@ -71,7 +71,7 @@ def _anual(linha):
     return str(linha.get("periodicidade", "")).strip().lower().startswith("anu")
 
 
-def linha_do_item(grupo, item, estimados, cobrancas, anual=False, atual=False):
+def linha_do_item(grupo, item, estimados, cobrancas, anual=False, atual=False, detalhe=None):
     """Um item no último dos meses. Pura.
 
     `estimados` e `cobrancas` têm um elemento por mês (do mais antigo);
@@ -89,7 +89,9 @@ def linha_do_item(grupo, item, estimados, cobrancas, anual=False, atual=False):
         sit = "dentro"
     return {"grupo": grupo, "item": item, "estimado": est, "cobrado": c,
             "hist": [x or 0.0 for x in cob], "est_hist": list(estimados),
-            "partes": [round(v, 2) for v in cobrancas[-1]], "sit": sit}
+            "partes": [round(v, 2) for v in cobrancas[-1]], "sit": sit,
+            # [(AAAA-MM-DD, nome no extrato, valor)] do último mês (18/11).
+            "detalhe": list(detalhe or [])}
 
 
 def fixos(linhas_cf, linhas_as, por_item_aj, meses, lancs_por_mes, atual=False):
@@ -105,6 +107,9 @@ def fixos(linhas_cf, linhas_as, por_item_aj, meses, lancs_por_mes, atual=False):
     import custo_real as _cr
     import visao_geral as _vg
     fora, casados = [], set()
+    # Uma cobrança, um item (18/11): quem fica com a que casa com dois.
+    _todas = list(linhas_cf or []) + list(linhas_as or [])
+    _donos = {k: _cr.donos_das_cobrancas(_todas, v) for k, v in (lancs_por_mes or {}).items()}
     for grupo, linhas in (("custo_fixo", linhas_cf), ("assinaturas", linhas_as)):
         for l in (linhas or []):
             item = str(l.get("item") or "").strip()
@@ -117,12 +122,16 @@ def fixos(linhas_cf, linhas_as, por_item_aj, meses, lancs_por_mes, atual=False):
                                          por_item_aj.get(("custo_fixo", item)), a, m)
                 else:
                     e = _num(l.get("valor_mensal")) if _anual(l) else _as.custo_mensal(l)
-                achadas = _cr.cobrancas_no_mes(l, lancs_por_mes.get((a, m)) or [])
+                achadas = _cr.cobrancas_no_mes(l, lancs_por_mes.get((a, m)) or [],
+                                               _donos.get((a, m)))
                 if (a, m) == meses[-1]:
                     casados.update(id(x) for x in achadas)
+                    _det = [(str(x.get("data") or "")[:10],
+                             str(x.get("descricao") or x.get("favorecido") or "").strip(),
+                             round(-_num(x.get("valor")), 2)) for x in achadas]
                 ests.append(float(e or 0.0))
                 cobs.append([-_num(x.get("valor")) for x in achadas])
-            li = linha_do_item(grupo, item, ests, cobs, _anual(l), atual)
+            li = linha_do_item(grupo, item, ests, cobs, _anual(l), atual, _det)
             if li["estimado"] or li["cobrado"] is not None:
                 fora.append(li)
     sem = {}
@@ -261,10 +270,46 @@ def _viu(x):
         return "previsto, sem débito no extrato — falta lançar?"
     if x["sit"] == "aguardando":
         return "ainda não cobrado neste mês"
+    det = x.get("detalhe") or []
+    if det:
+        return cobrancas_por_nome(det)
     if len(p) > 1:
         return (f"{len(p)} cobranças no mês: "
                 + " + ".join(_r(v).replace("R$ ", "") for v in p))
     return "1 cobrança no mês" if p else ""
+
+
+def cobrancas_por_nome(det):
+    """«ANTHROPIC 12× · 21/09–09/10 · R$ 657» — uma parte por nome no extrato.
+    Pura, e já escapada para o HTML.
+
+    Dono, 18/11: «onde eu vejo o motivo de cada uma estar me cobrando a
+    mais?». A coluna dizia «34 cobranças no mês: 55 + 55 + …», sem nome nem
+    data — e era o nome e a data que mostravam a fatura gravada três vezes
+    (a mesma recarga, no mesmo dia, três vezes)."""
+    grupos = {}
+    for data, nome, valor in det:
+        g = grupos.setdefault(nome or "?", [])
+        g.append((data, valor))
+    partes = []
+    for nome, itens in sorted(grupos.items(), key=lambda kv: -sum(v for _d, v in kv[1])):
+        dias = sorted({d for d, _v in itens if d})
+        # MESMA DATA E MESMO VALOR é o rastro da fatura gravada de novo. Duas
+        # recargas no mesmo dia são normais (21/09: US$ 10,06 e US$ 10,07) —
+        # valores diferentes, e não acusam.
+        rep_igual = len(itens) - len(set(itens))
+
+        def _dm(d):
+            return f"{d[8:10]}/{d[5:7]}" if len(d) >= 10 else d
+        quando = (_dm(dias[0]) if len(dias) == 1 else
+                  f"{_dm(dias[0])}–{_dm(dias[-1])}" if dias else "")
+        txt = (f"{_esc(nome[:40])} {len(itens)}×"
+               + (f" · {quando}" if quando else "")
+               + f" · {_r(sum(v for _d, v in itens))}")
+        if rep_igual:
+            txt += f" ⚠️ {rep_igual} com a MESMA data e valor — fatura repetida?"
+        partes.append(txt)
+    return "; ".join(partes)
 
 
 def _linha(x, meses_txt):
@@ -547,7 +592,18 @@ if __name__ == "__main__":
     ok("os três blocos aparecem", all(t in _h for t in ("CUSTO FIXO · item a item",
                                                         "ASSINATURAS · item a item",
                                                         "VARIÁVEIS · exceto mercadoria")))
-    ok("o Claude Code aparece acima, com as cobranças", "Claude Code" in _h and "3 cobranças no mês" in _h)
+    # Com NOME e DATA de cada cobrança (dono, 18/11), e não só os valores.
+    ok("o Claude Code aparece acima, com as cobranças por nome e data",
+       "Claude Code" in _h and "CLAUDE.AI USAGE 2× · 05/10 · R$ 600" in _h
+       and "CLAUDE.AI SUBSCRIPTION 1× · 05/10" in _h and "MESMA data" not in _h)
+    _tri = [("2026-09-21", "ANTHROPIC", 54.53), ("2026-09-22", "ANTHROPIC", 54.31)] * 3
+    ok("o nome de cada cobrança vai escapado ao HTML",
+       "&lt;b&gt;LOJA&lt;/b&gt;" in cobrancas_por_nome([("2026-10-01", "<b>LOJA</b>", 1.0)]))
+    ok("a mesma recarga três vezes acusa: «MESMA data e valor»",
+       "ANTHROPIC 6× · 21/09–22/09" in cobrancas_por_nome(_tri)
+       and "⚠️ 4 com a MESMA data e valor" in cobrancas_por_nome(_tri)
+       and "MESMA" not in cobrancas_por_nome([("2026-09-21", "ANTHROPIC", 54.53),
+                                              ("2026-09-21", "ANTHROPIC", 54.58)]))
     ok("o SEM ITEM aparece com o nome", "SEM ITEM" in _h and "ANTHROPIC" in _h)
     ok("o nome do extrato vai escapado ao HTML", "Porta 2 Relógio + Jóias" in _h
        and "<script>" not in html_desvios("OUT", 2026, dict(_d, sem_item=[("<script>", 1.0)]), []))

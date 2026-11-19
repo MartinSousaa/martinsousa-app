@@ -424,20 +424,9 @@ def _data_card(card):
 # Quem responde e `placar_core._mes_card(card, conclusoes, janela)`, que le a
 # acao que virou dueComplete. UM NOME, UMA RESPOSTA.
 
-def _mes_card_criacao(card):
-    """Mês do cartão pela data de CRIAÇÃO (ID Trello = ObjectID MongoDB) —
-    usado para penalidades e sem_membro, evitando que cartões antigos
-    vazem para o mês atual quando são modificados."""
-    card_id = card.get("id", "")
-    if card_id and len(card_id) >= 8:
-        try:
-            ts = int(card_id[:8], 16)
-            # Mes de BRASILIA, nao de UTC: criado as 22h do dia 31 e do mes 31.
-            dt = datetime.fromtimestamp(ts, timezone(timedelta(hours=-3)))
-            return (dt.year, dt.month)
-        except Exception:
-            pass
-    return None
+# `_mes_card_criacao` saiu daqui em 18/11: o laço de pontos é um só
+# (`placar_core.contar_cartoes`) e usa a do core. Cópia sem chamador é
+# armadilha — a de `_mes_card` já tinha mostrado isso em 28/09.
 
 # ── FILA ───────────────────────────────────────────────────────────────────────
 # Quantas demandas da fila aparecem. Uma constante, nao dois numeros: a TV
@@ -537,14 +526,17 @@ def _fmt_tempo(m):
 
 # ── PROCESSAMENTO ──────────────────────────────────────────────────────────────
 def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
-    """
+    """O Placar. A conta de cada cartão é `placar_core.contar_cartoes` — o
+    MESMO laço do Painel de Metas e do bônus (dono, 18/11: a conta morava em
+    dois lugares desde 03/08 e já discordou em 330 pontos). Aqui fica só o que
+    o Placar busca no Trello, com as janelas curtas dele.
+
     filtro_mes=(year,month) filtra APENAS:
       - pontuação de cartões concluídos  (pts_equipe / pts_membro)
       - penalidades
     Cartões abertos/pendentes são exibidos SEMPRE, independente do mês.
     """
     import placar_core as _pc_tv
-    from datetime import timedelta as _td_tv
     _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map, _pc_tv._desde_curto(45))
     _cfg_col = _cfg_colunas()
     # Espera de terceiro: busca so acontece se alguma coluna tiver espera
@@ -553,14 +545,8 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         _entradas_atr = _pc_tv.entradas_se_preciso(listas)
     except Exception:
         _entradas_atr = {}
-
-    # Mês de conclusão: a MESMA fonte que a Análise de Metas usa.
-    #
-    # Esta tela decidia o mês do cartão pela última atividade dele. Comentar ou
-    # editar em agosto um cartão concluído em julho trazia os pontos para agosto
-    # — e o Painel mostrava 5.972 pts onde a Análise mostrava 5.642, 330 pontos
-    # de diferença no mesmo mês e na mesma sessão. A Análise já usava a ação que
-    # de fato virou dueComplete, que é o que "concluído no mês" significa.
+    # Mês de conclusão: a MESMA fonte que a Análise de Metas usa — a ação que
+    # de fato virou dueComplete, e não a última atividade do cartão.
     _desde_concl = _pc_tv._desde_padrao()
     _conclusoes_tv = _pc_tv.datas_de_conclusao(
         _pc_tv.acoes_movimento(_desde_concl, max_paginas=5))
@@ -568,141 +554,12 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         _janela_tv = datetime.fromisoformat(_desde_concl.replace("Z", "+00:00"))
     except Exception:
         _janela_tv = None
-    d={
-        "pts_equipe":0.0,"pen_total":0.0,
-        "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
-        "pen_membro":{u:0.0 for u in MEMBROS_ATIVOS},
-        "abertos":0,"urgentes":0,"atrasados":0,"atrasados_pri":0,
-        "atrasados_pri_lista":[],"em_andamento":0,
-        "falta_conf":0,"falta_info":0,"sem_membro":0,"sem_membro_lista":[],"falta_pts":0,
-        "pts_pendentes":0.0,"pend_sem_pts":0,"pen_cards":[],"andamento_lista":[],"pausados_lista":[],
-        "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
-        "correcao_concl":0,"total_concl":0,
-        "concluido_sem_membro":[],
-        # Os cartões que SOMAM, um a um. Ver o append lá embaixo.
-        "cards_pts":[],
-    }
-    for card in cards:
-        nl=listas.get(card["idList"],"")
-        if nl=="TABELA DE PONTUAÇÃO": continue
-        lb=_labels(card); us=_users(card,membros_map)
-        ok=card.get("dueComplete",False)
-        pt=_num(card,id_p); tempo=_num(card,id_t); interr=_num(card,id_i) or 0
-
-        # ── PENALIDADES: contam no mês em que foram CRIADAS (data de criação) ────
-        if _pc_core.coluna_em(nl, LISTAS_PENALIDADE):
-            if filtro_mes:
-                mc=_mes_card_criacao(card)  # data de criação — não vaza penalidades antigas
-                if mc and mc!=filtro_mes: continue
-            if pt:
-                v=abs(pt); d["pen_total"]+=v
-                d["pen_cards"].append({"card":card["name"],"valor":v,"membros":us})
-                for u in us:
-                    if u in d["pen_membro"]: d["pen_membro"][u]+=v
-            continue
-
-        # ── EM ANDAMENTO: sempre visível, sem filtro de mês ────────────────────
-        # Cartao com INTERROMPIDO, INTERROMPIDO MS ou FIM DE EXPEDIENTE nao esta
-        # em execucao agora, mesmo com EM ANDAMENTO ainda colada nele. O contador
-        # nao olhava para isso e mostrava quatro em andamento havendo um.
-        _pausa = next((x for x in _ordem_pausa() if x in lb), "")
-        if "EM ANDAMENTO" in lb and not _pausa:
-            d["em_andamento"]+=1
-            d["andamento_lista"].append({"card":card["name"],"lista":nl,"membros":us})
-        elif _pausa:
-            # Comecado e parado. Aparece na mesma secao, apagado, para a equipe
-            # ver o que ha para retomar — inclusive quando a etiqueta de pausa
-            # SUBSTITUIU a EM ANDAMENTO, que e como a equipe usa no fim do dia.
-            d["pausados_lista"].append({"card":card["name"],"lista":nl,
-                                        "membros":us,"motivo":_pausa})
-
-        # ── CARTÕES ABERTOS/PENDENTES: nunca filtrados por mês ─────────────────
-        if not ok:
-            d["abertos"]+=1
-            if "URGENTE" in lb or "URGENTES" in nl.upper(): d["urgentes"]+=1
-            # A etiqueta ATRASADO saiu do board: atraso vem do tempo medido.
-            # Usa o mapa do board inteiro — consultar cartao a cartao seria uma
-            # requisicao por cartao aberto a cada atualizacao do painel.
-            #
-            # O criterio e o mesmo da Analise de Metas, e nao mais uma copia
-            # antiga dele. A daqui so olhava tempo de execucao: cartao que
-            # ninguem tocou tem tempo zero e nunca ficava atrasado, mesmo aberto
-            # ha semanas, e cartao parado esperando a plataforma responder era
-            # contado como atraso da equipe. As duas telas mostravam numeros
-            # diferentes para a mesma pergunta.
-            if _pc_tv._card_atrasado(card, nl, _tempos_tv, _entradas_atr):
-                d["atrasados"]+=1
-                # Ver placar_core: a meta e sobre prioridade 8 a 10, nao sobre
-                # o board inteiro.
-                if int((_cfg_col.get(nl) or {}).get("prioridade", 5) or 5) >= 8:
-                    d["atrasados_pri"]+=1
-                    d["atrasados_pri_lista"].append({"nome":card["name"],"lista":nl})
-            if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
-            if "FALTA INFORMAÇÃO" in lb: d["falta_info"]+=1
-            if not us:
-                if not filtro_mes or _mes_card_criacao(card) == filtro_mes:
-                    d["sem_membro"] += 1  # data de criação — conta no mês em que o cartão foi aberto
-                    d["sem_membro_lista"].append({"nome": card["name"], "lista": nl})
-            if pt is None: d["falta_pts"]+=1
-            if "PENDENTE" in lb:
-                d["pend_lista"][nl]=d["pend_lista"].get(nl,0)+1
-                if pt: d["pts_pendentes"]+=pt
-                # Cartao pendente SEM o campo PONTOS preenchido no Trello. Sem
-                # esta conta, "12 pendentes / 0 pts" parecia erro do painel — e a
-                # causa e outra tela ("Falta Pontuacao"), que ninguem cruza de
-                # cabeca. Agora o proprio card diz de onde vem o zero.
-                else: d["pend_sem_pts"] = d.get("pend_sem_pts", 0) + 1
-            if "DESATIVAR" in nl.upper(): d["desativar"]+=1
-            if "REATIVAR" in nl.upper(): d["reativar"]+=1
-            continue  # cartão aberto não pontua — próximo card
-
-        # ── A partir daqui: cartão concluído (ok=True) ─────────────────────────
-        # Aplica filtro de mês somente para concluídos
-        if filtro_mes:
-            # Sem "if mc and": mês indeterminado deixa o cartão FORA do mês, em
-            # vez de contar em qualquer mês que estiver aberto na tela.
-            if _pc_tv._mes_card(card, _conclusoes_tv, _janela_tv) != filtro_mes:
-                continue
-
-        # O tempo medido pela etiqueta EM ANDAMENTO vem primeiro. Aqui so se lia
-        # o campo personalizado TEMPO ACUMULADO do Trello, que e preenchido a
-        # mao e esta vazio: por isso "Tempo Medio por Coluna" mostrava
-        # "estimativa" em TODAS as colunas, enquanto a Analise de Metas — que le
-        # a medicao das etiquetas — mostrava as medias reais. As duas telas
-        # respondiam a mesma pergunta olhando fontes diferentes, e uma delas
-        # olhava para um campo que ninguem preenche.
-        #
-        # A medicao ja desconta as pausas de INTERROMPIDO, entao nao se subtrai
-        # `interr` dela. O campo manual fica como reserva, para o cartao que por
-        # acaso tenha o numero preenchido e nenhum trecho medido.
-        _medido = (_tempos_tv.get(card["id"]) or {}).get("total", 0.0)
-        if _medido and _medido > 0:
-            d["tempo_lista"].setdefault(nl,[]).append(_medido)
-        elif tempo and tempo>0:
-            d["tempo_lista"].setdefault(nl,[]).append(max(tempo-interr,0))
-
-        # Retrabalho: conta cartões concluídos e de correção de fotos
-        d["total_concl"]+=1
-        if nl=="CORREÇÃO DE FOTOS: 0 PONTOS": d["correcao_concl"]+=1
-
-        # Alerta: concluído sem membro atribuído
-        if not us: d["concluido_sem_membro"].append({"card":card["name"],"lista":nl})
-
-        # ── PONTUAÇÃO: somente concluídos no mês selecionado ───────────────────
-        if pt is None: continue
-        if _pc_core.coluna_em(nl, LISTAS_SEM_PONTUACAO): continue
-        d["pts_equipe"]+=pt
-        # CADA CARTÃO QUE SOMA, NOMEADO. O total já era calculado aqui e a
-        # parcela jogada fora: o Painel dizia 4.900 e não sabia de onde. É
-        # esta lista que o retrato diário congela, e é a diferença entre dois
-        # retratos que transforma "por que caiu 300?" em subtração.
-        d["cards_pts"].append({"id":card["id"],"card":card["name"],
-                               "lista":nl,"pts":pt,"membros":us})
-        ma=[u for u in us if u in MEMBROS_ATIVOS]
-        if ma:
-            cada=pt/len(ma)
-            for u in ma: d["pts_membro"][u]+=cada
-    return d
+    return _pc_tv.contar_cartoes(
+        listas, cards, membros_map, id_p, id_t, id_i, filtro_mes,
+        tempos=_tempos_tv, conclusoes=_conclusoes_tv, janela_ini=_janela_tv,
+        entradas=_entradas_atr,
+        prioridade_de=lambda nl: (_cfg_col.get(nl) or {}).get("prioridade", 5),
+        labels_de=_labels, regra_placar=True)
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
 CSS="""
