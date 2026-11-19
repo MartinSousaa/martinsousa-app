@@ -3659,8 +3659,8 @@ MUTACOES = [
     (
         "a assinatura paga volta a aparecer como 'nao apareceu' (apelido com ';')",
         "assinaturas.py",
-        '                   if any(_casa(l, {"favorecido": n}) for n in nomes)]\n',
-        "                   if _casa(l, linha)]\n",
+        '                   and any(_casa(l, {"favorecido": n}) for n in nomes)]\n',
+        "                   and _casa(l, linha)]\n",
         ["python3", "assinaturas.py"],
     ),
     (
