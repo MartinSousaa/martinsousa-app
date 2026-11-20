@@ -770,6 +770,10 @@ def main():
         # Caches e memorias de consulta: a resposta e a mesma para todo mundo.
         "auth.py:_ULTIMOS_USUARIOS_OK": "lista de usuarios da planilha, igual para todos",
         "batidas.py:_CACHE": "cache da RHiD com chave propria",
+        # A exclusao roda em Thread (sem session_state) e mexe nas CONTAS do
+        # ML, que sao de todos: dois donos vendo a mesma barra e o certo, e
+        # `disparar` recusa a segunda exclusao enquanto a primeira roda.
+        "excluir_anuncios_ml.py:_ANDAMENTO": "andamento da exclusao nas contas do ML, que sao de todos",
         "bling_api.py:_ABA_CACHE": "aba da planilha, uma por processo",
         "bling_api.py:_CACHE": "token do Bling, da conta e nao da pessoa",
         "bling_api.py:_CANAIS_CACHE": "canais de venda da conta",

@@ -353,6 +353,9 @@ SUBTELAS_OPERACIONAL = {
     "🔎 Análise de Gargalos": lambda u: _abrir_tela("gargalos_tela", u),
     # Dono, 28/10: as promoções do ML nas quatro contas, por produto.
     "🏷️ Promoções ML": lambda u: _abrir_tela("promocoes_ml", u),
+    # Dono, 19/11: excluir os anúncios que o Renan marcou com «s» na aba
+    # «Excluir» da Análise de Anúncios. Trava de dono na própria página.
+    "🗑️ Excluir anúncios ML": lambda u: _abrir_tela("excluir_anuncios_ml", u),
     # Dono, 12/11: nome na Shopee × SKU, ads e promoções das duas lojas.
     "🛍️ Shopee": lambda u: _abrir_tela("shopee_tela", u),
 }
