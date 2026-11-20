@@ -3664,6 +3664,20 @@ MUTACOES = [
         ["python3", "assinaturas.py"],
     ),
     (
+        "a exclusao de anuncio volta a apagar o que nao finalizou (19/11)",
+        "excluir_anuncios_ml.py",
+        '        return (False, f"não finalizou: {erro}")\n',
+        "        pass\n",
+        ["python3", "excluir_anuncios_ml.py"],
+    ),
+    (
+        "a exclusao volta a tirar anuncio de outra conta (19/11)",
+        "excluir_anuncios_ml.py",
+        '            elif uid and str(b.get("seller_id")) != str(uid):\n',
+        "            elif False:\n",
+        ["python3", "excluir_anuncios_ml.py"],
+    ),
+    (
         'a Home volta a dar porcentagem quando a projecao ja passa do alvo',
         'home_gestao.py',
         '    if proj >= alvo:\n        return f"Vai superar em {_brl(proj - alvo, 0)}", None, True\n',
