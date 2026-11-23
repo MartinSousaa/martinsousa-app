@@ -2472,6 +2472,9 @@ def _criar_kit(prods, codigos, por_id, saldo, nova, quem):
     if nova:
         st.markdown("**Kit criado — imprima a etiqueta:**")
         _etiqueta(nova[0], nova[1])
+        # Errou o nome? Abre o editor do kit que acabou de nascer — ele é o
+        # primeiro da lista ao lado (dono, 23/11).
+        st.button("✎ editar este kit", key="est_kit_novo_ed", on_click=_abrir_ed_kit, args=(nova[0],))
     esc = ss.get("est_kit_escolha")
     var = E.do_codigo(prods, esc) if esc else []
     if var:
@@ -4246,6 +4249,8 @@ if __name__ == "__main__":
     ok("kit: o ✎ editar tem nome, FOTO, itens, Salvar e Cancelar",
        '"Foto do kit"' in _sk and "on_click=_salvar_kit" in _sk and "on_click=_fechar_ed_kit" in _sk
        and '"Pôr mais um item"' in _sk and "_editar_kit(k, por_id, prods)" in _insp.getsource(_kits_cadastrados))
+    ok("kit: o recém-criado tem ✎ editar ao lado da etiqueta, e abre o editor dele (dono, 23/11)",
+       "on_click=_abrir_ed_kit, args=(nova[0],)" in _insp.getsource(_criar_kit))
 
     print("\n" + ("TUDO OK" if not falhas else f"{falhas} FALHA(S)"))
     raise SystemExit(1 if falhas else 0)
