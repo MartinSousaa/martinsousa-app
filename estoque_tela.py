@@ -709,13 +709,16 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
         ini = _iniciais_ed(p0)
         # A chave leva o código: dois produtos abertos em seguida não dividem
         # o que foi digitado em um.
-        _campos_sku(pf, {k: ini[k] for k in ("sku", "custo", "sku_at", "custo_at")})
         for k in ("nome", "fornecedor", "forn"):
             ss.setdefault(pf + k, ini[k])
         ss[pf + "ini"] = ini
-        st.text_input("Produto", key=pf + "nome")
-        st.text_input("Fornecedor", key=pf + "fornecedor", placeholder="nome do fornecedor")
-        st.text_input("Código do fornecedor", key=pf + "forn")
+        # A mesma linha do cadastro, 30% · 40% · 30% (dono, 23/11).
+        e1, e2, e3 = st.columns([3, 4, 3])
+        e1.text_input("Código do fornecedor", key=pf + "forn")
+        e2.text_input("Produto", key=pf + "nome")
+        e3.text_input("Fornecedor", key=pf + "fornecedor", placeholder="nome do fornecedor")
+        # SKU e custo embaixo da linha do produto, como no cadastro.
+        _campos_sku(pf, {k: ini[k] for k in ("sku", "custo", "sku_at", "custo_at")})
         if painel:
             st.file_uploader("Foto do produto (a que aparece na lista)", type=None, key=_ch_foto_ed(pf))
             _variacoes_do_painel(variacoes, saldo, quem, pf)
@@ -1132,7 +1135,7 @@ def _ao_mudar_sku(chave_sku, chave_custo):
         ss[chave_custo] = custo
 
 
-def _campos_sku(prefixo, inicial=None):
+def _campos_sku(prefixo, inicial=None, qtds=False):
     """SKU varejo, custo varejo, SKU atacado e custo atacado, NUMA LINHA e
     FORA de `st.form`: dentro de um form nada acontece até salvar, e a busca
     na planilha tem de responder na hora. O mesmo bloco no cadastro e na
@@ -1144,8 +1147,15 @@ def _campos_sku(prefixo, inicial=None):
               ("SKU atacado", "sku_at", "Custo atacado (R$)", "custo_at"))
     # Duas colunas iguais, uma linha para cada compra: simétrico ao resto do
     # quadro (dono, 12/11).
+    # Três colunas iguais (dono, 23/11): SKU · custo · quantidade da mesma
+    # compra na mesma linha. `qtds` só no cadastro sem variações.
+    qtd = {"sku": ("Qtd varejo", "est_cad_qv", "Peças desta entrada que vieram da compra de VAREJO."),
+           "sku_at": ("Qtd atacado", "est_cad_qa", "Peças desta entrada que vieram da compra de ATACADO.")}
     for rot, k, rot_c, kc in campos:
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
+        if qtds:
+            rq, kq, hq = qtd[k]
+            c3.number_input(rq, min_value=0, step=1, value=None, key=kq, help=hq)
         c1.text_input(rot, key=prefixo + k, placeholder="MS-3500" if k == "sku" else "MS-2800",
                       on_change=_ao_mudar_sku, args=(prefixo + k, prefixo + kc),
                       help="Digite e aperte Enter: o Studio busca o custo na aba "
@@ -1277,15 +1287,24 @@ def _pergunta(cod):
     c2.button("NÃO, BIPEI ERRADO", key="est_nao", use_container_width=True, on_click=_voltar)
 
 
+# O upload sem a caixa de arrastar (dono, 23/11): o seletor é da chave do
+# campo (`st-key-…`), então só o campo citado muda.
+CSS_UPLOAD_COMPACTO = (
+    "<style>.st-key-{chave} [data-testid='stFileUploaderDropzone']{padding:6px 10px;}"
+    ".st-key-{chave} [data-testid='stFileUploaderDropzoneInstructions']{display:none;}"
+    "</style>")
+
+
 def quadro_da_foto(b64=""):
     """O quadrado grande da foto, como o quadro da rosca na Visão Financeira. Pura."""
     dentro = (f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;height:100%;'
               f'object-fit:contain">' if b64 else
               '<div style="text-align:center;color:#9AA3AE;font-size:13px">📷<br>sem foto ainda</div>')
     # Altura fixa (dono, 13/11): o quadrado em 1:1 descia muito abaixo do
-    # último campo da esquerda («Tem variações com este código»). 250 px é o
-    # que cabe entre o upload e esse campo; a foto se encaixa sem cortar.
-    return ('<div style="height:250px;width:100%;border-radius:18px;border:1px solid #3a3f45;'
+    # último campo da esquerda («Tem variações com este código»). Com o upload
+    # numa linha só (23/11), 272 px leva o fundo do quadro até o fundo desse
+    # campo — medido no navegador; a foto se encaixa sem cortar.
+    return ('<div style="height:272px;width:100%;border-radius:18px;border:1px solid #3a3f45;'
             'background:#2c2c2c;display:flex;align-items:center;justify-content:center;'
             f'overflow:hidden;margin-top:6px">{dentro}</div>')
 
@@ -1332,22 +1351,21 @@ def _cadastro(quem):
                 f'{_esc(titulo)}</div>', unsafe_allow_html=True)
     # UM QUADRO SÓ, sem `st.form` (dono, 12/11): o SKU busca o custo na
     # hora, e isso não acontece dentro de um form.
+    # Upload em uma linha só (dono, 23/11): só o botão, sem a caixa de
+    # arrastar — o espaço vai para o quadro da foto. FORA do quadro: dentro
+    # da coluna o <style> ocupa uma linha e a foto descia em relação aos campos.
+    st.markdown(CSS_UPLOAD_COMPACTO.replace("{chave}", "est_cad_foto"), unsafe_allow_html=True)
     with st.container(border=True):
         esq, dir_ = st.columns([2, 1])
         with esq:
-            c1, c2 = st.columns(2)
+            # 30% · 40% · 30% (dono, 23/11).
+            c1, c2, c3 = st.columns([3, 4, 3])
             forn = c1.text_input("Código do fornecedor", placeholder="TRES-B131", key="est_cad_forn")
             nome = c2.text_input("Produto", placeholder="Mini Yoga · conjunto", key="est_cad_nome")
-            fornecedor = st.text_input("Fornecedor", placeholder="nome do fornecedor", key="est_cad_fornecedor")
-            sku, custo, sku_at, custo_at = _campos_sku("est_cad_")
+            fornecedor = c3.text_input("Fornecedor", placeholder="nome do fornecedor", key="est_cad_fornecedor")
             # Com variações (dono, 13/11), cada uma tem a sua quantidade: a
-            # linha de quantidade única some e as linhas das variações entram.
-            if not ss.get("est_cad_tv"):
-                c4, c5 = st.columns(2)
-                c4.number_input("Qtd varejo", min_value=0, step=1, value=None, key="est_cad_qv",
-                                help="Peças desta entrada que vieram da compra de VAREJO.")
-                c5.number_input("Qtd atacado", min_value=0, step=1, value=None, key="est_cad_qa",
-                                help="Peças desta entrada que vieram da compra de ATACADO.")
+            # coluna de quantidade fica vazia e as linhas das variações entram.
+            sku, custo, sku_at, custo_at = _campos_sku("est_cad_", qtds=not ss.get("est_cad_tv"))
             tem_var = st.checkbox("Tem variações com este código", key="est_cad_tv",
                                   help="Marcado: uma linha por variação, cada uma com a sua "
                                        "quantidade. A foto ao lado fica com a primeira.")
@@ -3476,7 +3494,7 @@ if __name__ == "__main__":
        "varejo ou de atacado" in _custos_do_formulario("", "", "", "")[1])
     _tabela_sku = _g_tab
     ok("quadro_da_foto: altura fixa (não desce além do último campo), com a foto ou o aviso",
-       "height:250px" in quadro_da_foto("") and "aspect-ratio" not in quadro_da_foto("")
+       "height:272px" in quadro_da_foto("") and "aspect-ratio" not in quadro_da_foto("")
        and "sem foto" in quadro_da_foto("")
        and "data:image/jpeg;base64,QUJD" in quadro_da_foto("QUJD"))
     _sv = E.linhas_de_saida([(prods[1], 2)], E.VENDA, "leo", "12/11/2026 15:47", movs=ent)
