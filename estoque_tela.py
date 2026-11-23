@@ -2414,11 +2414,32 @@ def kit_card_html(k, por_id, saldo):
     falta_txt = (" · falta " + ", ".join(E.nome_completo(por_id.get(pid, {})) for pid in faltam)
                  if faltam else "")
     cor = "#E5534B" if n == 0 else "#E8EAED"
+    # O código de barras vai à DIREITA do nome, no mesmo cartão (dono, 23/11):
+    # embaixo ele dobrava a altura de cada kit.
+    barras = E.svg_ean13(k.get("codigo"), modulo=1, altura=30) if k.get("codigo") else ""
     return (f'<div style="display:flex;gap:10px;align-items:center">{foto_html(k.get("foto_id"), 52)}'
-            f'<div style="min-width:0"><b>{_esc(k.get("nome"))}</b>'
+            f'<div style="min-width:0;flex:1"><b>{_esc(k.get("nome"))}</b>'
             f'<div style="font-size:12px;color:#9AA3AE">{_esc(lista)}</div>'
             f'<div style="font-size:12px;color:{cor}">dá para montar: {n}{_esc(falta_txt)} · custo '
-            f'{_rs(E.custo_da_receita(itens, por_id))}</div></div></div>')
+            f'{_rs(E.custo_da_receita(itens, por_id))}</div></div>'
+            f'<div style="flex-shrink:0;line-height:0">{barras}</div></div>')
+
+
+KITS_NA_TELA = 3
+
+
+def kits_a_mostrar(kits, todos=False, abertos=()):
+    """Os kits da lista: os últimos KITS_NA_TELA criados, o mais novo em cima. Pura.
+
+    A ordem da aba é a ordem de criação (cada kit novo é uma linha nova no
+    fim). O kit que está sendo editado ou impresso fica, mesmo sendo antigo —
+    senão o editor some no meio do trabalho.
+    """
+    novos = list(reversed(kits))
+    if todos:
+        return novos
+    topo = novos[:KITS_NA_TELA]
+    return topo + [k for k in novos[KITS_NA_TELA:] if k.get("codigo") in abertos]
 
 
 def _kits(quem):
@@ -2503,10 +2524,12 @@ def _kits_cadastrados(codigos, por_id, saldo, prods=()):
     kits = [k for k in codigos if k.get("tipo") == "kit"]
     if not kits:
         st.caption("Nenhum kit ainda.")
-    for k in kits:
+    todos = len(kits) > KITS_NA_TELA and st.toggle(
+        f"Ver todos os {len(kits)} kits", key="est_kits_todos")
+    abertos = (ss.get("est_kit_ed"), ss.get("est_imprimir"))
+    for k in kits_a_mostrar(kits, todos, abertos):
         with st.container(border=True):
             st.markdown(kit_card_html(k, por_id, saldo), unsafe_allow_html=True)
-            st.markdown(E.svg_ean13(k["codigo"], modulo=1, altura=30), unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             if c1.button("🖨 imprimir", key=f"est_kp_{k['codigo']}", use_container_width=True):
                 ss["est_imprimir"] = k["codigo"]
@@ -3663,6 +3686,17 @@ if __name__ == "__main__":
     ok("kit_card_html: nome escapado, 2× no item dobrado, não monta e diz o que falta, custo",
        "Kit &lt;A&gt;" in _kc and "2× Bailarina" in _kc and "dá para montar: 0 · falta" in _kc
        and "Sentada" in _kc.split("falta")[1] and "R$ 55,20" in _kc and "#E5534B" in _kc)
+    ok("kit_card_html: o código de barras vai no cartão, à direita do nome (dono, 23/11)",
+       "<svg" in _kc and _kc.index("Kit &lt;A&gt;") < _kc.index("<svg")
+       and "2000000000022" in _kc and "\n" not in _kc)
+    _ks = [E.linha_de_codigo(f"20000000000{i:02d}", "kit", f"K{i}", "", {prods[0]["id"]: 1}, "leo", "x")
+           for i in range(1, 7)]
+    _nm = lambda ls: [k["nome"] for k in ls]
+    ok("kits_a_mostrar: os 3 últimos criados, o mais novo em cima; todos; o aberto antigo fica",
+       _nm(kits_a_mostrar(_ks)) == ["K6", "K5", "K4"]
+       and len(kits_a_mostrar(_ks, todos=True)) == 6
+       and _nm(kits_a_mostrar(_ks, abertos=("2000000000001", None))) == ["K6", "K5", "K4", "K1"]
+       and _nm(kits_a_mostrar(_ks[:2])) == ["K2", "K1"])
     import datetime as _dtt
     _pnl = E.painel(prods, ent, _dtt.date(2026, 11, 11))
     _tp = topo_painel_html(_pnl)
