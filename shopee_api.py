@@ -78,7 +78,9 @@ COLUNAS = ["conta", "access_token", "refresh_token", "expira_em",
 JANELA_PEDIDOS = 15   # dias por chamada de lista de pedidos
 POR_PAGINA = 100
 DETALHE_POR_VEZ = 50
-JANELA_ADS = 30       # dias por chamada de ads (o limite é 1 mês)
+JANELA_ADS = 28       # dias CORRIDOS por chamada de ads, contando início e fim: a Shopee
+                      # recusa "mais de 1 mês" (23/11: 24/10→23/11, 31 dias, voltou
+                      # error_date_range_too_long). 28 cabe em qualquer mês, até fevereiro.
 MAX_PAGINAS = 50      # por janela / por lista: passou disso, INCOMPLETO
 
 
@@ -482,13 +484,30 @@ def _data_ads(dt):
     return dt.strftime("%d-%m-%Y")
 
 
+def janelas_de_ads(de, ate, dias=JANELA_ADS):
+    """[(data início, data fim)] com no máximo `dias` datas cada, CONTANDO as
+    duas pontas, cobrindo [de, ate] sem buraco. Pura.
+
+    A de pedidos (`janelas`) é por instante e encosta uma na outra; a de ads é
+    por DATA, e a Shopee conta o dia do início e o do fim. Início = fim ela
+    recusa: o pedaço de um dia só puxa o início um dia para trás (o dia
+    repetido sai na conferência de `ads_diario`).
+    """
+    d0 = de.date() if hasattr(de, "date") else de
+    d1 = ate.date() if hasattr(ate, "date") else ate
+    saida, ini = [], d0
+    while ini <= d1:
+        fim = min(ini + timedelta(days=dias - 1), d1)
+        saida.append((ini - timedelta(days=1) if fim == ini else ini, fim))
+        ini = fim + timedelta(days=1)
+    return saida
+
+
 def ads_diario(credencial, de, ate, ida=None):
     """{"dias": [{data, expense, broad_gmv, broad_order, clicks, impression}],
-    "erro": str}. Janela de até 30 dias por chamada; início ≠ fim."""
+    "erro": str}. Janela de até JANELA_ADS datas por chamada; início ≠ fim."""
     dias, erro = [], ""
-    for ini, fim in janelas(de, ate, JANELA_ADS):
-        if ini.date() == fim.date():
-            continue
+    for ini, fim in janelas_de_ads(de, ate):
         corpo, erro = chamar(credencial, "/api/v2/ads/get_all_cpc_ads_daily_performance",
                              {"start_date": _data_ads(ini), "end_date": _data_ads(fim)}, ida)
         if erro:
@@ -658,10 +677,22 @@ if __name__ == "__main__":
     _ch4 = []
     _ads = ads_diario(_cred, _de, _ate, _ida_falsa(_ch4))
     _pa = [p for c, p in _ch4]
-    ok("ads em janelas de até 30 dias, datas DD-MM-AAAA",
-       _pa[0]["start_date"] == "01-10-2026" and len(_pa) == 2
-       and all(datetime.strptime(p["end_date"], "%d-%m-%Y") - datetime.strptime(p["start_date"], "%d-%m-%Y")
-               <= timedelta(days=30) for p in _pa))
+    # A guarda antiga aceitava fim − início ≤ 30, e 30 de diferença são 31
+    # DATAS — exatamente o que a Shopee recusou em 23/11 (Forma 2).
+    _ndatas = lambda p: (datetime.strptime(p["end_date"], "%d-%m-%Y")
+                         - datetime.strptime(p["start_date"], "%d-%m-%Y")).days + 1
+    ok("ads em janelas de até 28 DATAS contando as pontas, datas DD-MM-AAAA",
+       _pa[0]["start_date"] == "01-10-2026" and len(_pa) >= 2
+       and all(2 <= _ndatas(p) <= 28 for p in _pa))
+    _d = lambda t: datetime.strptime(t, "%d/%m/%Y")
+    _j = janelas_de_ads(_d("24/10/2026"), _d("23/11/2026"))
+    ok("ads: o pedido real de 23/11 (24/10→23/11) vira janelas aceitas, sem buraco nem início = fim",
+       all(2 <= (f - i).days + 1 <= 28 for i, f in _j)
+       and _j[0][0] == _d("24/10/2026").date() and _j[-1][1] == _d("23/11/2026").date()
+       and all(_j[k + 1][0] <= _j[k][1] + timedelta(days=1) for k in range(len(_j) - 1)))
+    _j1 = janelas_de_ads(_d("01/10/2026"), _d("29/10/2026"))
+    ok("ads: sobra de um dia só puxa o início para trás (a Shopee recusa início = fim)",
+       _j1[-1] == (_d("28/10/2026").date(), _d("29/10/2026").date()))
     ok("ads devolve gasto e venda por dia", _ads["dias"][0]["expense"] == 10.5 and not _ads["erro"])
     _pr = promocoes(_cred, ida=_ida_falsa([]))
     ok("descontos seguem as páginas até more=false",

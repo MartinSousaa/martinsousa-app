@@ -5331,7 +5331,10 @@ def _shopee_na_tela(conta):
               _ponte and _ponte[0][0]["Nome na Shopee"] == "Porta 2 Relógio + Jóias"
               and _ponte[0][0]["SKU"] == "PR-2" and _ponte[0][0]["No estoque"] == "✅ sim",
               str(_ponte)[:300])
-        conta("Shopee: o gasto de ads aparece (30 dias = uma janela)", ("Ads — gasto", "R$ 10,00") in _metricas, str(_metricas))
+        # 30 dias são DUAS chamadas desde 23/11: a Shopee recusa mais de 1 mês
+        # contando as pontas, e a janela é de 28 datas (shopee_api.JANELA_ADS).
+        conta("Shopee: o gasto de ads aparece (30 dias = duas janelas, uma por data de início)",
+              ("Ads — gasto", "R$ 20,00") in _metricas, str(_metricas))
         conta("Shopee: o cupom que falhou e a loja sem autorização são ditos",
               "cupons: Shopee: error_auth" in _j and "ainda não foi autorizada" in _j, _j[:300])
     except (_Rerun, _Parou):
