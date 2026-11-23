@@ -1182,12 +1182,21 @@ def _mais_variacao():
     ss["est_cad_nvar"] = int(ss.get("est_cad_nvar") or 1) + 1
 
 
+def _ch_vfoto(i):
+    """A chave do anexo da variação `i` (i ≥ 1). Começa com `est_cad_v`:
+    `_limpar_ficha` apaga junto com o resto da ficha."""
+    return f"est_cad_vfoto_{i}"
+
+
 def _linhas_de_variacao():
-    """Uma linha por variação no cadastro: nome, qtd varejo, qtd atacado."""
+    """Uma linha por variação no cadastro: nome, qtd varejo, qtd atacado e a
+    FOTO dela (dono, 23/11: antes só dava para pôr a foto da variação depois
+    de salvar, abrindo o produto cadastrado). A primeira fica com a foto do
+    quadro ao lado."""
     ss = st.session_state
     n = int(ss.get("est_cad_nvar") or 1)
     for i in range(n):
-        a, b, c = st.columns([2, 1, 1])
+        a, b, c, d = st.columns([2, 1, 1, 1.2])
         a.text_input(f"Variação {i + 1}", key=_ch("est_cad_var", i),
                      placeholder="Braço para cima (fica com a foto)" if i == 0 else "Sentada",
                      label_visibility="visible" if i == 0 else "collapsed")
@@ -1195,6 +1204,13 @@ def _linhas_de_variacao():
                        label_visibility="visible" if i == 0 else "collapsed")
         c.number_input("Qtd atacado", min_value=0, step=1, value=None, key=_ch("est_cad_qa", i),
                        label_visibility="visible" if i == 0 else "collapsed")
+        if i == 0:
+            d.markdown('<div style="font-size:14px;margin-bottom:6px">Foto</div>'
+                       '<div style="font-size:12px;color:#9AA3AE;padding-top:8px">a do quadro ao lado</div>',
+                       unsafe_allow_html=True)
+        else:
+            d.file_uploader(f"Foto da variação {i + 1}", type=None, key=_ch_vfoto(i),
+                            label_visibility="collapsed")
     st.button("➕ Adicionar outra variação", key="est_cad_mais_var", on_click=_mais_variacao)
 
 
@@ -1341,6 +1357,35 @@ def _miniatura(arq):
     return b64
 
 
+def fotos_das_variacoes(lidas, var_ok, ler):
+    """O anexo de cada variação que SOBROU, na ordem de `var_ok`. Pura.
+
+    `variacoes_do_cadastro` descarta a linha toda vazia: se a linha 2 ficou
+    em branco e a 3 tem nome e foto, a foto da 3 tem de ir para a 3, não
+    para a 2. Por isso o anexo segue o NOME, e não a posição. A primeira
+    usa a foto do quadro (None aqui; quem chama já tem)."""
+    pos = {}
+    for i, (v, _a, _b) in enumerate(lidas):
+        chave = " ".join(str(v or "").split()).casefold()
+        pos.setdefault(chave, i)
+    saida = []
+    for v, _a, _b in var_ok:
+        i = pos.get(" ".join(str(v or "").split()).casefold(), 0)
+        saida.append(None if i == 0 else ler(_ch_vfoto(i)))
+    return saida
+
+
+def foto_sem_nome(lidas, ler):
+    """Erro se alguma variação tem foto anexada e não tem nome. Pura.
+
+    `variacoes_do_cadastro` descarta a linha sem nome e sem quantidade — e
+    a foto dela sumiria em silêncio."""
+    for i, (v, _a, _b) in enumerate(lidas):
+        if i and not str(v or "").strip() and ler(_ch_vfoto(i)) is not None:
+            return f"A variação {i + 1} tem foto e não tem nome."
+    return None
+
+
 def _cadastro(quem):
     ss = st.session_state
     sem_codigo = bool(ss.get("est_sem_codigo"))
@@ -1354,7 +1399,9 @@ def _cadastro(quem):
     # Upload em uma linha só (dono, 23/11): só o botão, sem a caixa de
     # arrastar — o espaço vai para o quadro da foto. FORA do quadro: dentro
     # da coluna o <style> ocupa uma linha e a foto descia em relação aos campos.
-    st.markdown(CSS_UPLOAD_COMPACTO.replace("{chave}", "est_cad_foto"), unsafe_allow_html=True)
+    st.markdown(CSS_UPLOAD_COMPACTO.replace("{chave}", "est_cad_foto")
+                + CSS_UPLOAD_COMPACTO.replace(".st-key-{chave}", "[class*='st-key-est_cad_vfoto_']"),
+                unsafe_allow_html=True)
     with st.container(border=True):
         esq, dir_ = st.columns([2, 1])
         with esq:
@@ -1387,6 +1434,8 @@ def _cadastro(quem):
     if not tem_var:
         lidas = [("", lidas[0][1], lidas[0][2])]
     var_ok, erro_v = variacoes_do_cadastro(lidas, tem_var)
+    if not erro_v and tem_var:
+        erro_v = foto_sem_nome(lidas, ss.get)
     if erro_v:
         st.error(erro_v)
         return
@@ -1402,8 +1451,19 @@ def _cadastro(quem):
             st.error("Este código acabou de ser cadastrado por outra pessoa. Bipe de novo.")
             return
         foto_id, af = foto_da_tela(foto, cod)
+        fotos_var = fotos_das_variacoes(lidas, var_ok, ss.get)
+        if foto is None and fotos_var and fotos_var[0] is not None:
+            # A linha 1 ficou vazia: a primeira que sobrou é a 2, e a foto
+            # dela vira a do produto em vez de se perder.
+            foto_id, af = foto_da_tela(fotos_var[0], cod)
+        ids_var, avisos_f = [foto_id], [af] if af else []
+        for f in fotos_var[1:]:
+            fid, a = foto_da_tela(f, cod)
+            ids_var.append(fid)
+            if a:
+                avisos_f.append(a)
         novas = E.linhas_de_produto(cod, forn, nome, E.numero(custos["custo"]),
-                                    [(v, foto_id if i == 0 else "") for i, (v, _a, _b) in enumerate(var_ok)],
+                                    [(v, ids_var[i]) for i, (v, _a, _b) in enumerate(var_ok)],
                                     quem, _quando(),
                                     sku=custos["sku"], sku_atacado=custos["sku_atacado"],
                                     custo_atacado=custos["custo_atacado"],
@@ -1418,7 +1478,7 @@ def _cadastro(quem):
         _pecas = " e ".join(f"{int(q)} de {o}" for q, o in ((q_var, E.VAREJO), (q_at, E.ATACADO)) if q)
         _nv = f" · {len(var_ok)} variações" if len(var_ok) > 1 else ""
         _avisar(*_com_foto(f"✓ «{nome.strip()}» cadastrado{_nv}" + (f" com {_pecas}." if _pecas else ".")
-                           + "".join(f" · {a}" for a in avisos_c), af))
+                           + "".join(f" · {a}" for a in avisos_c), " · ".join(avisos_f)))
         if sem_codigo:
             ss["est_etiqueta_nova"] = (cod, nome.strip())
         _voltar_ao_modo()
@@ -4249,6 +4309,18 @@ if __name__ == "__main__":
     ok("kit: o ✎ editar tem nome, FOTO, itens, Salvar e Cancelar",
        '"Foto do kit"' in _sk and "on_click=_salvar_kit" in _sk and "on_click=_fechar_ed_kit" in _sk
        and '"Pôr mais um item"' in _sk and "_editar_kit(k, por_id, prods)" in _insp.getsource(_kits_cadastrados))
+    # A cadeia real: `lidas` como a tela monta, passada por variacoes_do_cadastro.
+    _lid = [("Porta 2 Relógio + Jóias", 1, 0), ("", None, None), ("  MARROM ", 0, 29), ("preto (P)", 2, 0)]
+    _vok, _ev = variacoes_do_cadastro(_lid, True)
+    _anx = {_ch_vfoto(2): "foto-marrom", _ch_vfoto(3): "foto-preto"}
+    ok("cadastro: a foto de cada variação vai para a variação dela, mesmo com linha vazia no meio (dono, 23/11)",
+       _ev is None and fotos_das_variacoes(_lid, _vok, _anx.get) == [None, "foto-marrom", "foto-preto"]
+       and fotos_das_variacoes([("", 3, 0)], *variacoes_do_cadastro([("", 3, 0)], False)[:1], _anx.get) == [None])
+    ok("cadastro: foto numa variação sem nome é recusada, não some em silêncio",
+       foto_sem_nome([("A", 1, 0), ("", None, None)], {_ch_vfoto(1): "x"}.get)
+       == "A variação 2 tem foto e não tem nome."
+       and foto_sem_nome(_lid, _anx.get) is None)
+    ok("cadastro: o anexo da variação é apagado com a ficha", _ch_vfoto(3).startswith("est_cad_v"))
     ok("kit: o recém-criado tem ✎ editar ao lado da etiqueta, e abre o editor dele (dono, 23/11)",
        "on_click=_abrir_ed_kit, args=(nova[0],)" in _insp.getsource(_criar_kit))
 
