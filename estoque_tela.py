@@ -722,10 +722,13 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
         if painel:
             st.file_uploader("Foto do produto (a que aparece na lista)", type=None, key=_ch_foto_ed(pf))
             _variacoes_do_painel(variacoes, saldo, quem, pf)
+        elif len(variacoes) > 1:
+            # COM VARIAÇÕES, TODAS AS FOTOS À VISTA (dono, 23/11: «cadê a
+            # opção de editar as fotos quando dou entrada e clico em editar»):
+            # a capa e a de cada variação, como no cadastro — não mais um
+            # «trocar a foto de» que troca uma por vez.
+            _fotos_por_variacao_ed(variacoes, pf)
         else:
-            # A chave muda com o número de variações: a lista ganha opção nova.
-            st.selectbox("Trocar a foto de", [E.nome_completo(v) for v in variacoes],
-                         key=f"{pf}alvo_{len(variacoes)}")
             st.file_uploader("Nova foto (opcional)", type=None, key=_ch_foto_ed(pf))
         a, b = st.columns(2)
         a.button("💾 Salvar tudo" if painel else "Salvar alterações", key=f"{pf}salvar", type="primary",
@@ -734,6 +737,26 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
         # Cancelar (dono, 17/11): os campos voltam ao que está gravado.
         b.button("Cancelar", key=f"{pf}cancelar", use_container_width=True,
                  on_click=_cancelar_edicao, args=(pf, fechar))
+
+
+def _fotos_por_variacao_ed(variacoes, pf):
+    """A capa e uma linha por variação (foto atual · nome · anexar), no
+    «✎ editar» da Entrada. As chaves são as do Estoque cadastrado
+    (`_ch_foto_ed`, `_ch_vf`): `_salvar_produto` grava as duas do mesmo jeito."""
+    p0 = variacoes[0]
+    # Os anexos numa linha só, como no cadastro: com 3+ variações a caixa de
+    # arrastar de cada uma empurrava o «Salvar» para longe.
+    st.markdown(CSS_UPLOAD_COMPACTO.replace(".st-key-{chave}", f"[class*='st-key-{pf}']"),
+                unsafe_allow_html=True)
+    c0, c1 = st.columns([0.6, 4.8], vertical_alignment="center")
+    c0.markdown(foto_html(E.foto_principal(p0), 44), unsafe_allow_html=True)
+    c1.file_uploader("Foto do produto (capa, a que aparece na lista)", type=None, key=_ch_foto_ed(pf))
+    for v in variacoes:
+        c0, c1, c2 = st.columns([0.6, 2.4, 2.4], vertical_alignment="center")
+        c0.markdown(foto_html(v.get("foto_id"), 44), unsafe_allow_html=True)
+        c1.markdown(_esc(str(v.get("variacao") or E.nome_completo(v))))
+        c2.file_uploader("Foto da variação", type=None, key=_ch_vf(pf, v["id"]),
+                         label_visibility="collapsed")
 
 
 def _ch_qe(lote, i):
@@ -855,8 +878,11 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
         return
     pf = _pf_ed(variacoes, sufixo)
     painel = bool(ss.get(pf + "painel"))
+    # Capa e foto por variação: no Estoque cadastrado E no «✎ editar» da
+    # Entrada de produto com variações (dono, 23/11).
+    por_var = painel or len(variacoes) > 1
     var_mud, var_fotos = {}, []
-    if painel:
+    if por_var:
         var_mud, var_fotos, erro_e = edicoes_de_variacao(
             variacoes, {v["id"]: ss[_ch_vn(pf, v["id"])] for v in variacoes if _ch_vn(pf, v["id"]) in ss},
             {v["id"]: ss.get(_ch_vf(pf, v["id"])) for v in variacoes})
@@ -911,7 +937,7 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
             foto_id, af = foto_da_tela(foto, E.limpar_codigo(p0.get("ean")))
             if af:
                 avisos_f.append(af)
-            if foto_id and painel:
+            if foto_id and por_var:
                 # A foto de CAPA vai em todas as variações: a lista mostra
                 # a primeira, e a primeira pode ser excluída.
                 for m in mud.values():
@@ -3909,6 +3935,37 @@ if __name__ == "__main__":
     ok("editar entrada: o «Salvar» do quadro grava a quantidade (Rosa 6, Azul 18→24) e fecha",
        _sq.get((_pq[0]["id"], E.FISICO)) == 6 and _sq.get((_pq[1]["id"], E.FISICO)) == 24
        and _av_q and not _av_q[0][1] and "agora 30 peça(s)" in _av_q[0][0] and _ss_q.get("est_ent_ed") is None)
+    # FOTOS NO «✎ editar» DA ENTRADA (dono, 23/11), pela cadeia: a mesma
+    # entrada de verdade, a capa e a foto da Azul anexadas, o Salvar grava.
+    class _ArqF:
+        def __init__(self, b): self.b = b
+        def getvalue(self): return self.b
+    _gr_f, _av_f = [], []
+    _orig_f = (E.carregar, E.salvar_foto, E.atualizar_produtos, _avisar, st.session_state)
+    try:
+        E.carregar = lambda: (list(_pq), list(_eq), [])
+        E.salvar_foto = lambda b, nome: ("ID-" + b.decode(), "")
+        E.atualizar_produtos = lambda t: _gr_f.append(t)
+        globals()["_avisar"] = lambda msg, erro=False: _av_f.append((msg, erro))
+        _pf_f = _pf_ed(_pq, f"_lt{_lote_q}")
+        # Como a tela deixa a sessão: os campos, o `ini` e o `painel` (False
+        # no «✎ editar» da Entrada) — `_editar_produto` grava os três.
+        st.session_state = {**{_pf_f + k: v for k, v in _iniciais_ed(_pq[0]).items()},
+                            _pf_f + "ini": _iniciais_ed(_pq[0]), _pf_f + "painel": False,
+                            "est_ent_ed": _lote_q}
+        st.session_state[_ch_foto_ed(_pf_f)] = _ArqF(b"CAPA")
+        st.session_state[_ch_vf(_pf_f, _pq[1]["id"])] = _ArqF(b"AZUL")
+        _salvar_produto(_pq, "leo", f"_lt{_lote_q}", True, (_lote_q, _lin_q))
+    finally:
+        E.carregar, E.salvar_foto, E.atualizar_produtos = _orig_f[:3]
+        globals()["_avisar"] = _orig_f[3]
+        st.session_state = _orig_f[4]
+    _tf = _gr_f[0] if _gr_f else {}
+    ok("editar entrada: com variações, a capa vai em TODAS (foto_produto) e a foto da Azul só na Azul",
+       _tf.get(_pq[0]["id"], {}).get("foto_produto") == "ID-CAPA"
+       and _tf.get(_pq[1]["id"], {}).get("foto_produto") == "ID-CAPA"
+       and _tf.get(_pq[1]["id"], {}).get("foto_id") == "ID-AZUL"
+       and "foto_id" not in _tf.get(_pq[0]["id"], {}) and _av_f and not _av_f[-1][1])
     ok("editar entrada: a quantidade mora DENTRO do quadro do produto (antes era um quadro em cima)",
        "        if entrada:\n            _quantidades_da_entrada(entrada)\n" in _src_ep
        and "entrada=(lt[\"lote\"], lin)" in _insp.getsource(_edicao_da_entrada)
@@ -4321,6 +4378,14 @@ if __name__ == "__main__":
     ok("cadastro: o anexo da variação é apagado com a ficha", _ch_vfoto(3).startswith("est_cad_v"))
     import inspect as _insp_c
     _src_c = _insp_c.getsource(_cadastro)
+    _src_ed = _insp_c.getsource(_editar_produto)
+    _src_sv = _insp_c.getsource(_salvar_produto)
+    _src_fv = _insp_c.getsource(_fotos_por_variacao_ed)
+    ok("editar da Entrada: produto com variações mostra a capa e a foto de CADA variação, e o Salvar grava as duas",
+       "elif len(variacoes) > 1:" in _src_ed and "_fotos_por_variacao_ed(variacoes, pf)" in _src_ed
+       and "_ch_vf(pf, v[\"id\"])" in _src_fv and "_ch_foto_ed(pf)" in _src_fv
+       and "por_var = painel or len(variacoes) > 1" in _src_sv and "if foto_id and por_var:" in _src_sv
+       and "Trocar a foto de" not in _src_ed)
     ok("cadastro: com variações, a foto do quadro é a CAPA (foto_produto), não a da 1ª variação (dono, 23/11)",
        'r["foto_produto"] = foto_id' in _src_c and "if tem_var and foto_id:" in _src_c
        and E.foto_principal({"foto_id": "foto-porta", "foto_produto": "CAPA"}) == "CAPA")
