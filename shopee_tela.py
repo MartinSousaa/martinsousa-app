@@ -50,7 +50,10 @@ def skus_do_estoque():
     try:
         import estoque as E
         produtos = E.carregar()[0]
-        return {E.normalizar_sku(p.get("sku")) for p in produtos if E.normalizar_sku(p.get("sku"))}
+        # Varejo E atacado: o produto tem dois SKUs (estoque.py:391), e a
+        # Shopee vende os dois. Só o de varejo deixava o atacado "não está".
+        return {s for p in produtos for s in (E.normalizar_sku(p.get("sku")),
+                                               E.normalizar_sku(p.get("sku_atacado"))) if s}
     except Exception:
         return None
 
@@ -219,6 +222,16 @@ if __name__ == "__main__":
     ok("o SKU minúsculo da Shopee casa com o do estoque",
        lp[0]["SKU"] == "PR-2" and lp[0]["No estoque"] == "✅ sim"
        and lp[0]["Nome na Shopee"] == "Porta 2 Relógio + Jóias")
+    import estoque as _E
+    _carr = _E.carregar
+    try:
+        _prods = _E.linhas_de_produto("7908045137473", "AP508K", "Compasso", 10, [("", "")], "leo", "x",
+                                      sku="ms-3300", sku_atacado=" ms-3300-at ")
+        _E.carregar = lambda *a, **k: (_prods, [], [])
+        ok("o SKU de ATACADO do estoque também casa com a Shopee (23/11)",
+           skus_do_estoque() == {"MS-3300", "MS-3300-AT"})
+    finally:
+        _E.carregar = _carr
     ok("SKU vazio é chamado pelo nome", linhas_ponte([{"sku": "", "nomes": ["X"], "vendidos": 1,
                                                         "no_estoque": None}])[0]["SKU"].startswith("⚠️"))
     la = linhas_ads(lidas["shp1"]["ads"]["dias"])
