@@ -397,12 +397,12 @@ if __name__ == "__main__":
 
     _rg = ler_regras([
         {"titulo": "Escultura Cavaleiro Medieval", "pct_maximo": "10", "recriar_pct": "8",
-         "recriar_dias": "30", "estoque_relampago": "", "ativo": "Sim"},
+         "recriar_dias": "45", "estoque_relampago": "", "ativo": "Sim"},
         {"titulo": "Desligado", "pct_maximo": 50, "ativo": "Não"},
         {"titulo": "", "pct_maximo": 50}])
     _k = _pm.normalizar("Escultura Cavaleiro Medieval")
-    ok("regras: lê o título normalizado, ignora inativo e vazio, e corta os dias em 14",
-       list(_rg) == [_k] and _rg[_k]["recriar_dias"] == 14 and _rg[_k]["pct_maximo"] == 10.0)
+    ok("regras: lê o título normalizado, ignora inativo e vazio, e corta os dias em 30",
+       list(_rg) == [_k] and _rg[_k]["recriar_dias"] == 30 and _rg[_k]["pct_maximo"] == 10.0)
 
     # PELA CADEIA: as ofertas passam pelo `agrupar` de verdade.
     _base = {"promo_id": "P1", "status": "candidate", "original_price": 100.0}
@@ -434,9 +434,9 @@ if __name__ == "__main__":
 
     _hoje = date(2026, 10, 28)
     _rc = decidir_recriacoes({_k: {"ml1": ["A"], "ml2": ["B"]}}, {("ml2", "B")}, _rg, _hoje)
-    ok("recriar: só a conta sem desconto ativo, com o % e os 14 dias da lista",
+    ok("recriar: só a conta sem desconto ativo, com o % e os 30 dias da lista",
        _rc == [("ml1", "A", "Escultura Cavaleiro Medieval", 8.0, _hoje,
-                _hoje + timedelta(days=13))])
+                _hoje + timedelta(days=29))])
 
     _v1 = atualizar_vistos({}, [{"conta": "ml1", "item": "A", "titulo": "T", "nome": "11.11",
                                  "tipo": "DEAL", "fim": "2026-11-12T03:00:00Z"}], "2026-10-27")

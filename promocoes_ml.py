@@ -26,7 +26,9 @@ gerenciar-ofertas, lidas em 28/10) e da amostra real da ML1 (28/10 12:26):
   `stock`, PRICE_DISCOUNT com datas) e `offer_id` nas que o ML define;
 - para sair: DELETE no mesmo caminho, com `promotion_type`, `promotion_id`
   e `offer_id` quando houver;
-- PRICE_DISCOUNT: de 5% a 80%, no máximo 14 dias, a data vale o dia inteiro.
+- PRICE_DISCOUNT: de 5% a 80%, no máximo 30 dias (dono, 25/11: «o ML aceita
+  30 dias e não 14» — o 14 estava fixo aqui e recusava a promoção), a data
+  vale o dia inteiro.
 
 A ESCRITA NÃO FOI EXERCITADA EM CONTA REAL antes desta versão. A primeira
 vez é com o dono olhando, num anúncio só (combinado em 28/10).
@@ -43,7 +45,7 @@ LIMITE = 50              # o máximo que o ML aceita por página
 PAGINAS_MAX = 80         # 4.000 anúncios por promoção; passou disso, a tela DIZ
 LOTE_TITULOS = 20        # o máximo do /items?ids=
 SITUACOES_VIVAS = ("started", "pending", "candidate")
-DESCONTO_MIN, DESCONTO_MAX, DIAS_MAX = 5.0, 80.0, 14   # PRICE_DISCOUNT
+DESCONTO_MIN, DESCONTO_MAX, DIAS_MAX = 5.0, 80.0, 30   # PRICE_DISCOUNT
 
 # O que a equipe pode editar em cada tipo. Tipo que não estiver aqui é
 # tratado como "o ML define": mostrar um campo de % que o ML vai ignorar
@@ -586,7 +588,7 @@ def _aba_disponiveis(dados):
 
 
 def _aba_criar(dados, hoje):
-    st.caption("O desconto do vendedor (PRICE_DISCOUNT): de 5% a 80%, até 14 dias, "
+    st.caption(f"O desconto do vendedor (PRICE_DISCOUNT): de 5% a 80%, até {DIAS_MAX} dias, "
                "o mesmo produto em todas as contas de uma vez — cada conta com o seu %.")
     pr = _escolher_produto(dados, "criar")
     if not pr:
@@ -758,7 +760,7 @@ def _aba_automatico(agora):
     st.markdown("##### A lista")
     st.caption("Uma linha por produto, pelo título (junta as 4 contas). % máximo: entra nos "
                "convites com até esse % no bolso. Recriar %: o desconto do vendedor que volta "
-               "quando expira (até 14 dias). Estoque relâmpago: sem ele, o relâmpago fica de fora.")
+               f"quando expira (até {DIAS_MAX} dias). Estoque relâmpago: sem ele, o relâmpago fica de fora.")
     import pandas as pd
     linhas = _regras_guardadas() or []
     df = pd.DataFrame(linhas or [{c: "" for c in _pa.COLUNAS_REGRAS}],
@@ -906,9 +908,10 @@ if __name__ == "__main__":
        == {"promotion_type": "PRICE_DISCOUNT", "deal_price": 121.49,
            "start_date": "2026-10-28T00:00:00", "finish_date": "2026-11-10T00:00:00"})
     _h = date(2026, 10, 28)
-    ok("datas: no máximo 14 dias, sem começar no passado",
-       datas_validas(_h, _h + timedelta(days=13), _h) == ""
-       and "14" in datas_validas(_h, _h + timedelta(days=14), _h)
+    ok("datas: até 30 dias passa (o de 25/11, 25/11 a 24/12), 31 não, sem começar no passado",
+       datas_validas(_h, _h + timedelta(days=29), _h) == ""
+       and datas_validas(date(2026, 11, 25), date(2026, 12, 24), date(2026, 11, 25)) == ""
+       and "30" in datas_validas(_h, _h + timedelta(days=30), _h)
        and datas_validas(_h - timedelta(days=1), _h, _h) != "")
 
     # LIMITE CALADO NÃO: a lista cortada diz que foi cortada.
