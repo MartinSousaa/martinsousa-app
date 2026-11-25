@@ -351,6 +351,47 @@ def saldos_por_origem(movs):
     return s
 
 
+def falta_preco(p, origem):
+    """O que falta para precificar a peça nesta origem, ou "". Pura.
+
+    A TRAVA DA ENTRADA (dono, 25/11): produto cadastrado só como atacado que
+    chega (ou é bipado por engano) como varejo não tem SKU nem custo de
+    varejo — o estoque fica sem preço. Varejo pede SKU e custo de varejo;
+    atacado, SKU e custo de atacado."""
+    if origem == ATACADO:
+        sku, custo, nome = p.get("sku_atacado"), p.get("custo_atacado"), "atacado"
+    else:
+        sku, custo, nome = p.get("sku"), p.get("custo"), "varejo"
+    faltam = []
+    if not normalizar_sku(sku):
+        faltam.append(f"SKU de {nome}")
+    if numero(custo, 0) <= 0:
+        faltam.append(f"custo de {nome}")
+    return " e ".join(faltam)
+
+
+def sem_preco_no_estoque(produtos, movs):
+    """[(variação, origem, o que falta, peças)] de quem TEM peça numa origem
+    sem SKU e custo dela — o alerta do topo do Estoque. Pura."""
+    so = saldos_por_origem(movs)
+    por = {}
+    for (pid, _local, origem), q in so.items():
+        por[(pid, origem)] = por.get((pid, origem), 0) + q
+    fora = []
+    for p in ativos(produtos):
+        for origem in ORIGENS:
+            q = por.get((str(p["id"]), origem), 0)
+            if q and falta_preco(p, origem):
+                fora.append((p, origem, falta_preco(p, origem), q))
+    return sorted(fora, key=lambda x: _sem_acento_ord(nome_completo(x[0])))
+
+
+def _sem_acento_ord(t):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", str(t or ""))
+                   if unicodedata.category(c) != "Mn").casefold()
+
+
 def custo_de(p, origem=VAREJO):
     """O custo unitário da peça pela origem. Atacado sem custo próprio usa o
     do varejo: custo zero faria o estoque valer menos do que vale. Pura."""
@@ -1470,6 +1511,21 @@ if __name__ == "__main__":
        and all(p["ean"] == "7899999000061" for p in prods) and prods[0]["custo"] == "18.40")
     ok("do_codigo: o bipe acha as três posições, com espaço no meio do bipe",
        len(do_codigo(prods, "7899 9990 00061")) == 3 and do_codigo(prods, "") == [])
+    # A TRAVA DE PREÇO (dono, 25/11), pela cadeia: produto cadastrado só como
+    # atacado (linhas_de_produto com SKU e custo de atacado, sem os de varejo).
+    _pa_t = linhas_de_produto("7908045161706", "AP34981-3", "Porta 3 Relógios (P) + Jóias?", 0,
+                              [("Preto", ""), ("Marrom", "")], "l", "x",
+                              sku_atacado="ms-5396", custo_atacado=53.96)
+    _pa_t = [{**v, "custo": ""} for v in _pa_t]
+    ok("falta_preco: só atacado → varejo falta SKU e custo; atacado completo passa",
+       falta_preco(_pa_t[0], VAREJO) == "SKU de varejo e custo de varejo"
+       and falta_preco(_pa_t[0], ATACADO) == ""
+       and falta_preco({**_pa_t[0], "sku": "MS-1", "custo": "0"}, VAREJO) == "custo de varejo")
+    _ma_t = (linhas_de_entrada([(_pa_t[0], 20), (_pa_t[1], 29)], "l", "x", origem=ATACADO)
+             + linhas_de_entrada([(_pa_t[1], 3)], "l", "x", origem=VAREJO))
+    _al_t = sem_preco_no_estoque(_pa_t, _ma_t)
+    ok("sem_preco_no_estoque: acusa só a variação que TEM peça na origem sem preço",
+       [(nome_completo(p), o, q) for p, o, _f, q in _al_t] == [(nome_completo(_pa_t[1]), VAREJO, 3)])
     # O MESMO PRODUTO COM DOIS CÓDIGOS (dono, 25/11), pela cadeia: produto de
     # verdade (linhas_de_produto), variação de quantidade de verdade.
     _cp = linhas_de_produto("7908045137473", "AP508K", "Porta 2 Relógio + Jóias", 10,

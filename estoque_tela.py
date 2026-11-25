@@ -390,6 +390,20 @@ def renomeacoes(variacoes, digitados):
     return out
 
 
+def entrada_sem_preco(itens, origem):
+    """A frase que BLOQUEIA a entrada, ou "" (dono, 25/11: sem SKU e custo
+    da origem, o estoque não tem preço). `itens` = [(variação, qtd)]. Pura."""
+    faltas = [(v, E.falta_preco(v, origem)) for v, q in itens if int(q or 0) > 0]
+    faltas = [(v, f) for v, f in faltas if f]
+    if not faltas:
+        return ""
+    outra = E.ATACADO if origem == E.VAREJO else E.VAREJO
+    return ("Entrada BLOQUEADA — sem preço no " + origem + ": "
+            + "; ".join(f"«{E.nome_completo(v)}» não tem {f}" for v, f in faltas)
+            + f". Cadastre no produto (Estoque cadastrado ou ✎ editar) e dê a entrada de novo"
+            + f" — ou, se a peça é de {outra}, troque a entrada para {outra}.")
+
+
 def _confirmar_entrada(variacoes, quem):
     ss = st.session_state
     try:
@@ -397,6 +411,10 @@ def _confirmar_entrada(variacoes, quem):
         renomes = renomeacoes(variacoes, {v["id"]: ss.get(f"est_n_{v['id']}") for v in variacoes})
         local = _local_da_entrada()
         origem = _origem_da_entrada()
+        trava = entrada_sem_preco(itens, origem)
+        if trava:
+            _avisar(trava, True)
+            return
         linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local, origem=origem)
         if not linhas and not renomes:
             _avisar("Nada para gravar: todas as quantidades estão em zero.", True)
@@ -990,6 +1008,12 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
                     + (" já está cadastrada" if len(rep) == 1 else " já estão cadastradas")
                     + " neste produto. Se acabou de salvar, ela já entrou: confira a lista.", erro=True)
             return
+    if blocos:
+        _base_t = {**p0, **(mud or {}).get(p0["id"], {})}
+        trava = entrada_sem_preco([(_base_t, sum(q or 0 for _n, q, _f in blocos))], _origem_da_entrada())
+        if trava:
+            _avisar(f"Nada foi gravado — {trava}", erro=True)
+            return
     qtd_ent = {}
     if entrada:
         qtd_ent = quantidades_mudadas(entrada[1], {i: ss.get(_ch_qe(entrada[0], i)) for i, _m, _p in entrada[1]})
@@ -1575,6 +1599,13 @@ def _cadastro(quem):
     custos, erro_c, avisos_c = _custos_do_formulario(sku, custo, sku_at, custo_at)
     if erro_c:
         st.error(erro_c)
+        return
+    # A TRAVA DE PREÇO (25/11) ANTES de gravar e antes de mandar foto ao Drive.
+    _cp = {"nome": nome, **custos}
+    trava = (entrada_sem_preco([(_cp, sum(x[1] for x in var_ok))], E.VAREJO)
+             or entrada_sem_preco([(_cp, sum(x[2] for x in var_ok))], E.ATACADO))
+    if trava:
+        st.error(trava.replace("dê a entrada de novo", "cadastre de novo"))
         return
     try:
         prods, _m, cods = E.carregar()
@@ -3556,10 +3587,33 @@ def _tela_fechar(prods, movs, contados, cid, quem):
 
 # ── a página ─────────────────────────────────────────────────────────────────
 
+def alerta_sem_preco_md(lista, mostrar=12):
+    """O alerta do topo: quem tem peça numa origem sem SKU/custo dela. Pura."""
+    if not lista:
+        return ""
+    linhas = [f"- **{_esc(E.nome_completo(p))}** · {o} · {q} peça(s) · falta {f}"
+              for p, o, f, q in lista[:mostrar]]
+    resto = len(lista) - mostrar
+    return (f"⚠️ **{len(lista)} variação(ões) com estoque SEM PREÇO** — sem o SKU e o custo da "
+            "origem, o estoque não tem valor. Corrija em **Estoque cadastrado** (ou no ✎ editar):\n\n"
+            + "\n".join(linhas) + (f"\n- … e mais {resto}" if resto > 0 else ""))
+
+
+def _alerta_sem_preco():
+    try:
+        prods, movs, _c = E.carregar()
+    except Exception:
+        return
+    md = alerta_sem_preco_md(E.sem_preco_no_estoque(prods, movs))
+    if md:
+        st.warning(md)
+
+
 def pagina(usuario_logado=None):
     quem = str(usuario_logado or "").strip()
     st.session_state["est_quem"] = quem      # os callbacks do bipe gravam o nome
     st.markdown("### 📦 Estoque")
+    _alerta_sem_preco()
     if st.session_state.get("est_modo_pendente"):
         st.session_state["est_modo"] = st.session_state.pop("est_modo_pendente")
     # O valor inicial vem do session_state, e NÃO de `default=` (13/11): o
@@ -4152,6 +4206,44 @@ if __name__ == "__main__":
     _t3, _a3 = _salva_t(_pf_v, "_pn", True, lambda pf: {_ch_rmcapa(pf): True, _ch_foto_ed(pf): _ArqT()})
     ok("tirar a foto E anexar outra no mesmo lugar: vale a NOVA",
        all(_t3.get(v["id"], {}).get("foto_produto") == "ID-NOVA" for v in _pf_v))
+    # A TRAVA DE PREÇO NA ENTRADA (dono, 25/11), pela cadeia: produto só
+    # atacado, o bipe dá entrada como VAREJO — nada é gravado.
+    _pat_t = [{**v, "custo": "", "sku": "", "sku_atacado": "MS-5396", "custo_atacado": "53.96"}
+              for v in E.linhas_de_produto("7908045161706", "AP34981-3", "Porta 3 Relógios (P) + Jóias?", 0,
+                                           [("Preto", ""), ("Marrom", "")], "l", "x")]
+    def _conf_t(origem):
+        _g, _a = [], []
+        _o = (E.gravar_movimentos, E.atualizar_produtos, _avisar, st.session_state)
+        try:
+            E.gravar_movimentos = lambda l: _g.extend(l)
+            E.atualizar_produtos = lambda t: None
+            globals()["_avisar"] = lambda msg, erro=False: _a.append((msg, erro))
+            st.session_state = {f"est_q_{_pat_t[0]['id']}": 20, f"est_q_{_pat_t[1]['id']}": 0,
+                                "est_origem_entra": origem}
+            _confirmar_entrada(_pat_t, "leo")
+        finally:
+            E.gravar_movimentos, E.atualizar_produtos = _o[:2]
+            globals()["_avisar"] = _o[2]
+            st.session_state = _o[3]
+        return _g, _a
+    _gv, _av_v = _conf_t("Varejo")
+    _ga, _av_a = _conf_t("Atacado")
+    ok("trava de preço: entrada de VAREJO num produto só de atacado é BLOQUEADA e não grava nada",
+       _gv == [] and _av_v and _av_v[0][1] and "BLOQUEADA" in _av_v[0][0]
+       and "SKU de varejo e custo de varejo" in _av_v[0][0] and "Porta 3 Relógios" in _av_v[0][0])
+    ok("trava de preço: a mesma entrada como ATACADO passa e grava as 20 peças",
+       sum(int(m["qtd"]) for m in _ga) == 20 and not _av_a[0][1])
+    ok("trava de preço: cadastro novo com peça de varejo e sem custo de varejo é bloqueado",
+       "custo de varejo" in entrada_sem_preco([({"nome": "X", "sku": "MS-1", "custo": 0.0,
+                                                  "sku_atacado": "", "custo_atacado": ""}, 3)], E.VAREJO)
+       and entrada_sem_preco([({"nome": "X", "sku": "MS-1", "custo": 9.9}, 3)], E.VAREJO) == ""
+       and entrada_sem_preco([({"nome": "X"}, 0)], E.VAREJO) == "")
+    _md_t = alerta_sem_preco_md(E.sem_preco_no_estoque(
+        _pat_t, E.linhas_de_entrada([(_pat_t[1], 3)], "l", "x", origem=E.VAREJO)))
+    ok("alerta do topo: diz quem, a origem, as peças e o que falta (nome real com + ( ) ?)",
+       "1 variação(ões) com estoque SEM PREÇO" in _md_t and "Porta 3 Relógios (P) + Jóias?" in _md_t
+       and "varejo · 3 peça(s) · falta SKU de varejo e custo de varejo" in _md_t
+       and alerta_sem_preco_md([]) == "" and "_alerta_sem_preco()" in _insp.getsource(pagina))
     ok("editar entrada: a quantidade mora DENTRO do quadro do produto (antes era um quadro em cima)",
        "        if entrada:\n            _quantidades_da_entrada(entrada)\n" in _src_ep
        and "entrada=(lt[\"lote\"], lin)" in _insp.getsource(_edicao_da_entrada)
@@ -4263,7 +4355,10 @@ if __name__ == "__main__":
        nomes_ja_cadastrados(_vx + [{**_vx[0], "variacao": "Rosa", "ativo": "0"},
                                    {**_vx[0], "ean": "1", "variacao": "Azul"}], " 7908045165056")
        == {"preto", "branco (p)"})
-    _db_s = {"p": [dict(x) for x in _vx], "m": [], "c": []}
+    # Com SKU e custo de varejo: desde 25/11 a variação nova com peça e sem
+    # preço é BLOQUEADA — e este teste é sobre salvar duas vezes, não sobre a trava.
+    _vxs = [{**v, "sku": "MS-2"} for v in _vx]
+    _db_s = {"p": [dict(x) for x in _vxs], "m": [], "c": []}
     _gp, _av2 = [], []
     _orig_s = (E.carregar_agora, E.gravar_produtos, E.gravar_movimentos, _avisar, st.session_state)
     try:
@@ -4278,10 +4373,10 @@ if __name__ == "__main__":
             st.session_state = {"est_nova_var": True, "est_var_n": 2, "est_var_k": 0,
                                 "est_var_nome_0_0": "Porta 2  Relógio + Jóias (G)", "est_var_qtd_0_0": 4,
                                 "est_var_nome_0_1": "Azul", "est_var_qtd_0_1": 1}
-            _salvar_produto(_vx, "leo", "_pn")
+            _salvar_produto(_vxs, "leo", "_pn")
         st.session_state = {"est_nova_var": True, "est_var_n": 1, "est_var_k": 0,
                             "est_var_nome_0_0": "PRETO", "est_var_qtd_0_0": 2}
-        _salvar_produto(_vx, "leo", "_pn")
+        _salvar_produto(_vxs, "leo", "_pn")
     finally:
         E.carregar_agora, E.gravar_produtos, E.gravar_movimentos, _ = _orig_s[:4]
         globals()["_avisar"] = _orig_s[3]
