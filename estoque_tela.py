@@ -558,6 +558,12 @@ def _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod):
         c2.markdown(_esc(estoque_txt(saldo, v["id"]).replace("em estoque: ", "")))
         c3.number_input("entrando", min_value=0, step=1, value=None,
                         key=f"est_q_{v['id']}", label_visibility="collapsed")
+    # VAREJO OU ATACADO LOGO ABAIXO DA QUANTIDADE (dono, 25/11): lá embaixo,
+    # depois do «Onde está entrando», passava sem ninguém trocar — e a peça
+    # entrava no tipo errado. Fica colado no número, alinhado à direita.
+    _, c_or = st.columns([larg[0] + larg[1], larg[2] + larg[3]])
+    c_or.segmented_control("Esta compra é", ["Varejo", "Atacado"], default="Varejo", key="est_origem_entra",
+                           help="Cada uma tem o seu SKU e o seu custo. Na saída, o varejo sai primeiro.")
     # Logo abaixo da última variação (dono, 13/11), e o quadro dela abre ali
     # — com respiro: o botão encostava na foto da última linha.
     st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
@@ -566,8 +572,6 @@ def _ficha_principal(variacoes, saldo, codigos, por_id, quem, cod):
     st.segmented_control("Onde está entrando", ["Físico"] + list(E.FULLS.values()), default="Físico",
                          key="est_onde_entra",
                          help="Produto que JÁ está no Full e não dá para bipar: escolha o Full e digite a quantidade.")
-    st.segmented_control("Esta compra é", ["Varejo", "Atacado"], default="Varejo", key="est_origem_entra",
-                         help="Cada uma tem o seu SKU e o seu custo. Na saída, o varejo sai primeiro.")
     total = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) for v in variacoes)
     valor = sum(int(st.session_state.get(f"est_q_{v['id']}", 0) or 0) * E.custo_de(v, _origem_da_entrada())
                 for v in variacoes)
@@ -4518,6 +4522,11 @@ if __name__ == "__main__":
        and "_alerta_sem_preco(pendentes)" in _insp.getsource(_painel))
     _lin_f = [{"produto": v} for v in _pat_t]
     _pend_f = E.sem_preco_no_estoque(_pat_t, E.linhas_de_entrada([(_pat_t[1], 3)], "l", "x", origem=E.VAREJO))
+    _src_fp = _insp.getsource(_ficha_principal)
+    ok("entrada: «Esta compra é» (varejo/atacado) logo abaixo da quantidade, antes do «Nova variação» (25/11)",
+       _src_fp.count('key="est_origem_entra"') == 1
+       and _src_fp.index('key=f"est_q_{v[\'id\']}"') < _src_fp.index('key="est_origem_entra"')
+       < _src_fp.index('"➕ Nova variação"'))
     _src_cd = _insp.getsource(_cadastro)
     ok("cadastro: o 2º clique e a entrada que falhou abrem a FICHA do produto já gravado, nunca um beco (25/11)",
        _src_cd.count("_abrir_ficha_cadastrado(cod,") == 2 and "Bipe de novo" not in _src_cd
