@@ -514,8 +514,11 @@ def _rot_col(txt):
     return f'<div style="font-size:12px;color:#9AA3AE;font-weight:700">{_esc(txt)}</div>'
 
 
-def _abrir_nova_variacao():
-    st.session_state["est_nova_var"] = True
+def _abrir_nova_variacao(onde=True):
+    """`onde` = de QUEM é o quadro aberto: True na ficha e no Estoque
+    cadastrado (como sempre); o prefixo do produto no «✎ editar» da Entrada
+    (25/11). Um quadro aberto num lugar não é gravado pelo Salvar do outro."""
+    st.session_state["est_nova_var"] = onde
 
 
 def _ficha(variacoes, saldo, codigos, por_id, quem, movs=None):
@@ -658,10 +661,10 @@ def _fechar_nova_variacao():
     ss["est_var_k"] = int(ss.get("est_var_k") or 0) + 1
 
 
-def _nova_variacao(variacoes, quem, sufixo_ed="", botoes=True):
+def _nova_variacao(variacoes, quem, sufixo_ed="", botoes=True, onde=True):
     # Abre pelo botão «➕ Nova variação» ou bipando o mesmo código de novo.
     ss = st.session_state
-    if not ss.get("est_nova_var"):
+    if ss.get("est_nova_var") != onde:
         return
     with st.container(border=True):
         st.markdown("**➕ Nova variação** — escreva o nome e tire a foto")
@@ -790,6 +793,12 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
             st.file_uploader("Nova foto (opcional)", type=None, key=_ch_foto_ed(pf))
             if str(p0.get("foto_id") or "").strip():
                 st.checkbox("🗑 Tirar a foto atual (salvar sem ela)", key=_ch_rmcapa(pf))
+        if entrada:
+            # VARIAÇÃO NOVA NO «✎ editar» DA ENTRADA (dono, 25/11: cadastrou,
+            # clicou em editar e não tinha como pôr variação). O mesmo quadro
+            # da ficha, gravado pelo «Salvar alterações» daqui.
+            st.button("➕ Nova variação", key=f"{pf}nova_var", on_click=_abrir_nova_variacao, args=(pf,))
+            _nova_variacao(variacoes, quem, sufixo, botoes=False, onde=pf)
         a, b = st.columns(2)
         a.button("💾 Salvar tudo" if painel else "Salvar alterações", key=f"{pf}salvar", type="primary",
                  use_container_width=True,
@@ -1027,7 +1036,11 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
             variacoes, {v["id"]: ss.get(_ch_vq(pf, v["id"])) for v in variacoes if _ch_vq(pf, v["id"]) in ss},
             E.saldos(movs_ag))
     blocos = []
-    if ss.get("est_nova_var"):
+    # O quadro de variação nova é DESTE Salvar? Aberto no «✎ editar» da
+    # Entrada, ele tem o prefixo do produto; aberto na ficha ou no Estoque
+    # cadastrado, é True — e o «✎ editar» da Entrada não o grava.
+    _onde = ss.get("est_nova_var")
+    if (_onde == pf) or (_onde is True and not entrada):
         lidos = [(ss.get(_ch_var("nome", i)), ss.get(_ch_var("qtd", i)), ss.get(_ch_var("foto", i)))
                  for i in range(int(ss.get("est_var_n") or 1))]
         if any(str(n or "").strip() or q or f is not None for n, q, f in lidos):
@@ -4651,6 +4664,46 @@ if __name__ == "__main__":
        _pp_sp == (_sq_p[0]["id"], 1) and E.saldos(_sp_db["m"]).get((_sq_p[0]["id"], E.FISICO)) == 116
        and "4× Carimbeiras" in _sp_av[-1][0] and not _sp_av[-1][1]
        and "_quantidade_do_bipe(vivo, quem)" in _insp.getsource(_bipe_atual))
+    # VARIAÇÃO NOVA NO «✎ editar» DA ENTRADA (dono, 25/11), pela cadeia: o
+    # produto sem variação que acabou de entrar; o quadro aberto AQUI é
+    # gravado pelo Salvar daqui — e o aberto na ficha (True), não.
+    _nv_p = E.linhas_de_produto("7896652600094", "TCMC-09", "Yoga 11CM Rose (P) + Kit?", 17.8, [("", "")],
+                                "l", "x", sku="MS-1780")
+    _nv_e = E.linhas_de_entrada([(_nv_p[0], 2)], "l", "x")
+    _nv_lote = _nv_e[0]["lote"]
+    _nv_lin = [(i, m, _nv_p[i]) for i, m in enumerate(_nv_e)]
+    def _salva_nv(onde):
+        _db = {"p": list(_nv_p), "m": list(_nv_e)}
+        _a = []
+        _o = (E.carregar, E.carregar_agora, E.gravar_produtos, E.gravar_movimentos, E.atualizar_produtos,
+              _avisar, st.session_state)
+        try:
+            E.carregar = E.carregar_agora = lambda: (list(_db["p"]), list(_db["m"]), [])
+            E.gravar_produtos = lambda l: _db["p"].extend(l)
+            E.gravar_movimentos = lambda l: _db["m"].extend(l)
+            E.atualizar_produtos = lambda t: None
+            globals()["_avisar"] = lambda msg, erro=False: _a.append((msg, erro))
+            _pf = _pf_ed(_nv_p, f"_lt{_nv_lote}")
+            st.session_state = {**{_pf + k: v for k, v in _iniciais_ed(_nv_p[0]).items()},
+                                _pf + "ini": _iniciais_ed(_nv_p[0]), _pf + "painel": False,
+                                "est_nova_var": _pf if onde == "aqui" else True, "est_var_n": 1,
+                                "est_var_k": 0, "est_origem_entra": "Varejo"}
+            st.session_state[_ch_var("nome", 0)] = "Dourada (G)"
+            st.session_state[_ch_var("qtd", 0)] = 3
+            _salvar_produto(_nv_p, "leo", f"_lt{_nv_lote}", True, (_nv_lote, _nv_lin))
+        finally:
+            (E.carregar, E.carregar_agora, E.gravar_produtos, E.gravar_movimentos,
+             E.atualizar_produtos) = _o[:5]
+            globals()["_avisar"] = _o[5]
+            st.session_state = _o[6]
+        return _db, _a
+    _nv_db, _nv_av = _salva_nv("aqui")
+    _nv_db2, _nv_av2 = _salva_nv("ficha")
+    _nv_novas = [p for p in _nv_db["p"] if p["variacao"] == "Dourada (G)"]
+    ok("editar da Entrada: «➕ Nova variação» aberto AQUI grava a variação com as 3 peças; o da ficha não",
+       len(_nv_novas) == 1 and E.saldos(_nv_db["m"]).get((_nv_novas[0]["id"], E.FISICO)) == 3
+       and not _nv_av[-1][1] and len(_nv_db2["p"]) == 1
+       and "_nova_variacao(variacoes, quem, sufixo, botoes=False, onde=pf)" in _insp.getsource(_editar_produto))
     _src_fp = _insp.getsource(_ficha_principal)
     ok("entrada: «Esta compra é» (varejo/atacado) logo abaixo da quantidade, antes do «Nova variação» (25/11)",
        _src_fp.count('key="est_origem_entra"') == 1
