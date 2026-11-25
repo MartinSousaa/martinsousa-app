@@ -484,6 +484,32 @@ def linhas_de_produto(ean, codigo_fornecedor, nome, custo, variacoes, quem, quan
             for v, foto in variacoes]
 
 
+SUFIXO_COPIA = " - CÓPIA"
+
+
+def nome_da_copia(nome):
+    """O nome do produto duplicado, com « - CÓPIA» no fim (dono, 25/11:
+    «para eu saber qual é»). Duplicar a cópia não empilha o sufixo. Pura."""
+    n = " ".join(str(nome or "").split())
+    return n if n.upper().endswith(SUFIXO_COPIA.upper()) else n + SUFIXO_COPIA
+
+
+def linhas_da_copia(variacoes, novo_ean, quem, quando):
+    """As linhas de um produto DUPLICADO (dono, 25/11). Pura.
+
+    Copia tudo de cada variação ativa — nome, variação, fornecedor, custos,
+    fotos — com id novo e o código de barras novo. NÃO copia: os códigos
+    extras (um código é de um produto só), o SKU de varejo e de atacado (o
+    mesmo SKU em dois produtos faz o custo e a venda caírem no errado — a
+    Regra 7 já viu isso) e o estoque (a cópia nasce com zero peças).
+    """
+    return [{**{c: v.get(c, "") for c in COL_PRODUTOS},
+             "id": _id("P"), "ean": limpar_codigo(novo_ean), "eans_extras": "",
+             "sku": "", "sku_atacado": "", "nome": nome_da_copia(v.get("nome")),
+             "registrado_em": quando, "registrado_por": quem, "ativo": "1"}
+            for v in variacoes]
+
+
 def linhas_de_entrada(itens, quem, quando, tipo=ENTRADA, local=FISICO, obs="", origem=VAREJO):
     """As linhas de movimento de um CONFIRMAR. `itens` = [(produto, qtd)]. Pura.
 
@@ -1615,6 +1641,22 @@ if __name__ == "__main__":
        and all(p["ean"] == "7899999000061" for p in prods) and prods[0]["custo"] == "18.40")
     ok("do_codigo: o bipe acha as três posições, com espaço no meio do bipe",
        len(do_codigo(prods, "7899 9990 00061")) == 3 and do_codigo(prods, "") == [])
+    # DUPLICAR (dono, 25/11), com o nome real da equipe e extras/SKU no original.
+    _orig_d = [{**x, "sku": "MBLN-06", "sku_atacado": "AT-06", "custo_atacado": "15.00",
+                "eans_extras": '[{"ean": "789123", "forn": "x"}]', "fornecedor": "SAARA"}
+               for x in prods]
+    _cp = linhas_da_copia(_orig_d, " 2000000000046", "myrella", "25/11/2026 18:00")
+    ok("duplicar: uma linha por variação, ids e código novos, « - CÓPIA», sem SKU nem extras",
+       len(_cp) == 3 and not ({c["id"] for c in _cp} & {x["id"] for x in prods})
+       and all(c["ean"] == "2000000000046" and c["eans_extras"] == "" and c["sku"] == ""
+               and c["sku_atacado"] == "" for c in _cp)
+       and _cp[0]["nome"] == "Bailarina de resina (P/M) + base - CÓPIA"
+       and [c["variacao"] for c in _cp] == ["Braço para cima", "Perna estendida", "Sentada"]
+       and _cp[0]["foto_id"] == "f1" and _cp[0]["custo"] == "18.40" and _cp[0]["custo_atacado"] == "15.00"
+       and _cp[0]["fornecedor"] == "SAARA" and _cp[0]["registrado_por"] == "myrella"
+       and set(_cp[0]) == set(COL_PRODUTOS)
+       and nome_da_copia(_cp[0]["nome"]) == _cp[0]["nome"]
+       and do_codigo(prods + _cp, "2000000000046") == _cp)
     # TROCA NO FORNECEDOR (dono, 25/11), pela cadeia: produto e entrada de
     # verdade; 5 vão ao fornecedor; volta 2 trocada, 2 reembolsadas, 1 não.
     _tp = linhas_de_produto("7908045161706", "AP34981-3", "Porta 3 Relógios (P) + Jóias?", 40,

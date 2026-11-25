@@ -765,6 +765,7 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
             if c_b.toggle("🖨 Etiqueta", key=f"{pf}etq"):
                 _etiqueta(_cod, E.capitalizar(p0.get("nome")))
             _codigos_do_painel(p0, pf)
+            _acoes_do_produto(variacoes, pf, quem, saldo)
         ini = _iniciais_ed(p0)
         # A chave leva o código: dois produtos abertos em seguida não dividem
         # o que foi digitado em um.
@@ -3510,6 +3511,92 @@ def _excluir_variacao(pid, nome, quem=""):
     st.session_state.pop("est_pn_excluir", None)
 
 
+def _acoes_do_produto(variacoes, pf, quem, saldo):
+    """📄 Duplicar e 🗑 Excluir o PRODUTO inteiro (dono, 25/11: «preciso
+    excluir esse produto, cadê o botão?»). Excluir pede confirmação."""
+    ss = st.session_state
+    p0 = variacoes[0]
+    ean = E.limpar_codigo(p0.get("ean"))
+    nome = E.capitalizar(p0.get("nome"))
+    c1, c2, _c3 = st.columns([1.2, 1.4, 4])
+    c1.button("📄 Duplicar", key=f"{pf}duplicar", on_click=_duplicar_produto, args=(ean, quem),
+              help="Cria uma cópia com « - CÓPIA» no nome e código de barras novo, já aberta para editar. "
+                   "SKU, códigos extras e estoque não são copiados.")
+    c2.button("🗑 Excluir produto", key=f"{pf}excluir_prod", on_click=_pedir_exclusao_produto, args=(ean,))
+    if ss.get("est_pn_excl_prod") == ean:
+        ids = {v["id"] for v in variacoes}
+        q = sum(n for (pid, _loc), n in (saldo or {}).items() if pid in ids)
+        st.warning(f"Excluir **{_esc(nome)}**" + (f" e as {len(variacoes)} variações" if len(variacoes) > 1 else "")
+                   + "? " + (f"As {q} peça(s) saem do estoque como ajuste de contagem, sem baixa. " if q else "")
+                   + "O histórico fica guardado.")
+        a1, a2, _a3 = st.columns([1.2, 1, 4])
+        a1.button("Sim, excluir", key=f"{pf}excluir_ok", type="primary", on_click=_excluir_produto,
+                  args=(ean, nome, quem))
+        a2.button("Cancelar", key=f"{pf}excluir_nao", on_click=_cancelar_exclusao_produto)
+
+
+def _pedir_exclusao_produto(ean):
+    st.session_state["est_pn_excl_prod"] = ean
+
+
+def _cancelar_exclusao_produto():
+    st.session_state.pop("est_pn_excl_prod", None)
+
+
+def _excluir_produto(ean, nome, quem=""):
+    """Todas as variações do produto: zera as peças (ajuste de contagem) e
+    desativa (ativo=0) — o mesmo caminho do ✕ da variação, para o produto
+    inteiro. Lê a planilha na hora. Produto que entra num kit não sai."""
+    ss = st.session_state
+    try:
+        prods, movs, codigos = E.carregar_agora()
+        vs = [p for p in E.ativos(prods) if E.limpar_codigo(p.get("ean")) == E.limpar_codigo(ean)]
+        if not vs:
+            _avisar(f"Não achei «{nome}» na planilha — nada foi excluído.", erro=True)
+            return
+        kits = {k.get("nome") or k.get("codigo") for v in vs for k in E.kits_com(codigos, v["id"])}
+        if kits:
+            _avisar(f"«{nome}» entra em {', '.join(sorted(map(str, kits)))} — troque ou exclua o kit "
+                    "antes. Nada foi excluído.", erro=True)
+            return
+        zera = [m for v in vs for m in E.linhas_de_zerar(v, movs, quem, _quando(),
+                                                         "produto excluído no Estoque cadastrado")]
+        if zera:
+            E.gravar_movimentos(zera)
+        E.atualizar_produtos({v["id"]: {"ativo": "0"} for v in vs})
+        n = -sum(int(m["qtd"]) for m in zera)
+        for k in ("est_pn_pid", "est_pn_ean"):
+            ss.pop(k, None)
+        _avisar(f"✓ Produto «{nome}» excluído" + (f" — {n} peça(s) saíram do estoque." if n else "."))
+    except Exception as e:
+        _avisar(f"Não excluí — a planilha respondeu: {e}", erro=True)
+    finally:
+        ss.pop("est_pn_excl_prod", None)
+
+
+def _duplicar_produto(ean, quem=""):
+    """Grava a cópia (estoque.linhas_da_copia) e a deixa ABERTA no quadro
+    para editar (dono, 25/11). A busca passa a ser o nome da cópia: ela
+    aparece sozinha na lista, sem confundir com o original."""
+    ss = st.session_state
+    try:
+        prods, _movs, cods = E.carregar_agora()
+        vs = E.do_codigo(prods, ean)
+        if not vs:
+            _avisar("Não achei o produto na planilha — nada foi duplicado.", erro=True)
+            return
+        novo = E.novo_codigo_interno(E.todos_os_codigos(prods, cods))
+        copia = E.linhas_da_copia(vs, novo, quem, _quando())
+        E.gravar_produtos(copia)
+        ss["est_pn_pid"], ss["est_pn_ean"], ss["est_pn_sel"] = copia[0]["id"], novo, False
+        ss["est_busca"] = copia[0]["nome"]
+        ss.pop("est_pn_excl_prod", None)
+        _avisar(f"✓ Cópia criada: «{E.capitalizar(copia[0]['nome'])}» · código {novo} — aberta abaixo "
+                "para editar. Preencha o SKU dela (não é copiado: um SKU é de um produto só).")
+    except Exception as e:
+        _avisar(f"Não dupliquei — a planilha respondeu: {e}", erro=True)
+
+
 def _variacoes_do_painel(variacoes, saldo, quem, pf):
     """As variações DENTRO do quadro do produto (dono, 17/11): nome e foto
     de cada uma editáveis ali mesmo, ✕ para excluir (com confirmação) e ➕
@@ -4868,6 +4955,46 @@ if __name__ == "__main__":
        not any(q for (pid, _l), q in _sobra.items() if pid == _vx[0]["id"])
        and all(m["tipo"] == E.AJUSTE_CONTAGEM for m in _gm) and len(_gm) == 2
        and _ap == {_vx[0]["id"]: {"ativo": "0"}} and _av and "5 peça(s)" in _av[0][0] and not _av[0][1])
+    # 🗑 EXCLUIR PRODUTO e 📄 DUPLICAR (dono, 25/11), pela cadeia: as duas
+    # variações zeram e saem; a que entra num kit trava tudo; a cópia grava
+    # com código novo e fica aberta, com a busca no nome dela.
+    _db_e = {"p": [dict(x) for x in _vx], "m": E.linhas_de_entrada([(_vx[0], 3)], "l", "x")
+             + E.linhas_de_entrada([(_vx[1], 2)], "l", "x", local=list(E.FULLS)[0]), "c": []}
+    _gm_e, _ap_e, _av_e, _gp_e = [], {}, [], []
+    _orig_e = (E.carregar_agora, E.gravar_movimentos, E.atualizar_produtos, E.gravar_produtos, _avisar)
+    try:
+        E.carregar_agora = lambda: (_db_e["p"], _db_e["m"], _db_e["c"])
+        E.gravar_movimentos = lambda l: _gm_e.extend(l)
+        E.atualizar_produtos = lambda d: _ap_e.update(d)
+        E.gravar_produtos = lambda l: _gp_e.extend(l)
+        globals()["_avisar"] = lambda msg, erro=False: _av_e.append((msg, erro))
+        st.session_state["est_pn_excl_prod"] = _vx[0]["ean"]
+        _excluir_produto(" " + _vx[0]["ean"], "Porta 2 Relógio + Jóias", "leo")
+        _sobra_e = E.saldos(_db_e["m"] + _gm_e)
+        _excl_ok = (not any(_sobra_e.values()) and len(_gm_e) == 2
+                    and _ap_e == {v["id"]: {"ativo": "0"} for v in _vx}
+                    and "5 peça(s)" in _av_e[-1][0] and not _av_e[-1][1]
+                    and "est_pn_excl_prod" not in st.session_state)
+        _db_e["c"] = [{"codigo": "K9", "nome": "Kit Natal", "tipo": "kit",
+                       "itens": E.json.dumps({_vx[1]["id"]: 1})}]
+        _ap_e.clear()
+        _excluir_produto(_vx[0]["ean"], "Porta 2 Relógio + Jóias", "leo")
+        _kit_trava = _ap_e == {} and _av_e[-1][1] and "Kit Natal" in _av_e[-1][0]
+        _duplicar_produto(_vx[0]["ean"], "leo")
+        _dup_ok = (len(_gp_e) == len(_vx) and _gp_e[0]["ean"] != _vx[0]["ean"]
+                   and _gp_e[0]["nome"].endswith(" - CÓPIA")
+                   and st.session_state.get("est_pn_ean") == _gp_e[0]["ean"]
+                   and st.session_state.get("est_busca") == _gp_e[0]["nome"]
+                   and not _av_e[-1][1] and _gp_e[0]["ean"] in _av_e[-1][0])
+    finally:
+        (E.carregar_agora, E.gravar_movimentos, E.atualizar_produtos, E.gravar_produtos) = _orig_e[:4]
+        globals()["_avisar"] = _orig_e[4]
+        for _k in ("est_pn_excl_prod", "est_pn_pid", "est_pn_ean", "est_pn_sel", "est_busca"):
+            st.session_state.pop(_k, None)
+    ok("🗑 excluir produto: zera físico e Full de TODAS as variações, desativa e diz quantas saíram",
+       _excl_ok)
+    ok("🗑 excluir produto: variação num kit trava o produto inteiro e diz qual kit", _kit_trava)
+    ok("📄 duplicar: grava a cópia com código novo e « - CÓPIA», e deixa ela aberta", _dup_ok)
     # SALVAR DUAS VEZES (dono, 17/11: «duplicou as variações sozinho»). O
     # segundo clique lê a planilha de AGORA e não grava de novo.
     ok("nomes já cadastrados: só os ATIVOS deste código, com espaço e maiúscula normalizados",
