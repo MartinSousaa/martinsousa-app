@@ -3523,10 +3523,17 @@ def _painel(quem):
         return
     pn = E.painel(prods, movs, _pc.agora_br().date())
     _alerta_sem_sku(prods)
+    pendentes = E.sem_preco_no_estoque(prods, movs)
+    _alerta_sem_preco(pendentes)
     st.markdown("**Todos os produtos**")
-    busca = st.text_input("Buscar", key="est_busca", placeholder="🔎 nome, código ou bipe",
-                          label_visibility="collapsed")
-    linhas = tabela_produtos(pn["linhas"], busca)
+    c_b, c_f = st.columns([3, 1.3], vertical_alignment="center")
+    busca = c_b.text_input("Buscar", key="est_busca", placeholder="🔎 nome, código ou bipe",
+                           label_visibility="collapsed")
+    # O FILTRO DOS PENDENTES (dono, 25/11): só quem tem peça numa origem sem
+    # SKU e custo dela — a lista do alerta, para corrigir um a um.
+    so_pend = c_f.toggle(f"Só pendentes de SKU/custo ({len(pendentes)})", key="est_so_pend",
+                         disabled=not pendentes)
+    linhas = filtrar_pendentes(tabela_produtos(pn["linhas"], busca), pendentes, so_pend)
     df = pd.DataFrame([{
         "foto": (gdrive.url_thumbnail(E.foto_principal(l["produto"]), 120)
                  if E.foto_principal(l["produto"]) else ""),
@@ -3556,7 +3563,8 @@ def _painel(quem):
     ev = st.dataframe(df, hide_index=True, use_container_width=True, on_select="rerun",
                       selection_mode="multi-row", key=f"est_tab_{sig}",
                       column_config={"foto": st.column_config.ImageColumn("", width="small")})
-    st.caption(f"{len(linhas)} produto(s)" + (f" com «{busca.strip()}»" if busca.strip() else ""))
+    st.caption(f"{len(linhas)} produto(s)" + (f" com «{busca.strip()}»" if busca.strip() else "")
+               + (" · só os pendentes de SKU/custo" if so_pend else ""))
     # VÁRIAS MARCADAS (dono, 17/11: «selecionar os produtos nas caixinhas, na
     # lista, para colocar o fornecedor em massa»): uma marcada abre o
     # produto; duas ou mais (ou a caixinha de todos) abrem o fornecedor.
@@ -3823,21 +3831,26 @@ def alerta_sem_preco_md(lista, mostrar=12):
             + "\n".join(linhas) + (f"\n- … e mais {resto}" if resto > 0 else ""))
 
 
-def _alerta_sem_preco():
-    try:
-        prods, movs, _c = E.carregar()
-    except Exception:
-        return
-    md = alerta_sem_preco_md(E.sem_preco_no_estoque(prods, movs))
+def _alerta_sem_preco(pendentes):
+    """SÓ no Estoque cadastrado (dono, 25/11: «é para aparecer somente na aba
+    de produtos cadastrados e não em todas»): é lá que se corrige."""
+    md = alerta_sem_preco_md(pendentes)
     if md:
         st.warning(md)
+
+
+def filtrar_pendentes(linhas, pendentes, ligado):
+    """Só as variações com peça numa origem sem SKU e custo, se `ligado`. Pura."""
+    if not ligado:
+        return linhas
+    ids = {str(p["id"]) for p, _o, _f, _q in pendentes}
+    return [l for l in linhas if str(l["produto"]["id"]) in ids]
 
 
 def pagina(usuario_logado=None):
     quem = str(usuario_logado or "").strip()
     st.session_state["est_quem"] = quem      # os callbacks do bipe gravam o nome
     st.markdown("### 📦 Estoque")
-    _alerta_sem_preco()
     if st.session_state.get("est_modo_pendente"):
         st.session_state["est_modo"] = st.session_state.pop("est_modo_pendente")
     # O valor inicial vem do session_state, e NÃO de `default=` (13/11): o
@@ -4473,7 +4486,13 @@ if __name__ == "__main__":
     ok("alerta do topo: diz quem, a origem, as peças e o que falta (nome real com + ( ) ?)",
        "1 variação(ões) com estoque SEM PREÇO" in _md_t and "Porta 3 Relógios (P) + Jóias?" in _md_t
        and "varejo · 3 peça(s) · falta SKU de varejo e custo de varejo" in _md_t
-       and alerta_sem_preco_md([]) == "" and "_alerta_sem_preco()" in _insp.getsource(pagina))
+       and alerta_sem_preco_md([]) == "" and "_alerta_sem_preco(" not in _insp.getsource(pagina)
+       and "_alerta_sem_preco(pendentes)" in _insp.getsource(_painel))
+    _lin_f = [{"produto": v} for v in _pat_t]
+    _pend_f = E.sem_preco_no_estoque(_pat_t, E.linhas_de_entrada([(_pat_t[1], 3)], "l", "x", origem=E.VAREJO))
+    ok("filtro dos pendentes: ligado mostra só a variação sem preço; desligado, todas (dono, 25/11)",
+       [l["produto"]["id"] for l in filtrar_pendentes(_lin_f, _pend_f, True)] == [_pat_t[1]["id"]]
+       and filtrar_pendentes(_lin_f, _pend_f, False) == _lin_f)
     # TROCA NO FORNECEDOR NA TELA (dono, 25/11), pela cadeia: duas trocas de
     # verdade (linhas_de_troca); em massa e uma parte resolvida à mão.
     _tq = E.linhas_de_produto("7908045161706", "AP34981-3", "Porta 3 Relógios (P) + Jóias?", 40,
