@@ -35,7 +35,7 @@ import streamlit as st
 import ml_api as _ml
 
 ABA = "Excluir"
-LOTE = 20                 # o máximo do /items?ids=
+LOTE = _ml.LOTE_ANUNCIOS   # o máximo do /items?ids= — um número só, o do leitor
 TESTE = 5                 # o primeiro clique exclui só estes
 VIVOS = ("active", "paused", "under_review", "inactive")
 
@@ -113,31 +113,24 @@ def conferir_conta(conta, tok, uid, itens, req):
     """
     fora = {"excluir": [], "ja": [], "erros": []}
     por_id = {i["item"]: i for i in itens}
-    ids = list(por_id)
-    for k in range(0, len(ids), LOTE):
-        lote = ids[k:k + LOTE]
-        resp, erro = req("GET", conta, tok, "/items",
-                         {"ids": ",".join(lote), "attributes": "id,status,seller_id"})
-        if erro:
-            fora["erros"] += [(i, f"não consegui ler: {erro}") for i in lote]
+    # O MESMO LEITOR DAS PROMOÇÕES (25/11): o ML recusa o lote para alguns
+    # anúncios, e eles vêm um por um — `ml_api.ler_anuncios`.
+    lidos, falhas = _ml.ler_anuncios(conta, tok, list(por_id), "id,status,seller_id", req)
+    for i in por_id:
+        if i not in lidos:
+            f = falhas.get(i, "")
+            fora["erros"].append((i, f"não consegui ler: {f}" if f and f != "o ML não achou este anúncio"
+                                  else "o ML não achou este anúncio"))
             continue
-        lidos = {}
-        for r in resp if isinstance(resp, list) else []:
-            b = (r or {}).get("body") or {}
-            if (r or {}).get("code") == 200 and b.get("id"):
-                lidos[b["id"]] = b
-        for i in lote:
-            b = lidos.get(i)
-            if not b:
-                fora["erros"].append((i, "o ML não achou este anúncio"))
-            elif uid and str(b.get("seller_id")) != str(uid):
-                fora["erros"].append((i, f"não é da {conta.upper()}"))
-            elif b.get("status") == "closed":
-                fora["ja"].append(por_id[i])
-            elif b.get("status") in VIVOS:
-                fora["excluir"].append(por_id[i])
-            else:
-                fora["erros"].append((i, f"situação «{b.get('status')}»"))
+        b = lidos[i]
+        if uid and str(b.get("seller_id")) != str(uid):
+            fora["erros"].append((i, f"não é da {conta.upper()}"))
+        elif b.get("status") == "closed":
+            fora["ja"].append(por_id[i])
+        elif b.get("status") in VIVOS:
+            fora["excluir"].append(por_id[i])
+        else:
+            fora["erros"].append((i, f"situação «{b.get('status')}»"))
     return fora
 
 
@@ -391,6 +384,8 @@ if __name__ == "__main__":
 
     def rede(metodo, conta, tok, caminho, params=None, corpo=None):
         chamadas.append((metodo, conta, caminho, params, corpo))
+        if metodo == "GET" and caminho != "/items":
+            return {"message": "not found"}, ""     # o um por um: o ML não acha
         if metodo == "GET":
             base = {"MLB1": "active", "MLB2": "closed", "MLB3": "paused", "MLB5": "active"}
             out = []
@@ -415,8 +410,11 @@ if __name__ == "__main__":
     chamadas.clear()
     conferir_conta("ml1", "T", "7", [{"conta": "ml1", "item": f"MLB{n}", "titulo": "", "linha": n}
                                      for n in range(45)], rede)
-    ok("lê 20 por vez", len(chamadas) == 3 and all(len(c[3]["ids"].split(",")) <= LOTE
-                                                   for c in chamadas))
+    _lotes = [c for c in chamadas if c[2] == "/items"]
+    ok("lê 20 por vez; o que o lote não trouxe vem um por um",
+       len(_lotes) == 3 and all(len(c[3]["ids"].split(",")) <= LOTE for c in _lotes)
+       and sorted(c[2] for c in chamadas if c[2] != "/items")
+       == sorted(f"/items/MLB{n}" for n in range(45) if n not in (1, 2, 3, 5)))
 
     # Excluir: finaliza ANTES de apagar, e não apaga o que não finalizou
     chamadas.clear()

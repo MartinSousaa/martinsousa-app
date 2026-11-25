@@ -508,6 +508,41 @@ def id_do_anuncio(texto):
     return f"MLB{num}" if num else ""
 
 
+LOTE_ANUNCIOS = 20   # o máximo do /items?ids=
+
+
+def ler_anuncios(conta, tok, ids, atributos, req=None):
+    """({código: anúncio}, {código: motivo}) — a ÚNICA leitura de anúncios
+    por código. Lê em lotes de 20 (/items?ids=) e, o que o lote não trouxe,
+    pede UM POR UM (/items/{código}).
+
+    Por quê (dono, 25/11): o ML passou a recusar o lote para alguns anúncios
+    com «403: Resource deprecated - client no longer allowed to consume this
+    resource» — 178 nas 4 contas ficavam sem nome nas Promoções, e o
+    «Excluir anúncios» os dava como não lidos. Um caminho só, para as duas
+    telas não voltarem a discordar (Forma 1).
+    """
+    req = req or requisitar
+    lidos, falhas = {}, {}
+    ids = list(dict.fromkeys(str(i) for i in ids if i))
+    for k in range(0, len(ids), LOTE_ANUNCIOS):
+        lote = ids[k:k + LOTE_ANUNCIOS]
+        resp, erro = req("GET", conta, tok, "/items", {"ids": ",".join(lote), "attributes": atributos})
+        for x in (resp if not erro and isinstance(resp, list) else []):
+            b = (x or {}).get("body") or {}
+            if (x or {}).get("code") == 200 and b.get("id"):
+                lidos[str(b["id"])] = b
+        for i in lote:
+            if i in lidos:
+                continue
+            b, e1 = req("GET", conta, tok, f"/items/{i}", {"attributes": atributos})
+            if not e1 and isinstance(b, dict) and b.get("id"):
+                lidos[i] = b
+            else:
+                falhas[i] = e1 or erro or "o ML não achou este anúncio"
+    return lidos, falhas
+
+
 def amostra(conta, item_id="", ler=None):
     """{conta, leituras: {nome: {caminho, params, resposta|erro}}}.
 
@@ -750,6 +785,32 @@ if __name__ == "__main__":
     finally:
         requests.request = _rq
 
+    # O LOTE DESLIGADO (25/11): o ML recusa o /items?ids= para alguns
+    # anúncios; eles vêm um por um, e só o que nem assim vem fica em falhas.
+    _dep = "o aplicativo não tem permissão para isto na ML1 (403: Resource deprecated)"
+
+    _lotes_la = []
+
+    def _req_la(m, c, t, cam, p=None, corpo=None):
+        if cam == "/items":
+            _lotes_la.append(len(p["ids"].split(",")))
+            ids_l = p["ids"].split(",")
+            if {"MLB3", "MLB30"} & set(ids_l):
+                return None, _dep
+            return [{"code": 200, "body": {"id": i, "title": "T" + i}} for i in ids_l
+                    if i != "MLB7"] + [{"code": 404, "body": {}}], ""
+        i = cam.rsplit("/", 1)[1]
+        if i == "MLB30":
+            return None, _dep
+        return {"id": i, "title": "U" + i}, ""
+    _la, _lf = ler_anuncios("ml1", "T", [f"MLB{n}" for n in range(1, 46)] + ["MLB1", ""], "id,title", _req_la)
+    ok("ler_anuncios: lote recusado vem um por um; só o que nem assim vem fica em falhas, com o motivo",
+       len(_la) == 44 and _la["MLB3"]["title"] == "UMLB3" and _la["MLB25"]["title"] == "UMLB25"
+       and _la["MLB1"]["title"] == "UMLB1" and _la["MLB41"]["title"] == "TMLB41"
+       and _la["MLB7"]["title"] == "UMLB7"
+       and _lf == {"MLB30": _dep})
+    ok("LOTE_ANUNCIOS: 20, o máximo do /items?ids=, e nenhum lote passa dele",
+       LOTE_ANUNCIOS == 20 and _lotes_la == [20, 20, 5])
     # O MOTIVO DO 403 (25/11): o corpo do ML chega à tela, curto.
     class _R:
         def __init__(self, j=None, t=""):

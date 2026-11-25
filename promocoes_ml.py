@@ -43,7 +43,6 @@ import ml_api as _ml
 
 LIMITE = 50              # o máximo que o ML aceita por página
 PAGINAS_MAX = 80         # 4.000 anúncios por promoção; passou disso, a tela DIZ
-LOTE_TITULOS = 20        # o máximo do /items?ids=
 SITUACOES_VIVAS = ("started", "pending", "candidate")
 DESCONTO_MIN, DESCONTO_MAX, DIAS_MAX = 5.0, 80.0, 30   # PRICE_DISCOUNT
 
@@ -295,37 +294,14 @@ def titulos(conta, tok, ids, req):
     que o ML recusa de verdade fica sem nome — e o aviso é UM, com quantos,
     quais e o motivo que o ML deu.
     """
-    saida, falhos, motivos = {}, [], []
-    ids = list(dict.fromkeys(i for i in ids if i))
-
-    def _pedir(lote):
-        resp, erro = req("GET", conta, tok, "/items", {
-            "ids": ",".join(lote),
-            "attributes": "id,title,price,thumbnail,available_quantity,permalink"})
-        if erro:
-            return erro
-        for r in resp if isinstance(resp, list) else []:
-            b = (r or {}).get("body") or {}
-            if (r or {}).get("code") == 200 and b.get("id"):
-                saida[b["id"]] = b
-        return ""
-
-    for i in range(0, len(ids), LOTE_TITULOS):
-        lote = ids[i:i + LOTE_TITULOS]
-        erro = _pedir(lote)
-        if not erro:
-            continue
-        for um in (lote if len(lote) > 1 else []):
-            e1 = _pedir([um])
-            if e1:
-                falhos.append(um)
-                motivos.append(e1)
-        if len(lote) == 1:
-            falhos.append(lote[0])
-            motivos.append(erro)
-    sem = [i for i in falhos if i not in saida]
+    # PELO CÓDIGO, UM POR UM, quando o lote é recusado (25/11: «Resource
+    # deprecated» em 178 anúncios) — `ml_api.ler_anuncios`.
+    saida, falhas = _ml.ler_anuncios(
+        conta, tok, ids, "id,title,price,thumbnail,available_quantity,permalink", req)
+    sem = list(falhas)
     if not sem:
         return saida, []
+    motivos = list(falhas.values())
     comum = max(set(motivos), key=motivos.count)
     return saida, [f"títulos: {len(sem)} anúncio(s) sem nome ({', '.join(sem[:5])}"
                    + (f" e mais {len(sem) - 5}" if len(sem) > 5 else "") + f") — {comum}"]
@@ -1018,9 +994,11 @@ if __name__ == "__main__":
     _proibidos = {"MLB2", "MLB25"}
 
     def _req_t(m, c, t, cam, p=None, corpo=None):
-        ids_t = p["ids"].split(",")
+        ids_t = p["ids"].split(",") if cam == "/items" else [cam.rsplit("/", 1)[1]]
         if _proibidos & set(ids_t):
             return None, "o aplicativo não tem permissão para isto na ML1 (403: item bloqueado)"
+        if cam != "/items":
+            return {"id": ids_t[0], "title": "U " + ids_t[0]}, ""
         return [{"code": 200, "body": {"id": i, "title": "T " + i}} for i in ids_t], ""
     _ids_t = [f"MLB{n}" for n in range(1, 46)]
     _tt, _at = titulos("ml1", "T", _ids_t, _req_t)
