@@ -722,6 +722,8 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
         _campos_sku(pf, {k: ini[k] for k in ("sku", "custo", "sku_at", "custo_at")})
         if painel:
             st.file_uploader("Foto do produto (a que aparece na lista)", type=None, key=_ch_foto_ed(pf))
+            if str(p0.get("foto_produto") or "").strip():
+                st.checkbox("🗑 Tirar a foto do produto (salvar sem ela)", key=_ch_rmcapa(pf))
             _variacoes_do_painel(variacoes, saldo, quem, pf)
         elif len(variacoes) > 1:
             # COM VARIAÇÕES, TODAS AS FOTOS À VISTA (dono, 23/11: «cadê a
@@ -731,6 +733,8 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
             _fotos_por_variacao_ed(variacoes, pf)
         else:
             st.file_uploader("Nova foto (opcional)", type=None, key=_ch_foto_ed(pf))
+            if str(p0.get("foto_id") or "").strip():
+                st.checkbox("🗑 Tirar a foto atual (salvar sem ela)", key=_ch_rmcapa(pf))
         a, b = st.columns(2)
         a.button("💾 Salvar tudo" if painel else "Salvar alterações", key=f"{pf}salvar", type="primary",
                  use_container_width=True,
@@ -752,12 +756,16 @@ def _fotos_por_variacao_ed(variacoes, pf):
     c0, c1 = st.columns([0.6, 4.8], vertical_alignment="center")
     c0.markdown(foto_html(E.foto_principal(p0), 44), unsafe_allow_html=True)
     c1.file_uploader("Foto do produto (capa, a que aparece na lista)", type=None, key=_ch_foto_ed(pf))
+    if str(p0.get("foto_produto") or "").strip():
+        c1.checkbox("🗑 Tirar a foto do produto (salvar sem ela)", key=_ch_rmcapa(pf))
     for v in variacoes:
         c0, c1, c2 = st.columns([0.6, 2.4, 2.4], vertical_alignment="center")
         c0.markdown(foto_html(v.get("foto_id"), 44), unsafe_allow_html=True)
         c1.markdown(_esc(str(v.get("variacao") or E.nome_completo(v))))
         c2.file_uploader("Foto da variação", type=None, key=_ch_vf(pf, v["id"]),
                          label_visibility="collapsed")
+        if str(v.get("foto_id") or "").strip():
+            c2.checkbox("🗑 tirar a foto", key=_ch_vrm(pf, v["id"]))
 
 
 def _ch_cod(pf, campo):
@@ -877,6 +885,36 @@ def _ch_vn(pf, pid):
     return f"{pf}vn_{pid}"
 
 
+def _ch_vrm(pf, pid):
+    """«Tirar a foto» da variação. Leva a rodada: depois de salvar, desmarca."""
+    return f"{pf}vrm_{pid}_{st.session_state.get(pf + 'k', 0)}"
+
+
+def _ch_rmcapa(pf):
+    """«Tirar a foto» do produto (capa, ou a única de produto sem variação)."""
+    return f"{pf}rmcapa_{st.session_state.get(pf + 'k', 0)}"
+
+
+def fotos_a_tirar(variacoes, por_var, ler, pf):
+    """{id: {campo: ""}} das fotos marcadas para SAIR (dono, 25/11: «tenho
+    que poder excluir a que tem lá e salvar sem foto»). Pura.
+
+    Com variações, a do produto é a capa (`foto_produto`, em todas); sem
+    variação, a do produto é a `foto_id` da única linha. A de cada
+    variação é a `foto_id` dela."""
+    fora = {}
+    if ler(_ch_rmcapa(pf)):
+        campo = "foto_produto" if por_var else "foto_id"
+        alvo = variacoes if por_var else variacoes[:1]
+        for v in alvo:
+            fora.setdefault(v["id"], {})[campo] = ""
+    if por_var:
+        for v in variacoes:
+            if ler(_ch_vrm(pf, v["id"])):
+                fora.setdefault(v["id"], {})["foto_id"] = ""
+    return fora
+
+
 def _ch_vf(pf, pid):
     return f"{pf}vf_{pid}_{st.session_state.get(pf + 'k', 0)}"
 
@@ -966,8 +1004,9 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
             if erro_cod:
                 _avisar(f"Nada foi gravado — {erro_cod}", erro=True)
                 return
+    tirar = fotos_a_tirar(variacoes, por_var, ss.get, pf)
     if (mud is None and not blocos and not var_mud and not var_fotos and not ajustes and not qtd_ent
-            and not cod_mud):
+            and not cod_mud and not tirar):
         _avisar("Nada para gravar: nenhum campo mudou.", erro=True)
         return
     try:
@@ -1004,6 +1043,17 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
             tudo.setdefault(vid, {}).update(m)
         for vid, m in cod_mud.items():
             tudo.setdefault(vid, {}).update(m)
+        # A foto tirada sai — a não ser que uma nova tenha sido anexada no
+        # mesmo lugar: aí vale a nova.
+        n_tir = 0
+        for vid, m in tirar.items():
+            for campo, val in m.items():
+                if not str(tudo.get(vid, {}).get(campo) or "").strip():
+                    tudo.setdefault(vid, {})[campo] = val
+                    n_tir += 1
+        if n_tir:
+            partes.append("✓ Foto retirada." if n_tir == 1 or "foto_produto" in str(tirar)
+                          else f"✓ {n_tir} foto(s) retirada(s).")
         if cod_mud:
             if cod_gerados:
                 E.atualizar_codigos(cod_gerados)
@@ -3120,6 +3170,8 @@ def _variacoes_do_painel(variacoes, saldo, quem, pf):
                              + (f" No Full: {_full}." if _full else ""))
         c3.file_uploader("Foto da variação", type=None, key=_ch_vf(pf, v["id"]),
                          label_visibility="collapsed")
+        if str(v.get("foto_id") or "").strip():
+            c3.checkbox("🗑 tirar a foto", key=_ch_vrm(pf, v["id"]))
         # A última não tem ✕: excluir a única variação é excluir o produto.
         if len(variacoes) > 1:
             c4.button("✕", key=f"est_pn_x_{v['id']}", help="Excluir esta variação",
@@ -4062,6 +4114,44 @@ if __name__ == "__main__":
        and E.do_codigo(_pq_dep, _pq[0]["ean"]) == []
        and E.extras_do_produto(_pq_dep[0]) == [{"ean": "7908045199999", "forn": "PR-2 (CNPJ B)"}]
        and _av_c and not _av_c[-1][1] and "Códigos de barras" in _av_c[-1][0])
+    # TIRAR A FOTO (dono, 25/11: «excluir a que tem lá e salvar sem foto»),
+    # pela cadeia: produto com capa e foto na variação, Salvar do painel.
+    _pf_v = [{**v, "foto_produto": "CAPA", "foto_id": f"V{i}"} for i, v in enumerate(_pq)]
+    _uno = [{**_co_um, "foto_id": "UNICA"} for _co_um in E.linhas_de_produto(
+        "7891234567895", "X1", "Caneca (P) + Tampa?", 5, [("", "")], "l", "x")]
+    def _salva_t(vars_, suf, painel_, extra):
+        _g, _a = [], []
+        _o = (E.carregar, E.carregar_agora, E.atualizar_produtos, E.salvar_foto, _avisar, st.session_state)
+        try:
+            E.carregar = E.carregar_agora = lambda: (list(vars_), list(_eq), [])
+            E.atualizar_produtos = lambda t: _g.append(t)
+            E.salvar_foto = lambda b, nome: ("ID-" + b.decode(), "")
+            globals()["_avisar"] = lambda msg, erro=False: _a.append((msg, erro))
+            _pf_t = _pf_ed(vars_, suf)
+            st.session_state = {**{_pf_t + k: v for k, v in _iniciais_ed(vars_[0]).items()},
+                                _pf_t + "ini": _iniciais_ed(vars_[0]), _pf_t + "painel": painel_}
+            for k, v in extra(_pf_t).items():
+                st.session_state[k] = v
+            _salvar_produto(vars_, "leo", suf)
+        finally:
+            E.carregar, E.carregar_agora, E.atualizar_produtos, E.salvar_foto = _o[:4]
+            globals()["_avisar"] = _o[4]
+            st.session_state = _o[5]
+        return (_g[0] if _g else {}), _a
+    _t1, _a1 = _salva_t(_pf_v, "_pn", True,
+                        lambda pf: {_ch_rmcapa(pf): True, _ch_vrm(pf, _pf_v[1]["id"]): True})
+    ok("tirar a foto: a capa sai de TODAS as variações e a da variação marcada sai só dela",
+       all(_t1.get(v["id"], {}).get("foto_produto") == "" for v in _pf_v)
+       and _t1.get(_pf_v[1]["id"], {}).get("foto_id") == "" and "foto_id" not in _t1.get(_pf_v[0]["id"], {})
+       and _a1 and not _a1[-1][1] and "retirada" in _a1[-1][0])
+    _t2, _a2 = _salva_t(_uno, "_lt9", False, lambda pf: {_ch_rmcapa(pf): True})
+    ok("tirar a foto: produto sem variação (o «✎ editar» da Entrada) salva SEM foto",
+       _t2 == {_uno[0]["id"]: {"foto_id": ""}} and not _a2[-1][1])
+    class _ArqT:
+        def getvalue(self): return b"NOVA"
+    _t3, _a3 = _salva_t(_pf_v, "_pn", True, lambda pf: {_ch_rmcapa(pf): True, _ch_foto_ed(pf): _ArqT()})
+    ok("tirar a foto E anexar outra no mesmo lugar: vale a NOVA",
+       all(_t3.get(v["id"], {}).get("foto_produto") == "ID-NOVA" for v in _pf_v))
     ok("editar entrada: a quantidade mora DENTRO do quadro do produto (antes era um quadro em cima)",
        "        if entrada:\n            _quantidades_da_entrada(entrada)\n" in _src_ep
        and "entrada=(lt[\"lote\"], lin)" in _insp.getsource(_edicao_da_entrada)
@@ -4070,7 +4160,9 @@ if __name__ == "__main__":
        "pf = _pf_ed(variacoes, sufixo)" in _src_ep and "{sufixo}_" in _insp.getsource(_pf_ed)
        and "st.form(" not in __import__("ast").unparse(__import__("ast").parse(_src_ep.lstrip()))
        and all("key=pf" in ln or "key=f'{pf}" in ln or "key=_ch_foto_ed(pf)" in ln or "key=f\"{pf}" in ln
-               for ln in _src_ep.splitlines() if "key=" in ln))
+               or "key=_ch_rmcapa(pf)" in ln
+               for ln in _src_ep.splitlines() if "key=" in ln)
+       and _ch_rmcapa("est_ed_X_pn_").startswith("est_ed_X_pn_"))
 
     # ORDEM ALFABÉTICA do Estoque cadastrado (dono, 17/11), com nome da
     # planilha (acento, maiúscula) e valor invertido de propósito.
