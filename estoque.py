@@ -57,6 +57,17 @@ AJUSTE_CONTAGEM = "contagem"
 ABA_COMPRAS = "estoque_compras"
 COL_COMPRAS = ["produto_id", "marcado_em", "quem"]
 
+# TROCA NO FORNECEDOR (dono, 25/11): a peça com defeito vai ao fornecedor e
+# SAI do estoque; volta trocada (soma de novo), é reembolsada (some, e o valor
+# conta no Painel) ou não é trocada (vira QUEBRA). Uma linha por envio e
+# origem; as colunas trocado/reembolsado/nao_trocado acumulam as resoluções
+# parciais — o fornecedor troca umas e reembolsa outras.
+ABA_TROCAS = "estoque_trocas"
+COL_TROCAS = ["id", "lote", "quando", "quem", "produto_id", "qtd", "origem", "custo_unit", "obs",
+              "trocado", "reembolsado", "nao_trocado", "valor_reembolsado",
+              "resolvido_em", "resolvido_por"]
+TROCADO, REEMBOLSADO, NAO_TROCADO = "trocado", "reembolsado", "nao_trocado"
+
 ABA_CODIGOS = "estoque_codigos"
 COL_CODIGOS = ["codigo", "tipo", "nome", "produto_ean", "itens", "foto_id",
                "criado_em", "criado_por"]
@@ -82,6 +93,7 @@ def no_full(saldo, pid):
 ENTRADA, DESFEITO = "entrada", "desfeito"
 VENDA, ENVIO_FULL = "venda", "envio_full"
 QUEBRA, DESCARTE, DOACAO, DEVOLUCAO = "quebra", "descarte", "doacao", "devolucao"
+TROCA_ENVIO, TROCA_VOLTA = "troca_envio", "troca_volta"
 PERDAS = (QUEBRA, DESCARTE, DOACAO)
 
 # Prefixo 2 é a faixa que o GS1 reserva para uso INTERNO: nenhum produto do
@@ -551,6 +563,73 @@ def linhas_de_baixa(p, q, motivo, quem, quando, local=FISICO, volta=False,
         linhas.append({**base, "id": _id("M"), "tipo": DESCARTE, "local": FISICO,
                        "qtd": str(-q), "obs": ("devolução que voltou ruim. " + obs).strip()})
     return linhas
+
+
+def linhas_de_troca(p, q, quem, quando, obs="", movs=()):
+    """(registros da troca, movimentos) de mandar `q` peças ao fornecedor. Pura.
+
+    Sai do FÍSICO, varejo primeiro (como toda saída). Uma linha de troca por
+    origem: a peça que voltar trocada volta para a origem de onde saiu."""
+    q = int(q or 0)
+    if q <= 0:
+        return [], []
+    lote = _id("L")
+    regs, movs_out = [], []
+    for o, n in repartir(saldos_por_origem(movs), p["id"], FISICO, q):
+        cu = f"{custo_de(p, o):.2f}"
+        regs.append({"id": _id("T"), "lote": lote, "quando": quando, "quem": quem,
+                     "produto_id": p["id"], "qtd": str(n), "origem": o, "custo_unit": cu,
+                     "obs": str(obs or "").strip(), "trocado": "0", "reembolsado": "0",
+                     "nao_trocado": "0", "valor_reembolsado": "0.00",
+                     "resolvido_em": "", "resolvido_por": ""})
+        movs_out.append({"id": _id("M"), "lote": lote, "quando": quando, "tipo": TROCA_ENVIO,
+                         "local": FISICO, "produto_id": p["id"], "qtd": str(-n), "custo_unit": cu,
+                         "quem": quem, "obs": ("troca no fornecedor. " + str(obs or "")).strip(),
+                         "desfaz": "", "pedido": "", "foto_id": "", "origem": o})
+    return regs, movs_out
+
+
+def pendente_da_troca(t):
+    """Peças ainda no fornecedor, esperando resposta. Pura."""
+    return max(inteiro(t.get("qtd")) - inteiro(t.get("trocado")) - inteiro(t.get("reembolsado"))
+               - inteiro(t.get("nao_trocado")), 0)
+
+
+def resolver_troca(t, n, como, quem, quando):
+    """(mudança da linha da troca, movimentos, erro) de resolver `n` peças. Pura.
+
+    TROCADO: as peças voltam ao físico, na origem de onde saíram.
+    REEMBOLSADO: não voltam; o valor (custo × peças) soma no reembolsado.
+    NÃO TROCADO: voltam e saem no mesmo lote como QUEBRA — o saldo não muda
+    (a peça já tinha saído) e a perda aparece na Quebra e no Painel."""
+    n = int(n or 0)
+    falta = pendente_da_troca(t)
+    if n <= 0:
+        return {}, [], "escolha a quantidade."
+    if n > falta:
+        return {}, [], f"só {falta} peça(s) desta troca ainda estão no fornecedor."
+    if como not in (TROCADO, REEMBOLSADO, NAO_TROCADO):
+        return {}, [], f"resolução desconhecida: {como!r}"
+    mud = {como: str(inteiro(t.get(como)) + n), "resolvido_em": quando, "resolvido_por": quem}
+    cu = numero(t.get("custo_unit"))
+    base = {"lote": _id("L"), "quando": quando, "local": FISICO, "produto_id": t["produto_id"],
+            "custo_unit": f"{cu:.2f}", "quem": quem, "desfaz": "", "pedido": "", "foto_id": "",
+            "origem": t.get("origem") or VAREJO}
+    movs_out = []
+    if como == REEMBOLSADO:
+        mud["valor_reembolsado"] = f"{numero(t.get('valor_reembolsado')) + cu * n:.2f}"
+    else:
+        movs_out.append({**base, "id": _id("M"), "tipo": TROCA_VOLTA, "qtd": str(n),
+                         "obs": "voltou do fornecedor" + (" trocada" if como == TROCADO else "")})
+    if como == NAO_TROCADO:
+        movs_out.append({**base, "id": _id("M"), "tipo": QUEBRA, "qtd": str(-n),
+                         "obs": ("fornecedor não trocou. " + str(t.get("obs") or "")).strip()})
+    return mud, movs_out, ""
+
+
+def total_reembolsado(trocas):
+    """O valor que o fornecedor já devolveu, somando todas as trocas. Pura."""
+    return round(sum(numero(t.get("valor_reembolsado")) for t in trocas), 2)
 
 
 def baixas_do_mes(movs, ano, mes):
@@ -1099,6 +1178,10 @@ def _compras_sem_cache():
     return _ler(ABA_COMPRAS, COL_COMPRAS)
 
 
+def _trocas_sem_cache():
+    return _ler(ABA_TROCAS, COL_TROCAS)
+
+
 def _contagem_sem_cache():
     return _ler(ABA_CONTAGENS, COL_CONTAGENS), _ler(ABA_CONTADOS, COL_CONTADOS)
 
@@ -1107,6 +1190,7 @@ try:
     import streamlit as _st
     carregar = _st.cache_data(ttl=120, show_spinner=False)(_carregar_sem_cache)
     compras = _st.cache_data(ttl=120, show_spinner=False)(_compras_sem_cache)
+    trocas = _st.cache_data(ttl=120, show_spinner=False)(_trocas_sem_cache)
     # 20 s, e não 2 min: com várias pessoas contando, o fechamento precisa
     # ver o que o celular do outro acabou de gravar.
     contagem = _st.cache_data(ttl=20, show_spinner=False)(_contagem_sem_cache)
@@ -1117,11 +1201,12 @@ except Exception:          # fora do Streamlit (auto-teste)
     tabela_de_sku_da_planilha = _tabela_de_sku_sem_cache
     carregar = _carregar_sem_cache
     compras = _compras_sem_cache
+    trocas = _trocas_sem_cache
     contagem = _contagem_sem_cache
 
 
 def _limpar_cache():
-    for f in (carregar, compras, contagem):
+    for f in (carregar, compras, trocas, contagem):
         try:
             f.clear()
         except Exception:
@@ -1204,6 +1289,25 @@ def gravar_contado(contagem_id, produto_id, qtd, onde, quem, quando):
 def marcar_comprado(produto_id, quem, quando):
     return _anexar(ABA_COMPRAS, COL_COMPRAS,
                    [{"produto_id": produto_id, "marcado_em": quando, "quem": quem}])
+
+
+def trocas_agora():
+    """A aba de trocas de AGORA, sem o cache de 2 min: resolver duas vezes a
+    mesma peça tem de ver o que o primeiro clique gravou."""
+    try:
+        trocas.clear()
+    except Exception:
+        pass
+    return trocas()
+
+
+def gravar_trocas(linhas):
+    return _anexar(ABA_TROCAS, COL_TROCAS, linhas)
+
+
+def atualizar_trocas(mudancas):
+    """`mudancas` = {id da troca: {coluna: valor}}."""
+    return _atualizar(ABA_TROCAS, COL_TROCAS, "id", mudancas)
 
 
 def gravar_codigo(linha):
@@ -1511,6 +1615,52 @@ if __name__ == "__main__":
        and all(p["ean"] == "7899999000061" for p in prods) and prods[0]["custo"] == "18.40")
     ok("do_codigo: o bipe acha as três posições, com espaço no meio do bipe",
        len(do_codigo(prods, "7899 9990 00061")) == 3 and do_codigo(prods, "") == [])
+    # TROCA NO FORNECEDOR (dono, 25/11), pela cadeia: produto e entrada de
+    # verdade; 5 vão ao fornecedor; volta 2 trocada, 2 reembolsadas, 1 não.
+    _tp = linhas_de_produto("7908045161706", "AP34981-3", "Porta 3 Relógios (P) + Jóias?", 40,
+                            [("Preto", "")], "l", "x", sku="MS-1", custo_atacado=30)
+    _tm = (linhas_de_entrada([(_tp[0], 3)], "l", "x")
+           + linhas_de_entrada([(_tp[0], 4)], "l", "x", origem=ATACADO))
+    _tr, _tmv = linhas_de_troca(_tp[0], 5, "leo", "25/11/2026 10:00", "tampa trincada", movs=_tm)
+    _s0 = saldos(_tm + _tmv)
+    ok("troca: as 5 saem do físico, varejo primeiro (3 varejo + 2 atacado), uma linha por origem",
+       _s0.get((_tp[0]["id"], FISICO)) == 2 and [(t["origem"], t["qtd"]) for t in _tr]
+       == [(VAREJO, "3"), (ATACADO, "2")] and all(t["obs"] == "tampa trincada" for t in _tr)
+       and all(m["tipo"] == TROCA_ENVIO for m in _tmv))
+    _t1 = dict(_tr[0])
+    _mu1, _mv1, _e1 = resolver_troca(_t1, 2, TROCADO, "leo", "x")
+    _t1.update(_mu1)
+    _mu2, _mv2, _e2 = resolver_troca(_t1, 1, NAO_TROCADO, "leo", "25/11/2026 11:00")
+    _t1.update(_mu2)
+    _t2 = dict(_tr[1])
+    _mu3, _mv3, _e3 = resolver_troca(_t2, 2, REEMBOLSADO, "leo", "x")
+    _t2.update(_mu3)
+    _s1 = saldos(_tm + _tmv + _mv1 + _mv2 + _mv3)
+    _bx = baixas_do_mes(_tm + _tmv + _mv1 + _mv2 + _mv3, 2026, 11)
+    ok("troca: trocada VOLTA ao físico; não trocada não muda o saldo e é QUEBRA; reembolsada some",
+       not (_e1 or _e2 or _e3) and _s1.get((_tp[0]["id"], FISICO)) == 4
+       and [m["tipo"] for m in _mv2] == [TROCA_VOLTA, QUEBRA] and _mv3 == []
+       and pendente_da_troca(_t1) == 0 and pendente_da_troca(_t2) == 0
+       and total_reembolsado([_t1, _t2]) == 60.0 and abs(_bx["por_motivo"][QUEBRA] - 40.0) < 0.01)
+    ok("troca: não deixa resolver mais do que está no fornecedor, nem zero",
+       resolver_troca(_tr[0], 4, TROCADO, "l", "x")[2] == "só 3 peça(s) desta troca ainda estão no fornecedor."
+       and resolver_troca(_tr[0], 0, TROCADO, "l", "x")[2] == "escolha a quantidade.")
+    # A troca vai para a aba DELA, e a resolução reescreve a linha pelo id.
+    _abt = _AbaGrava([list(COL_TROCAS)])
+    _abt2 = _AbaGrava([list(COL_TROCAS), [_tr[0].get(c, "") for c in COL_TROCAS]])
+    _nomes_t = []
+    _real_aba_t = globals()["_aba"]
+    try:
+        globals()["_aba"] = lambda nome, colunas: (_nomes_t.append(nome) or _abt)
+        _nt = gravar_trocas(_tr)
+        globals()["_aba"] = lambda nome, colunas: (_nomes_t.append(nome) or _abt2)
+        _ut = atualizar_trocas({_tr[0]["id"]: {"trocado": "2"}})
+    finally:
+        globals()["_aba"] = _real_aba_t
+    ok("gravar_trocas / atualizar_trocas: na aba estoque_trocas; a resolução acha a linha pelo id",
+       _nt == 2 and len(_abt.anexado) == 2 and _abt.anexado[0][0] == _tr[0]["id"]
+       and _nomes_t == [ABA_TROCAS, ABA_TROCAS] and _ut == 1
+       and {"range": f"{chr(65 + COL_TROCAS.index('trocado'))}2", "values": [["2"]]} in _abt2.celulas)
     # A TRAVA DE PREÇO (dono, 25/11), pela cadeia: produto cadastrado só como
     # atacado (linhas_de_produto com SKU e custo de atacado, sem os de varejo).
     _pa_t = linhas_de_produto("7908045161706", "AP34981-3", "Porta 3 Relógios (P) + Jóias?", 0,
@@ -1912,6 +2062,22 @@ if __name__ == "__main__":
     finally:
         globals()["_limpar_cache"], globals()["carregar"] = _orig_ca
     ok("carregar_agora: limpa o cache e só DEPOIS lê", _ordem_ca == ["limpa", "le"] and _r_ca == ("P", "M", "C"))
+    # trocas_agora: o mesmo para a troca — o 2º clique de «Troca realizada»
+    # não pode resolver de novo as peças que o 1º já resolveu (25/11).
+    _ordem_ta = []
+    class _TrocasFalsas:
+        def clear(self):
+            _ordem_ta.append("limpa")
+        def __call__(self):
+            _ordem_ta.append("le")
+            return ["T"]
+    _orig_ta = globals()["trocas"]
+    try:
+        globals()["trocas"] = _TrocasFalsas()
+        _r_ta = trocas_agora()
+    finally:
+        globals()["trocas"] = _orig_ta
+    ok("trocas_agora: limpa o cache e só DEPOIS lê", _ordem_ta == ["limpa", "le"] and _r_ta == ["T"])
     # tabela_de_sku_agora: as DUAS cópias saem antes da leitura (18/11).
     import controle_ms as _cms_t
     _ord_sk = []
