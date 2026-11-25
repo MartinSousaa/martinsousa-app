@@ -330,9 +330,106 @@ def ler_conta(conta, tok, uid, req=None):
     return fora
 
 
+# ── O nome pela planilha da Análise de Anúncios (dono, 25/11) ─────────────────
+#
+# O ML recusa ler alguns anúncios («403: Resource deprecated»), nem em lote
+# nem um por um. A planilha da Análise de Anúncios tem, na aba «Todos os
+# anúncios», a conta, o código e o título de todos — e o dono a pôs no
+# OneDrive da empresa. O link é segredo, como o do Controle MS: mora na
+# variável ANALISE_ANUNCIOS_URL do Railway, nunca no código.
+CHAVE_ANALISE = "ANALISE_ANUNCIOS_URL"
+ABA_ANALISE = "Todos os anúncios"
+
+
+def _cab_analise(t):
+    return " ".join(normalizar(str(t or "")).split())
+
+
+def mapa_da_aba(linhas):
+    """{código: título} da aba «Todos os anúncios». Pura. As colunas se acham
+    pelo NOME (Código, Título), não pela posição."""
+    linhas = iter(linhas or [])
+    cab = next(linhas, None) or []
+    nomes = [_cab_analise(c) for c in cab]
+    try:
+        i_c, i_t = nomes.index(_cab_analise("Código")), nomes.index(_cab_analise("Título"))
+    except ValueError:
+        return {}
+    fora = {}
+    for r in linhas:
+        if not r or max(i_c, i_t) >= len(r):
+            continue
+        cod = str(r[i_c] or "").strip().upper().replace("-", "")
+        tit = " ".join(str(r[i_t] or "").split())
+        if cod.startswith("MLB") and tit:
+            fora[cod] = tit
+    return fora
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def nomes_da_analise():
+    """({código: título}, erro) da planilha da Análise de Anúncios. Baixada
+    no máximo uma vez por hora, e só quando falta nome."""
+    import chaves as _chv
+    link = str(_chv.ler(CHAVE_ANALISE) or "").strip()
+    if not link:
+        return {}, f"falta a variável {CHAVE_ANALISE} no Railway (o link da planilha)"
+    try:
+        import excel_ms
+        import planilha_xlsx
+        dados, erro = excel_ms.baixar(link)
+        if erro:
+            return {}, f"a planilha da Análise não abriu: {erro}"
+        wb = planilha_xlsx.abrir(dados)
+        try:
+            abas = {_cab_analise(n): n for n in wb.sheetnames}
+            if _cab_analise(ABA_ANALISE) not in abas:
+                return {}, f"a planilha da Análise não tem a aba «{ABA_ANALISE}»"
+            return mapa_da_aba(wb[abas[_cab_analise(ABA_ANALISE)]].iter_rows(values_only=True)), ""
+        finally:
+            wb.close()
+    except Exception as e:
+        return {}, f"a planilha da Análise não abriu: {type(e).__name__}"
+
+
+def completar_pela_analise(lidas, nomes):
+    """Dá nome, pela planilha, ao anúncio que o ML não deixou ler. Muda
+    `lidas` no lugar. `nomes()` → ({código: título}, erro), chamado só se
+    faltar nome. O aviso de cada conta passa a dizer quantos vieram da
+    planilha e quantos ainda faltam (com quais)."""
+    faltam = {c: [o["item"] for o in v.get("ofertas", [])
+                  if isinstance(o, dict) and o.get("item") and o["item"] not in v.get("titulos", {})]
+              for c, v in lidas.items()}
+    if not any(faltam.values()):
+        return lidas
+    mapa, erro = nomes()
+    for c, ids in faltam.items():
+        if not ids:
+            continue
+        v = lidas[c]
+        ids = list(dict.fromkeys(ids))
+        achou = [i for i in ids if i in mapa]
+        for i in achou:
+            v["titulos"][i] = {"id": i, "title": mapa[i], "da_planilha": True}
+        resto = [i for i in ids if i not in mapa]
+        velho = [a for a in v.get("avisos", []) if a.startswith("títulos:")]
+        motivo = velho[0].split(" — ", 1)[1] if velho and " — " in velho[0] else ""
+        v["avisos"] = [a for a in v.get("avisos", []) if not a.startswith("títulos:")]
+        if resto:
+            v["avisos"].append(
+                f"títulos: {len(resto)} anúncio(s) sem nome ({', '.join(resto[:5])}"
+                + (f" e mais {len(resto) - 5}" if len(resto) > 5 else "") + ")"
+                + (f" — o ML: {motivo}" if motivo else "")
+                + (f" · {len(achou)} vieram da planilha da Análise" if achou else "")
+                + (f" · {erro}" if erro else " · nem na planilha da Análise"))
+    return lidas
+
+
 def ler_todas():
     """As quatro contas em paralelo. {conta: dado}. O token de cada uma é
-    buscado AQUI, na thread da tela (ele lê a planilha e pode renovar)."""
+    buscado AQUI, na thread da tela (ele lê a planilha e pode renovar).
+    O nome que o ML não deu vem da planilha da Análise — aqui, na thread
+    da tela, e não na da conta (o cache do Streamlit é da tela)."""
     from concurrent.futures import ThreadPoolExecutor
     prontas, lidas = {}, {}
     for c in _ml.CONTAS:
@@ -350,7 +447,7 @@ def ler_todas():
             except Exception as e:
                 lidas[c] = {"ofertas": [], "titulos": {}, "promocoes": 0,
                             "avisos": [f"a leitura caiu: {type(e).__name__}"]}
-    return lidas
+    return completar_pela_analise(lidas, nomes_da_analise)
 
 
 def faixa_do_desconto(conta, item):
@@ -974,19 +1071,22 @@ if __name__ == "__main__":
        and preco_hoje({"price": 34.44}) == 34.44 and preco_hoje({}) == 0.0)
     # ler_todas: o token é buscado FORA da thread, e conta sem autorização vira
     # aviso em vez de derrubar as outras.
-    _g_lt = (_ml.token, _ml._ler_da_planilha, globals()["ler_conta"])
+    _g_lt = (_ml.token, _ml._ler_da_planilha, globals()["ler_conta"], globals()["nomes_da_analise"])
     _quem_pediu_token = []
     try:
         _ml._ler_da_planilha = lambda c: {"user_id": "" if c == "ml4" else "9"}
         _ml.token = lambda c: (_quem_pediu_token.append(_th.current_thread().name), ("T", ""))[1]
-        globals()["ler_conta"] = lambda c, t, u, req=None: {"ofertas": [1], "titulos": {},
-                                                            "avisos": [], "promocoes": 1}
+        globals()["ler_conta"] = lambda c, t, u, req=None: {"ofertas": [{"item": "MLB3749318100"}],
+                                                            "titulos": {}, "avisos": [], "promocoes": 1}
+        # pela cadeia: o nome que o ML não deu vem da planilha da Análise
+        globals()["nomes_da_analise"] = lambda: ({"MLB3749318100": "Porta 2 Relógio + Jóias"}, "")
         _lt = ler_todas()
     finally:
-        _ml.token, _ml._ler_da_planilha, globals()["ler_conta"] = _g_lt
+        _ml.token, _ml._ler_da_planilha, globals()["ler_conta"], globals()["nomes_da_analise"] = _g_lt
     ok("ler_todas: lê as autorizadas, a sem autorização vira aviso, token na thread da tela",
        sorted(_lt) == list(_ml.CONTAS) and _lt["ml4"]["avisos"]
-       and _lt["ml1"]["ofertas"] == [1]
+       and _lt["ml1"]["ofertas"] == [{"item": "MLB3749318100"}]
+       and _lt["ml1"]["titulos"].get("MLB3749318100", {}).get("title") == "Porta 2 Relógio + Jóias"
        and set(_quem_pediu_token) == {_th.main_thread().name})
 
     # TÍTULOS (dono, 25/11): o lote recusado é relido um a um; só o recusado
@@ -1008,6 +1108,38 @@ if __name__ == "__main__":
        and "item bloqueado" in _at[0])
     _tt0, _at0 = titulos("ml1", "T", ["MLB7"], lambda *a, **k: ([{"code": 200, "body": {"id": "MLB7"}}], ""))
     ok("títulos: sem recusa, nenhum aviso", list(_tt0) == ["MLB7"] and _at0 == [])
+
+    # O NOME PELA PLANILHA DA ANÁLISE (dono, 25/11), com o cabeçalho real da
+    # aba «Todos os anúncios» e um título com símbolo e espaço duplo.
+    _cab_real = ("Conta", "Código", "Título", "Preço", "Situação", "Motivo")
+    _mp = mapa_da_aba([_cab_real,
+                       ("ML1", "MLB3749318100", "Porta 2 Relógio + Jóias  (P/M)", 70.5, "RUIM", None),
+                       ("ML4", " mlb7328857214 ", "Óculos de sol Óculos de sol MS Sol", 59.99, "CONFERIR", ""),
+                       ("ML4", "MLB1", None, 1, "", ""), ("ML4", "", "sem código", 1, "", "")])
+    ok("mapa_da_aba: código→título pelo nome da coluna, código limpo, título sem espaço duplo",
+       _mp == {"MLB3749318100": "Porta 2 Relógio + Jóias (P/M)",
+               "MLB7328857214": "Óculos de sol Óculos de sol MS Sol"}
+       and mapa_da_aba([("Conta", "Item")]) == {} and mapa_da_aba([]) == {})
+    _ld = {"ml1": {"ofertas": [{"item": "MLB3749318100"}, {"item": "MLB9"}, {"item": "MLB5"}],
+                   "titulos": {"MLB5": {"title": "do ML"}},
+                   "avisos": ["títulos: 2 anúncio(s) sem nome (MLB3749318100, MLB9) — 403: Resource deprecated"]},
+           "ml2": {"ofertas": [{"item": "MLB7"}], "titulos": {"MLB7": {"title": "x"}}, "avisos": []}}
+    _chamou = []
+    completar_pela_analise(_ld, lambda: (_chamou.append(1), (_mp, ""))[1])
+    ok("completar_pela_analise: o que o ML não deu vem da planilha; o aviso diz quantos e o que falta",
+       _ld["ml1"]["titulos"].get("MLB3749318100", {}).get("title") == "Porta 2 Relógio + Jóias (P/M)"
+       and _ld["ml1"]["titulos"]["MLB5"]["title"] == "do ML"
+       and len(_ld["ml1"]["avisos"]) == 1 and "1 anúncio(s) sem nome (MLB9)" in _ld["ml1"]["avisos"][0]
+       and "1 vieram da planilha" in _ld["ml1"]["avisos"][0] and "Resource deprecated" in _ld["ml1"]["avisos"][0]
+       and _ld["ml2"]["avisos"] == [] and _chamou == [1])
+    _ld2 = {"ml1": {"ofertas": [{"item": "MLB5"}], "titulos": {"MLB5": {}}, "avisos": []}}
+    _chamou.clear()
+    completar_pela_analise(_ld2, lambda: (_chamou.append(1), ({}, ""))[1])
+    ok("completar_pela_analise: sem nome faltando, nem baixa a planilha", _chamou == [])
+    _ld3 = {"ml1": {"ofertas": [{"item": "MLB9"}], "titulos": {}, "avisos": []}}
+    completar_pela_analise(_ld3, lambda: ({}, "falta a variável ANALISE_ANUNCIOS_URL no Railway"))
+    ok("completar_pela_analise: sem o link, o aviso diz o que falta",
+       "ANALISE_ANUNCIOS_URL" in _ld3["ml1"]["avisos"][0])
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

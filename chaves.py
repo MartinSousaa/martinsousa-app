@@ -35,6 +35,8 @@ PARA_QUE = {
     "SERPAPI_KEY": "pesquisar concorrentes na hora de escrever a descrição",
     "TRELLO_KEY": "ler os cartões do Trello",
     "TRELLO_TOKEN": "ler os cartões do Trello",
+    "ANALISE_ANUNCIOS_URL": "dar nome, nas Promoções, ao anúncio que o ML não deixa ler "
+                            "(link da planilha Análise de Anúncios, aba «Todos os anúncios»)",
     "MS_TENANT_ID": "entrar no OneDrive da empresa (Controle MS)",
     "MS_CLIENT_ID": "entrar no OneDrive da empresa (Controle MS)",
     "MS_CLIENT_SECRET": "entrar no OneDrive da empresa (Controle MS)",
