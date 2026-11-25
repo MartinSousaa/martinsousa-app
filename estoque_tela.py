@@ -327,12 +327,34 @@ def _mostrar_procura():
         st.warning(f"Nada encontrado com «{pr['texto']}» — procure por nome, SKU, código do "
                    "fornecedor ou código de barras.")
         return
-    st.caption(f"Achados com «{pr['texto']}» — clique no produto (age como o bipe dele):")
-    for p in achados:
-        rot = " · ".join(x for x in (str(p.get("nome") or ""), str(p.get("codigo_fornecedor") or ""),
-                                      E.normalizar_sku(p.get("sku")), E.limpar_codigo(p.get("ean"))) if x)
-        st.button(rot, key=f"est_pr_{E.limpar_codigo(p.get('ean'))}", on_click=_escolheu,
-                  args=(p.get("ean"),), use_container_width=True)
+    st.caption(f"Achados com «{pr['texto']}» — clique em «Escolher» (age como o bipe dele):")
+    # EM CARTÕES, TRÊS POR LINHA, COM FOTO E SKU (dono, 25/11): a faixa da
+    # largura toda mostrava só o texto — sem a peça na mão, a foto é o que
+    # confirma que é ela.
+    for i in range(0, len(achados), ACHADOS_POR_LINHA):
+        cols = st.columns(ACHADOS_POR_LINHA)
+        for c, p in zip(cols, achados[i:i + ACHADOS_POR_LINHA]):
+            with c.container(border=True):
+                st.markdown(cartao_achado_html(p), unsafe_allow_html=True)
+                st.button("Escolher", key=f"est_pr_{E.limpar_codigo(p.get('ean'))}", on_click=_escolheu,
+                          args=(p.get("ean"),), use_container_width=True)
+
+
+ACHADOS_POR_LINHA = 3
+
+
+def cartao_achado_html(p):
+    """Foto, nome, SKU (varejo e atacado) e códigos do produto achado. Pura."""
+    skus = " · ".join(f"{r} <b>{_esc(v)}</b>" for r, v in
+                      (("SKU", E.normalizar_sku(p.get("sku"))), ("SKU at.", E.normalizar_sku(p.get("sku_atacado"))))
+                      if v) or '<span style="color:#E5534B">sem SKU</span>'
+    cods = " · ".join(_esc(x) for x in (str(p.get("codigo_fornecedor") or "").strip(),
+                                         E.limpar_codigo(p.get("ean"))) if x)
+    return (f'<div style="display:flex;gap:10px;align-items:center">{foto_html(E.foto_principal(p), 64)}'
+            f'<div style="min-width:0;line-height:1.35"><div style="font-weight:800;font-size:14px">'
+            f'{_esc(E.capitalizar(p.get("nome")))}</div>'
+            f'<div style="font-size:12px">{skus}</div>'
+            f'<div style="font-size:11px;color:#9AA3AE">{cods}</div></div></div>')
 
 
 def _mostrar_desconhecido():
