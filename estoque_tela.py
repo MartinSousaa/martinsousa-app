@@ -23,8 +23,15 @@ import streamlit as st
 
 import estoque as E
 
-MODOS = ("⬇ Entrada", "⬆ Saída", "✖ Quebra · Descarte · Devolução",
-         "🧩 Kits", "📊 Estoque cadastrado", "📱 Contagem", "📈 Painel")
+# A TROCA NO FORNECEDOR entre a Saída e a Quebra (dono, 25/11). Os índices
+# abaixo saíram de MODOS[n] para o NOME: inserir uma aba não muda mais qual
+# tela cada índice abre.
+MODO_TROCA = "🔁 Troca no fornecedor"
+MODO_BAIXA = "✖ Quebra · Descarte · Devolução"
+MODO_CADASTRADO = "📊 Estoque cadastrado"
+MODO_PAINEL = "📈 Painel"
+MODOS = ("⬇ Entrada", "⬆ Saída", MODO_TROCA, MODO_BAIXA,
+         "🧩 Kits", MODO_CADASTRADO, "📱 Contagem", MODO_PAINEL)
 EM_CONSTRUCAO = {}
 
 # O BIPE VAI PARA A BARRA, ESTEJA O CURSOR ONDE ESTIVER (dono, 11/11).
@@ -239,7 +246,11 @@ def _despachar(cod):
     if ss.get("est_modo") == "⬆ Saída":
         _bipe_na_saida(cod)
         return
-    if ss.get("est_modo") == MODOS[2]:
+    if ss.get("est_modo") == MODO_TROCA:
+        ss["est_tr_cod"] = cod
+        ss.pop("est_tr_var", None)
+        return
+    if ss.get("est_modo") == MODO_BAIXA:
         ss["est_bx_cod"] = cod
         ss.pop("est_bx_var", None)
         return
@@ -316,12 +327,34 @@ def _mostrar_procura():
         st.warning(f"Nada encontrado com «{pr['texto']}» — procure por nome, SKU, código do "
                    "fornecedor ou código de barras.")
         return
-    st.caption(f"Achados com «{pr['texto']}» — clique no produto (age como o bipe dele):")
-    for p in achados:
-        rot = " · ".join(x for x in (str(p.get("nome") or ""), str(p.get("codigo_fornecedor") or ""),
-                                      E.normalizar_sku(p.get("sku")), E.limpar_codigo(p.get("ean"))) if x)
-        st.button(rot, key=f"est_pr_{E.limpar_codigo(p.get('ean'))}", on_click=_escolheu,
-                  args=(p.get("ean"),), use_container_width=True)
+    st.caption(f"Achados com «{pr['texto']}» — clique em «Escolher» (age como o bipe dele):")
+    # EM CARTÕES, TRÊS POR LINHA, COM FOTO E SKU (dono, 25/11): a faixa da
+    # largura toda mostrava só o texto — sem a peça na mão, a foto é o que
+    # confirma que é ela.
+    for i in range(0, len(achados), ACHADOS_POR_LINHA):
+        cols = st.columns(ACHADOS_POR_LINHA)
+        for c, p in zip(cols, achados[i:i + ACHADOS_POR_LINHA]):
+            with c.container(border=True):
+                st.markdown(cartao_achado_html(p), unsafe_allow_html=True)
+                st.button("Escolher", key=f"est_pr_{E.limpar_codigo(p.get('ean'))}", on_click=_escolheu,
+                          args=(p.get("ean"),), use_container_width=True)
+
+
+ACHADOS_POR_LINHA = 3
+
+
+def cartao_achado_html(p):
+    """Foto, nome, SKU (varejo e atacado) e códigos do produto achado. Pura."""
+    skus = " · ".join(f"{r} <b>{_esc(v)}</b>" for r, v in
+                      (("SKU", E.normalizar_sku(p.get("sku"))), ("SKU at.", E.normalizar_sku(p.get("sku_atacado"))))
+                      if v) or '<span style="color:#E5534B">sem SKU</span>'
+    cods = " · ".join(_esc(x) for x in (str(p.get("codigo_fornecedor") or "").strip(),
+                                         E.limpar_codigo(p.get("ean"))) if x)
+    return (f'<div style="display:flex;gap:10px;align-items:center">{foto_html(E.foto_principal(p), 64)}'
+            f'<div style="min-width:0;line-height:1.35"><div style="font-weight:800;font-size:14px">'
+            f'{_esc(E.capitalizar(p.get("nome")))}</div>'
+            f'<div style="font-size:12px">{skus}</div>'
+            f'<div style="font-size:11px;color:#9AA3AE">{cods}</div></div></div>')
 
 
 def _mostrar_desconhecido():
@@ -390,6 +423,20 @@ def renomeacoes(variacoes, digitados):
     return out
 
 
+def entrada_sem_preco(itens, origem):
+    """A frase que BLOQUEIA a entrada, ou "" (dono, 25/11: sem SKU e custo
+    da origem, o estoque não tem preço). `itens` = [(variação, qtd)]. Pura."""
+    faltas = [(v, E.falta_preco(v, origem)) for v, q in itens if int(q or 0) > 0]
+    faltas = [(v, f) for v, f in faltas if f]
+    if not faltas:
+        return ""
+    outra = E.ATACADO if origem == E.VAREJO else E.VAREJO
+    return ("Entrada BLOQUEADA — sem preço no " + origem + ": "
+            + "; ".join(f"«{E.nome_completo(v)}» não tem {f}" for v, f in faltas)
+            + f". Cadastre no produto (Estoque cadastrado ou ✎ editar) e dê a entrada de novo"
+            + f" — ou, se a peça é de {outra}, troque a entrada para {outra}.")
+
+
 def _confirmar_entrada(variacoes, quem):
     ss = st.session_state
     try:
@@ -397,6 +444,10 @@ def _confirmar_entrada(variacoes, quem):
         renomes = renomeacoes(variacoes, {v["id"]: ss.get(f"est_n_{v['id']}") for v in variacoes})
         local = _local_da_entrada()
         origem = _origem_da_entrada()
+        trava = entrada_sem_preco(itens, origem)
+        if trava:
+            _avisar(trava, True)
+            return
         linhas = E.linhas_de_entrada(itens, quem, _quando(), local=local, origem=origem)
         if not linhas and not renomes:
             _avisar("Nada para gravar: todas as quantidades estão em zero.", True)
@@ -990,6 +1041,12 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
                     + (" já está cadastrada" if len(rep) == 1 else " já estão cadastradas")
                     + " neste produto. Se acabou de salvar, ela já entrou: confira a lista.", erro=True)
             return
+    if blocos:
+        _base_t = {**p0, **(mud or {}).get(p0["id"], {})}
+        trava = entrada_sem_preco([(_base_t, sum(q or 0 for _n, q, _f in blocos))], _origem_da_entrada())
+        if trava:
+            _avisar(f"Nada foi gravado — {trava}", erro=True)
+            return
     qtd_ent = {}
     if entrada:
         qtd_ent = quantidades_mudadas(entrada[1], {i: ss.get(_ch_qe(entrada[0], i)) for i, _m, _p in entrada[1]})
@@ -1575,6 +1632,13 @@ def _cadastro(quem):
     custos, erro_c, avisos_c = _custos_do_formulario(sku, custo, sku_at, custo_at)
     if erro_c:
         st.error(erro_c)
+        return
+    # A TRAVA DE PREÇO (25/11) ANTES de gravar e antes de mandar foto ao Drive.
+    _cp = {"nome": nome, **custos}
+    trava = (entrada_sem_preco([(_cp, sum(x[1] for x in var_ok))], E.VAREJO)
+             or entrada_sem_preco([(_cp, sum(x[2] for x in var_ok))], E.ATACADO))
+    if trava:
+        st.error(trava.replace("dê a entrada de novo", "cadastre de novo"))
         return
     try:
         prods, _m, cods = E.carregar()
@@ -2487,6 +2551,176 @@ def _baixas(quem):
         _perdas_do_mes(movs, por_id, quem)
 
 
+# ── TROCA NO FORNECEDOR (dono, 25/11) ───────────────────────────────────────
+
+def _ch_tr(campo, tid):
+    return f"est_tr_{campo}_{tid}_{st.session_state.get('est_tr_k', 0)}"
+
+
+def _trocas(quem):
+    ss = st.session_state
+    aviso = ss.pop("est_aviso", None)
+    if aviso:
+        (st.error if aviso[1] else st.success)(aviso[0])
+    _mostrar_desconhecido()
+    try:
+        prods, movs, _codigos = E.carregar()
+        trocas = E.trocas()
+    except Exception as e:
+        st.error(f"Não consegui ler o estoque na planilha: {e}")
+        return
+    _barra(saida=True)
+    por_id = {p["id"]: p for p in prods}
+    saldo = E.saldos(movs)
+    esq, dir_ = st.columns([1, 1.3])
+    with esq:
+        cod = ss.get("est_tr_cod")
+        var = E.do_codigo(prods, cod) if cod else []
+        if cod and not var:
+            ss.pop("est_tr_cod", None)
+            ss["est_desconhecido"] = cod
+            _mostrar_desconhecido()
+        elif not var:
+            st.caption("Bipe o produto que vai para o fornecedor. Ele SAI do estoque agora; "
+                       "volta quando a troca for feita.")
+        else:
+            _ficha_troca(var, saldo, quem)
+    with dir_:
+        _lista_trocas(trocas, por_id, quem)
+
+
+def _ficha_troca(var, saldo, quem):
+    ss = st.session_state
+    if len(var) > 1:
+        nomes = [str(v.get("variacao") or "").strip() or E.nome_completo(v) for v in var]
+        esc = st.radio("Qual modelo?", nomes, key="est_tr_var", horizontal=True)
+        p = var[nomes.index(esc)] if esc in nomes else var[0]
+    else:
+        p = var[0]
+    st.markdown(
+        f'<div style="display:flex;gap:12px;align-items:center;margin:6px 0">'
+        f'{foto_html(E.foto_principal(p), 72)}<div><div style="font-size:11px;font-weight:800;'
+        f'letter-spacing:.12em;color:#f0c060">BIPADO · TROCA NO FORNECEDOR</div>'
+        f'<div style="font-size:18px;font-weight:800">{_esc(E.nome_completo(p))}</div>'
+        f'<div style="font-size:13px;color:#9AA3AE">{_esc(p.get("fornecedor") or p.get("codigo_fornecedor") or "—")}'
+        f' · físico {saldo.get((p["id"], E.FISICO), 0)}</div></div></div>', unsafe_allow_html=True)
+    with st.form("est_form_tr", clear_on_submit=True):
+        q = st.number_input("Quantidade", min_value=1, step=1, value=1)
+        obs = st.text_area("Dano e motivo da troca (opcional)", height=80,
+                           placeholder="tampa trincada · veio sem a base · cor errada")
+        enviar = st.form_submit_button("ENVIAR PARA TROCA", type="primary")
+    if not enviar:
+        return
+    try:
+        _p, movs, _c = E.carregar()
+        regs, mv = E.linhas_de_troca(p, int(q), quem, _quando(), obs, movs)
+        E.gravar_trocas(regs)
+        E.gravar_movimentos(mv)
+        _avisar(f"✓ Troca: {int(q)}× {E.nome_completo(p)} foi para o fornecedor e saiu do estoque.")
+        ss.pop("est_tr_cod", None)
+        st.rerun()
+    except Exception as e:
+        st.error(f"Não gravei a troca — a planilha respondeu: {e}")
+
+
+def linhas_da_lista_trocas(trocas, por_id):
+    """As trocas ainda no fornecedor, a mais antiga em cima. Pura."""
+    fora = []
+    for t in trocas:
+        falta = E.pendente_da_troca(t)
+        if falta:
+            fora.append({"t": t, "p": por_id.get(str(t.get("produto_id")), {}), "falta": falta})
+    return fora
+
+
+def _lista_trocas(trocas, por_id, quem):
+    ss = st.session_state
+    lista = linhas_da_lista_trocas(trocas, por_id)
+    st.markdown(f"**No fornecedor · {sum(l['falta'] for l in lista)} peça(s)**")
+    if not lista:
+        st.caption("Nada esperando o fornecedor.")
+        return
+    for l in lista:
+        t, p = l["t"], l["p"]
+        with st.container(border=True):
+            c0, c1, c2 = st.columns([0.35, 0.7, 4], vertical_alignment="center")
+            c0.checkbox("marcar", key=_ch_tr("sel", t["id"]), label_visibility="collapsed")
+            c1.markdown(foto_html(E.foto_principal(p), 44), unsafe_allow_html=True)
+            c2.markdown(f"**{_esc(E.nome_completo(p) or 'produto apagado')}** · {l['falta']} peça(s) · "
+                        f"{_esc(t.get('origem') or '')}  \n"
+                        f"<span style='font-size:12px;color:#9AA3AE'>{_esc(str(t.get('quando') or '')[:16])}"
+                        f"{' · ' + _esc(t.get('obs')) if t.get('obs') else ''}</span>",
+                        unsafe_allow_html=True)
+            with st.expander("Resolver só parte (trocou umas, reembolsou ou não trocou outras)"):
+                a, b, c = st.columns([1, 2.2, 1.2], vertical_alignment="bottom")
+                a.number_input("Quantas", min_value=1, max_value=l["falta"], step=1, value=l["falta"],
+                               key=_ch_tr("n", t["id"]))
+                b.segmented_control("Como", list(COMO_TROCA), default=list(COMO_TROCA)[0],
+                                    key=_ch_tr("como", t["id"]))
+                c.button("Aplicar", key=_ch_tr("ok", t["id"]), on_click=_resolver_parte,
+                         args=(t["id"], quem), use_container_width=True)
+    a, b = st.columns(2)
+    a.button("✓ Troca realizada", key="est_tr_massa_tr", type="primary", use_container_width=True,
+             on_click=_resolver_em_massa, args=(E.TROCADO, quem))
+    b.button("💰 Valor reembolsado", key="est_tr_massa_re", use_container_width=True,
+             on_click=_resolver_em_massa, args=(E.REEMBOLSADO, quem))
+    st.caption("Marque os quadrados e clique: TODAS as peças das trocas marcadas. Trocada volta "
+               "ao estoque; reembolsada some e o valor soma no Painel; «não trocado» vai para a Quebra.")
+
+
+COMO_TROCA = {"✓ Trocado": E.TROCADO, "💰 Reembolsado": E.REEMBOLSADO, "✖ Não trocado": E.NAO_TROCADO}
+NOME_COMO = {E.TROCADO: "trocada(s)", E.REEMBOLSADO: "reembolsada(s)", E.NAO_TROCADO: "não trocada(s) → Quebra"}
+
+
+def _gravar_resolucoes(pedidos, quem):
+    """`pedidos` = [(id da troca, n, como)]. Lê a aba de AGORA (dois cliques
+    não resolvem a mesma peça duas vezes) e grava tudo ou nada. Callback."""
+    try:
+        atuais = {str(t["id"]): t for t in E.trocas_agora()}
+        _p, _m, _c = E.carregar()
+        por_id = {p["id"]: p for p in _p}
+        muds, movs, feitos, erros = {}, [], [], []
+        quando = _quando()
+        for tid, n, como in pedidos:
+            t = atuais.get(str(tid))
+            if t is None:
+                erros.append("uma troca não foi achada (recarregue)")
+                continue
+            mud, mv, erro = E.resolver_troca(t, n, como, quem, quando)
+            if erro:
+                erros.append(f"{E.nome_completo(por_id.get(str(t['produto_id']), {}))}: {erro}")
+                continue
+            muds[str(tid)] = mud
+            movs += mv
+            feitos.append(f"{int(n)}× {E.nome_completo(por_id.get(str(t['produto_id']), {}))} {NOME_COMO[como]}")
+        if erros:
+            _avisar("Nada foi gravado — " + "; ".join(erros) + ".", True)
+            return
+        if not muds:
+            _avisar("Marque pelo menos uma troca.", True)
+            return
+        if movs:
+            E.gravar_movimentos(movs)
+        E.atualizar_trocas(muds)
+        st.session_state["est_tr_k"] = int(st.session_state.get("est_tr_k") or 0) + 1
+        _avisar("✓ " + " · ".join(feitos) + ".")
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", True)
+
+
+def _resolver_em_massa(como, quem):
+    ss = st.session_state
+    lista = linhas_da_lista_trocas(E.trocas(), {})
+    pedidos = [(l["t"]["id"], l["falta"], como) for l in lista if ss.get(_ch_tr("sel", l["t"]["id"]))]
+    _gravar_resolucoes(pedidos, quem)
+
+
+def _resolver_parte(tid, quem):
+    ss = st.session_state
+    como = COMO_TROCA.get(ss.get(_ch_tr("como", tid)) or list(COMO_TROCA)[0])
+    _gravar_resolucoes([(tid, int(ss.get(_ch_tr("n", tid)) or 0), como)], quem)
+
+
 def _ficha_baixa(var, motivo, saldo, quem):
     ss = st.session_state
     if len(var) > 1:
@@ -3203,6 +3437,22 @@ def _variacoes_do_painel(variacoes, saldo, quem, pf):
     _nova_variacao(variacoes, quem, sufixo_ed="_pn", botoes=False)
 
 
+def quadro_trocas_html(trocas):
+    """O reembolsado pelo fornecedor e o que ainda está com ele (25/11). Pura."""
+    if trocas is None:
+        return ('<div style="color:#E5534B;font-size:13px">Não consegui ler as trocas no fornecedor '
+                '— o reembolsado não está somado aqui.</div>')
+    pend = sum(E.pendente_da_troca(t) for t in trocas)
+    val_pend = sum(E.pendente_da_troca(t) * E.numero(t.get("custo_unit")) for t in trocas)
+    return (f'<div style="display:flex;gap:12px;margin:10px 0">'
+            f'<div style="flex:1;background:#2b2f36;border-radius:12px;padding:12px 16px">'
+            f'<div style="font-size:11px;color:#9AA3AE;letter-spacing:.1em">💰 REEMBOLSADO PELO FORNECEDOR · TOTAL</div>'
+            f'<div style="font-size:24px;font-weight:800">{_rs(E.total_reembolsado(trocas))}</div></div>'
+            f'<div style="flex:1;background:#2b2f36;border-radius:12px;padding:12px 16px">'
+            f'<div style="font-size:11px;color:#9AA3AE;letter-spacing:.1em">🔁 NO FORNECEDOR AGORA</div>'
+            f'<div style="font-size:24px;font-weight:800">{pend} peça(s) · {_rs(val_pend)}</div></div></div>')
+
+
 def _painel_resumo(quem):
     """A aba «📈 Painel» (dono, 17/11): os quadros de valor, o tempo parado e
     a lista do Renan saíram do Estoque cadastrado — «o painel ainda vamos
@@ -3220,6 +3470,11 @@ def _painel_resumo(quem):
         return
     pn = E.painel(prods, movs, _pc.agora_br().date())
     st.markdown(topo_painel_html(pn), unsafe_allow_html=True)
+    try:
+        _trs = E.trocas()
+    except Exception:
+        _trs = None
+    st.markdown(quadro_trocas_html(_trs), unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Tempo parado · conta desde o registro**")
@@ -3556,10 +3811,33 @@ def _tela_fechar(prods, movs, contados, cid, quem):
 
 # ── a página ─────────────────────────────────────────────────────────────────
 
+def alerta_sem_preco_md(lista, mostrar=12):
+    """O alerta do topo: quem tem peça numa origem sem SKU/custo dela. Pura."""
+    if not lista:
+        return ""
+    linhas = [f"- **{_esc(E.nome_completo(p))}** · {o} · {q} peça(s) · falta {f}"
+              for p, o, f, q in lista[:mostrar]]
+    resto = len(lista) - mostrar
+    return (f"⚠️ **{len(lista)} variação(ões) com estoque SEM PREÇO** — sem o SKU e o custo da "
+            "origem, o estoque não tem valor. Corrija em **Estoque cadastrado** (ou no ✎ editar):\n\n"
+            + "\n".join(linhas) + (f"\n- … e mais {resto}" if resto > 0 else ""))
+
+
+def _alerta_sem_preco():
+    try:
+        prods, movs, _c = E.carregar()
+    except Exception:
+        return
+    md = alerta_sem_preco_md(E.sem_preco_no_estoque(prods, movs))
+    if md:
+        st.warning(md)
+
+
 def pagina(usuario_logado=None):
     quem = str(usuario_logado or "").strip()
     st.session_state["est_quem"] = quem      # os callbacks do bipe gravam o nome
     st.markdown("### 📦 Estoque")
+    _alerta_sem_preco()
     if st.session_state.get("est_modo_pendente"):
         st.session_state["est_modo"] = st.session_state.pop("est_modo_pendente")
     # O valor inicial vem do session_state, e NÃO de `default=` (13/11): o
@@ -3577,19 +3855,22 @@ def pagina(usuario_logado=None):
     if modo == "⬆ Saída":
         _saida(quem)
         return
-    if modo == MODOS[2]:
+    if modo == MODO_TROCA:
+        _trocas(quem)
+        return
+    if modo == MODO_BAIXA:
         _baixas(quem)
         return
     if modo == "🧩 Kits":
         _kits(quem)
         return
-    if modo == MODOS[4]:  # «Estoque cadastrado», antes «Painel» (dono, 17/11)
+    if modo == MODO_CADASTRADO:  # «Estoque cadastrado», antes «Painel» (dono, 17/11)
         _painel(quem)
         return
     if modo == "📱 Contagem":
         _contagem(quem)
         return
-    if modo == MODOS[6]:
+    if modo == MODO_PAINEL:
         _painel_resumo(quem)
         return
     _entrada(quem)
@@ -3844,7 +4125,10 @@ if __name__ == "__main__":
     ok("câmera em TODA tela que bipa: a barra tem a câmera, e as cinco telas usam a barra",
        "_CAMERA" in _insp.getsource(_barra)
        and all("_barra(" in _insp.getsource(f) for f in (_entrada, _saida, _baixas, _kits, _tela_contar)))
-    ok("modos: as seis partes aprovadas e prontas", len(MODOS) == 7 and EM_CONSTRUCAO == {})
+    ok("modos: as partes aprovadas e prontas, a Troca entre a Saída e a Quebra (25/11)",
+       len(MODOS) == 8 and EM_CONSTRUCAO == {}
+       and MODOS.index(MODO_TROCA) == MODOS.index("⬆ Saída") + 1 == MODOS.index(MODO_BAIXA) - 1
+       and "MODOS[" not in _insp.getsource(pagina).replace("MODOS[0]", ""))
     # O PAINEL À PARTE (dono, 17/11): quadros, tempo parado e lista do Renan
     # saem do Estoque cadastrado e vão para a última aba.
     _src_pr = _insp.getsource(_painel_resumo)
@@ -4152,6 +4436,89 @@ if __name__ == "__main__":
     _t3, _a3 = _salva_t(_pf_v, "_pn", True, lambda pf: {_ch_rmcapa(pf): True, _ch_foto_ed(pf): _ArqT()})
     ok("tirar a foto E anexar outra no mesmo lugar: vale a NOVA",
        all(_t3.get(v["id"], {}).get("foto_produto") == "ID-NOVA" for v in _pf_v))
+    # A TRAVA DE PREÇO NA ENTRADA (dono, 25/11), pela cadeia: produto só
+    # atacado, o bipe dá entrada como VAREJO — nada é gravado.
+    _pat_t = [{**v, "custo": "", "sku": "", "sku_atacado": "MS-5396", "custo_atacado": "53.96"}
+              for v in E.linhas_de_produto("7908045161706", "AP34981-3", "Porta 3 Relógios (P) + Jóias?", 0,
+                                           [("Preto", ""), ("Marrom", "")], "l", "x")]
+    def _conf_t(origem):
+        _g, _a = [], []
+        _o = (E.gravar_movimentos, E.atualizar_produtos, _avisar, st.session_state)
+        try:
+            E.gravar_movimentos = lambda l: _g.extend(l)
+            E.atualizar_produtos = lambda t: None
+            globals()["_avisar"] = lambda msg, erro=False: _a.append((msg, erro))
+            st.session_state = {f"est_q_{_pat_t[0]['id']}": 20, f"est_q_{_pat_t[1]['id']}": 0,
+                                "est_origem_entra": origem}
+            _confirmar_entrada(_pat_t, "leo")
+        finally:
+            E.gravar_movimentos, E.atualizar_produtos = _o[:2]
+            globals()["_avisar"] = _o[2]
+            st.session_state = _o[3]
+        return _g, _a
+    _gv, _av_v = _conf_t("Varejo")
+    _ga, _av_a = _conf_t("Atacado")
+    ok("trava de preço: entrada de VAREJO num produto só de atacado é BLOQUEADA e não grava nada",
+       _gv == [] and _av_v and _av_v[0][1] and "BLOQUEADA" in _av_v[0][0]
+       and "SKU de varejo e custo de varejo" in _av_v[0][0] and "Porta 3 Relógios" in _av_v[0][0])
+    ok("trava de preço: a mesma entrada como ATACADO passa e grava as 20 peças",
+       sum(int(m["qtd"]) for m in _ga) == 20 and not _av_a[0][1])
+    ok("trava de preço: cadastro novo com peça de varejo e sem custo de varejo é bloqueado",
+       "custo de varejo" in entrada_sem_preco([({"nome": "X", "sku": "MS-1", "custo": 0.0,
+                                                  "sku_atacado": "", "custo_atacado": ""}, 3)], E.VAREJO)
+       and entrada_sem_preco([({"nome": "X", "sku": "MS-1", "custo": 9.9}, 3)], E.VAREJO) == ""
+       and entrada_sem_preco([({"nome": "X"}, 0)], E.VAREJO) == "")
+    _md_t = alerta_sem_preco_md(E.sem_preco_no_estoque(
+        _pat_t, E.linhas_de_entrada([(_pat_t[1], 3)], "l", "x", origem=E.VAREJO)))
+    ok("alerta do topo: diz quem, a origem, as peças e o que falta (nome real com + ( ) ?)",
+       "1 variação(ões) com estoque SEM PREÇO" in _md_t and "Porta 3 Relógios (P) + Jóias?" in _md_t
+       and "varejo · 3 peça(s) · falta SKU de varejo e custo de varejo" in _md_t
+       and alerta_sem_preco_md([]) == "" and "_alerta_sem_preco()" in _insp.getsource(pagina))
+    # TROCA NO FORNECEDOR NA TELA (dono, 25/11), pela cadeia: duas trocas de
+    # verdade (linhas_de_troca); em massa e uma parte resolvida à mão.
+    _tq = E.linhas_de_produto("7908045161706", "AP34981-3", "Porta 3 Relógios (P) + Jóias?", 40,
+                              [("Preto", ""), ("Marrom", "")], "l", "x", sku="MS-1")
+    _tqm = E.linhas_de_entrada([(_tq[0], 5), (_tq[1], 5)], "l", "x")
+    _tr_a, _mv_a = E.linhas_de_troca(_tq[0], 3, "leo", "25/11/2026 10:00", "trincado", movs=_tqm)
+    _tr_b, _mv_b = E.linhas_de_troca(_tq[1], 4, "leo", "25/11/2026 10:00", "", movs=_tqm)
+    _db_t = {"t": [dict(x) for x in _tr_a + _tr_b], "m": list(_tqm + _mv_a + _mv_b)}
+    _av_t = []
+    def _aplica_t(muds):
+        for t in _db_t["t"]:
+            t.update(muds.get(str(t["id"]), {}))
+    _o_t = (E.trocas, E.trocas_agora, E.carregar, E.gravar_movimentos, E.atualizar_trocas, _avisar,
+            st.session_state)
+    try:
+        E.trocas = E.trocas_agora = lambda: [dict(x) for x in _db_t["t"]]
+        E.carregar = lambda: (list(_tq), list(_db_t["m"]), [])
+        E.gravar_movimentos = lambda l: _db_t["m"].extend(l)
+        E.atualizar_trocas = _aplica_t
+        globals()["_avisar"] = lambda msg, erro=False: _av_t.append((msg, erro))
+        # Como a tela: a rodada (`est_tr_k`) está na sessão desde o início.
+        _kt = lambda campo, tid: f"est_tr_{campo}_{tid}_0"
+        st.session_state = {"est_tr_k": 0, _kt("sel", _tr_a[0]["id"]): True}
+        _resolver_em_massa(E.TROCADO, "leo")                      # A: as 3 voltam
+        st.session_state = {"est_tr_k": 0, _kt("n", _tr_b[0]["id"]): 1, _kt("como", _tr_b[0]["id"]): "✖ Não trocado"}
+        _resolver_parte(_tr_b[0]["id"], "leo")                    # B: 1 não trocada
+        st.session_state = {"est_tr_k": 0, _kt("n", _tr_b[0]["id"]): 3, _kt("como", _tr_b[0]["id"]): "💰 Reembolsado"}
+        _resolver_parte(_tr_b[0]["id"], "leo")                    # B: 3 reembolsadas
+        st.session_state = {"est_tr_k": 0, _kt("n", _tr_b[0]["id"]): 1, _kt("como", _tr_b[0]["id"]): "💰 Reembolsado"}
+        _resolver_parte(_tr_b[0]["id"], "leo")                    # B: nada mais pendente
+    finally:
+        E.trocas, E.trocas_agora, E.carregar, E.gravar_movimentos, E.atualizar_trocas = _o_t[:5]
+        globals()["_avisar"] = _o_t[5]
+        st.session_state = _o_t[6]
+    _st_t = E.saldos(_db_t["m"])
+    ok("troca na tela: em massa as 3 do Preto voltam; do Marrom 1 vira Quebra e 3 são reembolsadas",
+       _st_t.get((_tq[0]["id"], E.FISICO)) == 5 and _st_t.get((_tq[1]["id"], E.FISICO)) == 1
+       and E.total_reembolsado(_db_t["t"]) == 120.0
+       and linhas_da_lista_trocas(_db_t["t"], {}) == []
+       and [e for _m, e in _av_t] == [False, False, False, True]
+       and "Nada foi gravado" in _av_t[3][0] and "Quebra" in _av_t[1][0])
+    _qt = quadro_trocas_html(_db_t["t"])
+    ok("Painel: o reembolsado pelo fornecedor e o que ainda está com ele",
+       "R$ 120,00" in _qt and "0 peça(s)" in _qt and "Não consegui ler" in quadro_trocas_html(None)
+       and "quadro_trocas_html(_trs)" in _insp.getsource(_painel_resumo))
     ok("editar entrada: a quantidade mora DENTRO do quadro do produto (antes era um quadro em cima)",
        "        if entrada:\n            _quantidades_da_entrada(entrada)\n" in _src_ep
        and "entrada=(lt[\"lote\"], lin)" in _insp.getsource(_edicao_da_entrada)
@@ -4263,7 +4630,10 @@ if __name__ == "__main__":
        nomes_ja_cadastrados(_vx + [{**_vx[0], "variacao": "Rosa", "ativo": "0"},
                                    {**_vx[0], "ean": "1", "variacao": "Azul"}], " 7908045165056")
        == {"preto", "branco (p)"})
-    _db_s = {"p": [dict(x) for x in _vx], "m": [], "c": []}
+    # Com SKU e custo de varejo: desde 25/11 a variação nova com peça e sem
+    # preço é BLOQUEADA — e este teste é sobre salvar duas vezes, não sobre a trava.
+    _vxs = [{**v, "sku": "MS-2"} for v in _vx]
+    _db_s = {"p": [dict(x) for x in _vxs], "m": [], "c": []}
     _gp, _av2 = [], []
     _orig_s = (E.carregar_agora, E.gravar_produtos, E.gravar_movimentos, _avisar, st.session_state)
     try:
@@ -4278,10 +4648,10 @@ if __name__ == "__main__":
             st.session_state = {"est_nova_var": True, "est_var_n": 2, "est_var_k": 0,
                                 "est_var_nome_0_0": "Porta 2  Relógio + Jóias (G)", "est_var_qtd_0_0": 4,
                                 "est_var_nome_0_1": "Azul", "est_var_qtd_0_1": 1}
-            _salvar_produto(_vx, "leo", "_pn")
+            _salvar_produto(_vxs, "leo", "_pn")
         st.session_state = {"est_nova_var": True, "est_var_n": 1, "est_var_k": 0,
                             "est_var_nome_0_0": "PRETO", "est_var_qtd_0_0": 2}
-        _salvar_produto(_vx, "leo", "_pn")
+        _salvar_produto(_vxs, "leo", "_pn")
     finally:
         E.carregar_agora, E.gravar_produtos, E.gravar_movimentos, _ = _orig_s[:4]
         globals()["_avisar"] = _orig_s[3]
