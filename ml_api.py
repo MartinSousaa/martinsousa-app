@@ -346,6 +346,18 @@ def get(conta, caminho, params=None):
     return requisitar("GET", conta, tok, caminho, params)
 
 
+def motivo_do_ml(r):
+    """O porquê que o ML escreve no corpo do erro ('message', senão 'error'),
+    curto. '' se não houver."""
+    try:
+        j = r.json()
+    except Exception:
+        return " ".join(str(getattr(r, "text", "") or "").split())[:120]
+    if not isinstance(j, dict):
+        return ""
+    return " ".join(str(j.get("message") or j.get("error") or "").split())[:120]
+
+
 def requisitar(metodo, conta, tok, caminho, params=None, corpo=None, cabecalhos=None):
     """A ÚNICA ida à API, com o token já em mãos. (json, erro), nunca levanta.
 
@@ -372,7 +384,10 @@ def requisitar(metodo, conta, tok, caminho, params=None, corpo=None, cabecalhos=
     if r.status_code == 401:
         return (None, f"Mercado Livre recusou o token da {conta.upper()} (401)")
     if r.status_code == 403:
-        return (None, f"o aplicativo não tem permissão para isto na {conta.upper()} (403)")
+        # O MOTIVO DO ML VAI JUNTO (dono, 25/11): «sem permissão (403)» sozinho
+        # não dizia se era a conta, o aplicativo ou um anúncio bloqueado.
+        return (None, f"o aplicativo não tem permissão para isto na {conta.upper()} "
+                      f"(403{': ' + motivo_do_ml(r) if motivo_do_ml(r) else ''})")
     if r.status_code == 429:
         return (None, "Mercado Livre: limite de requisições, mesmo após esperar")
     if not r.ok:
@@ -735,5 +750,20 @@ if __name__ == "__main__":
     finally:
         requests.request = _rq
 
+    # O MOTIVO DO 403 (25/11): o corpo do ML chega à tela, curto.
+    class _R:
+        def __init__(self, j=None, t=""):
+            self._j, self.text = j, t
+
+        def json(self):
+            if self._j is None:
+                raise ValueError
+            return self._j
+    ok("motivo_do_ml: message, senão error, senão o texto cru; vazio vira ''",
+       motivo_do_ml(_R({"message": "  caller.id   does not have\naccess ", "error": "forbidden"}))
+       == "caller.id does not have access"
+       and motivo_do_ml(_R({"error": "forbidden"})) == "forbidden"
+       and motivo_do_ml(_R(None, "<html>blocked</html>")) == "<html>blocked</html>"
+       and motivo_do_ml(_R({})) == "" and len(motivo_do_ml(_R({"message": "x" * 500}))) == 120)
     print(f"\nfalhas: {falhas}")
     raise SystemExit(1 if falhas else 0)

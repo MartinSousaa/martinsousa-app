@@ -288,22 +288,47 @@ def ofertas_da_promocao(conta, tok, promo, req):
 
 
 def titulos(conta, tok, ids, req):
-    """{item: {title, price, thumbnail, available_quantity}}, 20 por vez."""
-    saida, avisos = {}, []
+    """{item: {title, price, thumbnail, available_quantity}}, 20 por vez.
+
+    UM ANÚNCIO NÃO DERRUBA OS OUTROS 19 (dono, 25/11: seis avisos «20 sem
+    nome — 403» na ML1). Lote recusado é relido anúncio por anúncio: só o
+    que o ML recusa de verdade fica sem nome — e o aviso é UM, com quantos,
+    quais e o motivo que o ML deu.
+    """
+    saida, falhos, motivos = {}, [], []
     ids = list(dict.fromkeys(i for i in ids if i))
-    for i in range(0, len(ids), LOTE_TITULOS):
-        lote = ids[i:i + LOTE_TITULOS]
+
+    def _pedir(lote):
         resp, erro = req("GET", conta, tok, "/items", {
             "ids": ",".join(lote),
             "attributes": "id,title,price,thumbnail,available_quantity,permalink"})
         if erro:
-            avisos.append(f"títulos: {len(lote)} sem nome — {erro}")
-            continue
+            return erro
         for r in resp if isinstance(resp, list) else []:
             b = (r or {}).get("body") or {}
             if (r or {}).get("code") == 200 and b.get("id"):
                 saida[b["id"]] = b
-    return saida, avisos
+        return ""
+
+    for i in range(0, len(ids), LOTE_TITULOS):
+        lote = ids[i:i + LOTE_TITULOS]
+        erro = _pedir(lote)
+        if not erro:
+            continue
+        for um in (lote if len(lote) > 1 else []):
+            e1 = _pedir([um])
+            if e1:
+                falhos.append(um)
+                motivos.append(e1)
+        if len(lote) == 1:
+            falhos.append(lote[0])
+            motivos.append(erro)
+    sem = [i for i in falhos if i not in saida]
+    if not sem:
+        return saida, []
+    comum = max(set(motivos), key=motivos.count)
+    return saida, [f"títulos: {len(sem)} anúncio(s) sem nome ({', '.join(sem[:5])}"
+                   + (f" e mais {len(sem) - 5}" if len(sem) > 5 else "") + f") — {comum}"]
 
 
 def ler_conta(conta, tok, uid, req=None):
@@ -987,6 +1012,24 @@ if __name__ == "__main__":
        sorted(_lt) == list(_ml.CONTAS) and _lt["ml4"]["avisos"]
        and _lt["ml1"]["ofertas"] == [1]
        and set(_quem_pediu_token) == {_th.main_thread().name})
+
+    # TÍTULOS (dono, 25/11): o lote recusado é relido um a um; só o recusado
+    # de verdade fica sem nome, e o aviso é um só, com o motivo do ML.
+    _proibidos = {"MLB2", "MLB25"}
+
+    def _req_t(m, c, t, cam, p=None, corpo=None):
+        ids_t = p["ids"].split(",")
+        if _proibidos & set(ids_t):
+            return None, "o aplicativo não tem permissão para isto na ML1 (403: item bloqueado)"
+        return [{"code": 200, "body": {"id": i, "title": "T " + i}} for i in ids_t], ""
+    _ids_t = [f"MLB{n}" for n in range(1, 46)]
+    _tt, _at = titulos("ml1", "T", _ids_t, _req_t)
+    ok("títulos: lote recusado é relido um a um — só os 2 recusados ficam sem nome, num aviso só",
+       len(_tt) == 43 and "MLB2" not in _tt and "MLB1" in _tt and "MLB21" in _tt
+       and len(_at) == 1 and "2 anúncio(s) sem nome (MLB2, MLB25)" in _at[0]
+       and "item bloqueado" in _at[0])
+    _tt0, _at0 = titulos("ml1", "T", ["MLB7"], lambda *a, **k: ([{"code": 200, "body": {"id": "MLB7"}}], ""))
+    ok("títulos: sem recusa, nenhum aviso", list(_tt0) == ["MLB7"] and _at0 == [])
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
