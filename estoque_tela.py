@@ -706,6 +706,7 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
                          + (" · gerado pelo Studio" if eh_codigo_do_studio(_cod) else ""))
             if c_b.toggle("🖨 Etiqueta", key=f"{pf}etq"):
                 _etiqueta(_cod, E.capitalizar(p0.get("nome")))
+            _codigos_do_painel(p0, pf)
         ini = _iniciais_ed(p0)
         # A chave leva o código: dois produtos abertos em seguida não dividem
         # o que foi digitado em um.
@@ -757,6 +758,43 @@ def _fotos_por_variacao_ed(variacoes, pf):
         c1.markdown(_esc(str(v.get("variacao") or E.nome_completo(v))))
         c2.file_uploader("Foto da variação", type=None, key=_ch_vf(pf, v["id"]),
                          label_visibility="collapsed")
+
+
+def _ch_cod(pf, campo):
+    """As chaves dos códigos de barras do produto no Estoque cadastrado. A
+    rodada (`pf + "k"`) muda ao salvar: os campos nascem vazios."""
+    return f"{pf}cod_{campo}_{st.session_state.get(pf + 'k', 0)}"
+
+
+def _codigos_do_painel(p0, pf):
+    """Trocar o código de barras e ter OUTROS códigos para o mesmo produto
+    (dono, 25/11: fornecedor com dois CNPJs traz a mesma peça com outro
+    código). Grava no «💾 Salvar tudo», com o resto do produto."""
+    extras = E.extras_do_produto(p0)
+    with st.expander(f"🔢 Códigos de barras — trocar ou incluir outro ({1 + len(extras)} hoje)",
+                     expanded=bool(extras)):
+        st.text_input("Trocar o código de barras principal por", key=_ch_cod(pf, "novo"),
+                      placeholder="bipe ou digite o código certo — vazio mantém o atual")
+        if extras:
+            st.markdown("**Outros códigos deste produto** — bipar qualquer um cai aqui")
+            for x in extras:
+                a, b = st.columns([4, 1], vertical_alignment="center")
+                a.markdown(f"`{_esc(x['ean'])}`" + (f" · código do fornecedor **{_esc(x['forn'])}**"
+                                                     if x["forn"] else ""))
+                b.checkbox("tirar", key=_ch_cod(pf, "rm_" + x["ean"]))
+        a, b = st.columns(2)
+        a.text_input("Incluir outro código de barras", key=_ch_cod(pf, "extra"),
+                     placeholder="o código que veio no outro CNPJ")
+        b.text_input("Código do fornecedor desse código", key=_ch_cod(pf, "forn"),
+                     placeholder="opcional")
+
+
+def codigos_digitados(p0, pf, ler):
+    """(novo principal, novo extra, código do fornecedor, [a tirar]) como a
+    tela deixou. Pura (`ler` = session_state.get)."""
+    return (ler(_ch_cod(pf, "novo")) or "", ler(_ch_cod(pf, "extra")) or "",
+            ler(_ch_cod(pf, "forn")) or "",
+            [x["ean"] for x in E.extras_do_produto(p0) if ler(_ch_cod(pf, "rm_" + x["ean"]))])
 
 
 def _ch_qe(lote, i):
@@ -917,7 +955,19 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
     qtd_ent = {}
     if entrada:
         qtd_ent = quantidades_mudadas(entrada[1], {i: ss.get(_ch_qe(entrada[0], i)) for i, _m, _p in entrada[1]})
-    if mud is None and not blocos and not var_mud and not var_fotos and not ajustes and not qtd_ent:
+    # CÓDIGOS DE BARRAS (dono, 25/11): conferidos contra a planilha de AGORA —
+    # outra pessoa pode ter cadastrado o mesmo código há um minuto.
+    cod_mud, cod_gerados = {}, {}
+    if painel:
+        dig_c = codigos_digitados(p0, pf, ss.get)
+        if any(dig_c[:3]) or dig_c[3]:
+            _pa, _ma, _ca = E.carregar_agora()
+            cod_mud, cod_gerados, erro_cod = E.mudanca_de_codigos(variacoes, _pa, _ca, *dig_c)
+            if erro_cod:
+                _avisar(f"Nada foi gravado — {erro_cod}", erro=True)
+                return
+    if (mud is None and not blocos and not var_mud and not var_fotos and not ajustes and not qtd_ent
+            and not cod_mud):
         _avisar("Nada para gravar: nenhum campo mudou.", erro=True)
         return
     try:
@@ -952,6 +1002,15 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
                           + "".join(f" · {a}" for a in avisos))
         for vid, m in var_mud.items():
             tudo.setdefault(vid, {}).update(m)
+        for vid, m in cod_mud.items():
+            tudo.setdefault(vid, {}).update(m)
+        if cod_mud:
+            if cod_gerados:
+                E.atualizar_codigos(cod_gerados)
+            _n_ex = len(E.extras_do_produto(next(iter(cod_mud.values()))))
+            partes.append(f"✓ Códigos de barras: principal {next(iter(cod_mud.values()))['ean']}"
+                          + (f" + {_n_ex} outro(s)." if _n_ex else ".")
+                          + (f" {len(cod_gerados)} variação(ões) de quantidade acompanharam." if cod_gerados else ""))
         for v, fv in var_fotos:
             foto_id, af = foto_da_tela(fv, E.limpar_codigo(p0.get("ean")))
             if af:
@@ -975,7 +1034,7 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
             ss[pf + "k"] = int(ss.get(pf + "k") or 0) + 1
         if blocos:
             # A variação nova nasce com o produto JÁ editado (nome, custo…).
-            base = {**p0, **(mud or {}).get(p0["id"], {})}
+            base = {**p0, **(mud or {}).get(p0["id"], {}), **cod_mud.get(p0["id"], {})}
             linhas, ent = [], []
             for nome, qtd, fv in blocos:
                 foto_id, af = foto_da_tela(fv, E.limpar_codigo(p0.get("ean")))
@@ -988,6 +1047,9 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
                                          fornecedor=base.get("fornecedor", ""))
                 if base.get("foto_produto"):
                     nv[0]["foto_produto"] = base["foto_produto"]
+                if base.get("eans_extras"):
+                    # Os outros códigos do produto vão junto (dono, 25/11).
+                    nv[0]["eans_extras"] = base["eans_extras"]
                 linhas += nv
                 ent += E.linhas_de_entrada([(nv[0], qtd)], quem, _quando(), origem=_origem_da_entrada())
             E.gravar_produtos(linhas)
@@ -3966,6 +4028,40 @@ if __name__ == "__main__":
        and _tf.get(_pq[1]["id"], {}).get("foto_produto") == "ID-CAPA"
        and _tf.get(_pq[1]["id"], {}).get("foto_id") == "ID-AZUL"
        and "foto_id" not in _tf.get(_pq[0]["id"], {}) and _av_f and not _av_f[-1][1])
+    # CÓDIGOS DE BARRAS NO ESTOQUE CADASTRADO (dono, 25/11), pela cadeia:
+    # o painel deixa a sessão como a tela deixa, e o «💾 Salvar tudo» grava.
+    _cq_t = [E.linha_de_codigo("2000000000015", "quantidade", "Pacote com 2", _pq[0]["ean"],
+                               {_pq[0]["id"]: 2}, "l", "x")]
+    _gp_c, _gc_c, _av_c = [], [], []
+    _orig_c = (E.carregar, E.carregar_agora, E.atualizar_produtos, E.atualizar_codigos, _avisar,
+               st.session_state)
+    try:
+        E.carregar = lambda: (list(_pq), list(_eq), list(_cq_t))
+        E.carregar_agora = lambda: (list(_pq), list(_eq), list(_cq_t))
+        E.atualizar_produtos = lambda t: _gp_c.append(t)
+        E.atualizar_codigos = lambda t: _gc_c.append(t)
+        globals()["_avisar"] = lambda msg, erro=False: _av_c.append((msg, erro))
+        _pf_c = _pf_ed(_pq, "_pn")
+        st.session_state = {**{_pf_c + k: v for k, v in _iniciais_ed(_pq[0]).items()},
+                            _pf_c + "ini": _iniciais_ed(_pq[0]), _pf_c + "painel": True}
+        st.session_state[_ch_cod(_pf_c, "novo")] = " 7908045100000 "
+        st.session_state[_ch_cod(_pf_c, "extra")] = "7908045199999"
+        st.session_state[_ch_cod(_pf_c, "forn")] = "PR-2 (CNPJ B)"
+        _salvar_produto(_pq, "leo", "_pn")
+    finally:
+        E.carregar, E.carregar_agora, E.atualizar_produtos, E.atualizar_codigos = _orig_c[:4]
+        globals()["_avisar"] = _orig_c[4]
+        st.session_state = _orig_c[5]
+    _tc = _gp_c[0] if _gp_c else {}
+    _pq_dep = [{**v, **_tc.get(v["id"], {})} for v in _pq]
+    ok("Estoque cadastrado: trocar o código e incluir outro grava nas duas variações, leva a de "
+       "quantidade junto, e bipar o código novo OU o extra acha o produto",
+       all(_tc.get(v["id"], {}).get("ean") == "7908045100000" for v in _pq)
+       and _gc_c == [{"2000000000015": {"produto_ean": "7908045100000"}}]
+       and len(E.do_codigo(_pq_dep, "7908045199999")) == 2 and len(E.do_codigo(_pq_dep, "7908045100000")) == 2
+       and E.do_codigo(_pq_dep, _pq[0]["ean"]) == []
+       and E.extras_do_produto(_pq_dep[0]) == [{"ean": "7908045199999", "forn": "PR-2 (CNPJ B)"}]
+       and _av_c and not _av_c[-1][1] and "Códigos de barras" in _av_c[-1][0])
     ok("editar entrada: a quantidade mora DENTRO do quadro do produto (antes era um quadro em cima)",
        "        if entrada:\n            _quantidades_da_entrada(entrada)\n" in _src_ep
        and "entrada=(lt[\"lote\"], lin)" in _insp.getsource(_edicao_da_entrada)

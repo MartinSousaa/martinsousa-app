@@ -34,7 +34,7 @@ ABA_PRODUTOS = "estoque_produtos"
 COL_PRODUTOS = ["id", "ean", "codigo_fornecedor", "nome", "variacao", "custo",
                 "foto_id", "registrado_em", "registrado_por", "ativo",
                 "sku", "sku_atacado", "custo_atacado", "fornecedor",
-                "foto_produto"]
+                "foto_produto", "eans_extras"]
 
 ABA_MOV = "estoque_movimentos"
 COL_MOV = ["id", "lote", "quando", "tipo", "local", "produto_id", "qtd",
@@ -230,12 +230,48 @@ def ativos(produtos):
     return [p for p in produtos if str(p.get("ativo", "1")).strip() not in ("0", "nao", "não")]
 
 
+def extras_do_produto(p):
+    """Os OUTROS códigos de barras do produto: [{"ean", "forn"}]. Pura.
+
+    O MESMO PRODUTO COM DOIS CÓDIGOS (dono, 25/11): fornecedor com dois CNPJs
+    traz a mesma peça com código de barras (e código dele) diferente. Bipar
+    qualquer um cai no mesmo produto — sem cadastro e anúncio novos. Mora na
+    linha do produto (coluna `eans_extras`, JSON) para que TODO leitor que
+    já passa por `do_codigo` enxergue sem mudar nada."""
+    bruto = str(p.get("eans_extras") or "").strip()
+    if not bruto:
+        return []
+    try:
+        lista = json.loads(bruto)
+    except Exception:
+        return []
+    fora = []
+    for x in lista if isinstance(lista, list) else []:
+        if isinstance(x, dict) and limpar_codigo(x.get("ean")):
+            fora.append({"ean": limpar_codigo(x.get("ean")), "forn": str(x.get("forn") or "").strip()})
+    return fora
+
+
+def codigos_do_produto(p):
+    """O principal e os extras, nesta ordem, sem repetir. Pura."""
+    todos = [limpar_codigo(p.get("ean"))] + [x["ean"] for x in extras_do_produto(p)]
+    return [c for i, c in enumerate(todos) if c and c not in todos[:i]]
+
+
 def do_codigo(produtos, codigo):
-    """As variações cadastradas com este código de barras. Pura."""
+    """As variações cadastradas com este código de barras — o principal OU
+    um dos extras (dono, 25/11). Pura."""
     c = limpar_codigo(codigo)
     if not c:
         return []
-    return [p for p in ativos(produtos) if limpar_codigo(p.get("ean")) == c]
+    vivos = ativos(produtos)
+    dono = next((p for p in vivos if c in codigos_do_produto(p)), None)
+    if dono is None:
+        return []
+    # Pelo principal do dono: a variação criada depois, que não copiou os
+    # extras, continua sendo do mesmo produto.
+    ean = limpar_codigo(dono.get("ean"))
+    return [p for p in vivos if limpar_codigo(p.get("ean")) == ean]
 
 
 def codigo_gerado(codigos, codigo):
@@ -807,7 +843,52 @@ def linha_de_codigo(codigo, tipo, nome, produto_ean, itens, quem, quando, foto_i
 
 
 def todos_os_codigos(produtos, codigos):
-    return [p.get("ean") for p in produtos] + [k.get("codigo") for k in codigos]
+    """Todo código já usado: o principal e os extras de cada produto, e os
+    gerados (kit, quantidade). Um número novo não pode colidir com nenhum."""
+    return ([c for p in produtos for c in codigos_do_produto(p)]
+            + [k.get("codigo") for k in codigos])
+
+
+def mudanca_de_codigos(variacoes, produtos, codigos, novo_principal="", novo_extra="",
+                       forn_extra="", remover=()):
+    """({id: mudança}, {codigo gerado: mudança}, erro) de trocar o código de
+    barras principal, incluir um extra e tirar extras. Pura.
+
+    Trocar o principal (dono, 25/11: «bipei um código e cadastrei outro
+    produto e não consegui trocar só o código»): ele muda em TODAS as
+    variações e também nas variações de quantidade que apontam para ele
+    (`produto_ean`) — senão a de quantidade fica órfã. O código novo não
+    pode ser de outro produto nem de um kit/quantidade."""
+    p0 = variacoes[0]
+    meus_ids = {v["id"] for v in variacoes}
+    velho = limpar_codigo(p0.get("ean"))
+    extras = extras_do_produto(p0)
+    principal = limpar_codigo(novo_principal) or velho
+    tirar = {limpar_codigo(c) for c in remover}
+    extras = [x for x in extras if x["ean"] not in tirar and x["ean"] != principal]
+    novo = limpar_codigo(novo_extra)
+    if novo:
+        if novo == principal or any(x["ean"] == novo for x in extras):
+            return {}, {}, f"o código {novo} já é deste produto."
+        extras.append({"ean": novo, "forn": str(forn_extra or "").strip()})
+    elif str(forn_extra or "").strip():
+        return {}, {}, "escreva o código de barras do outro fornecedor."
+    for c in {principal} | {x["ean"] for x in extras}:
+        if c in (velho, *[x["ean"] for x in extras_do_produto(p0)]):
+            continue                          # já era deste produto
+        dono = [p for p in do_codigo(produtos, c) if p["id"] not in meus_ids]
+        if dono:
+            return {}, {}, f"o código {c} já é de «{nome_completo(dono[0])}»."
+        if codigo_gerado(codigos, c):
+            return {}, {}, f"o código {c} já é de um kit ou variação de quantidade."
+    txt_extras = json.dumps(extras, ensure_ascii=False) if extras else ""
+    if principal == velho and [x["ean"] for x in extras] == [x["ean"] for x in extras_do_produto(p0)] \
+            and [x["forn"] for x in extras] == [x["forn"] for x in extras_do_produto(p0)]:
+        return {}, {}, ""
+    mud = {v["id"]: {"ean": principal, "eans_extras": txt_extras} for v in variacoes}
+    mud_cod = ({str(k.get("codigo")): {"produto_ean": principal} for k in codigos
+                if limpar_codigo(k.get("produto_ean")) == velho} if principal != velho else {})
+    return mud, mud_cod, ""
 
 
 # ── SKU e o custo do Controle MS (dono, 12/11) ───────────────────────────────
@@ -1389,6 +1470,43 @@ if __name__ == "__main__":
        and all(p["ean"] == "7899999000061" for p in prods) and prods[0]["custo"] == "18.40")
     ok("do_codigo: o bipe acha as três posições, com espaço no meio do bipe",
        len(do_codigo(prods, "7899 9990 00061")) == 3 and do_codigo(prods, "") == [])
+    # O MESMO PRODUTO COM DOIS CÓDIGOS (dono, 25/11), pela cadeia: produto de
+    # verdade (linhas_de_produto), variação de quantidade de verdade.
+    _cp = linhas_de_produto("7908045137473", "AP508K", "Porta 2 Relógio + Jóias", 10,
+                            [("Rosa", ""), ("Azul (G)", "")], "l", "x")
+    _co = linhas_de_produto("7891234567895", "X1", "Outro", 5, [("", "")], "l", "x")
+    _cq = [linha_de_codigo("2000000000015", "quantidade", "Pacote com 2", "7908045137473",
+                           {_cp[0]["id"]: 2}, "l", "x")]
+    _todos_c = _cp + _co
+    _m1, _q1, _e1 = mudanca_de_codigos(_cp, _todos_c, _cq, novo_extra=" 7908 0451 99999 ",
+                                       forn_extra="AP508K-B")
+    _cp2 = [{**v, **_m1[v["id"]]} for v in _cp]
+    ok("código extra: grava nas DUAS variações, com o código do fornecedor, e o bipe dele acha o produto",
+       not _e1 and _q1 == {} and len(do_codigo(_cp2 + _co, "7908045199999")) == 2
+       and len(do_codigo(_cp2 + _co, "7908045137473")) == 2
+       and extras_do_produto(_cp2[1]) == [{"ean": "7908045199999", "forn": "AP508K-B"}]
+       and "7908045199999" in todos_os_codigos(_cp2 + _co, _cq))
+    _sem = linhas_de_produto("7908045137473", "AP508K", "Porta 2 Relógio + Jóias", 10, [("Verde", "")], "l", "x")
+    ok("código extra: a variação criada DEPOIS, sem os extras, também vem no bipe do extra",
+       len(do_codigo(_cp2 + _co + _sem, "7908045199999")) == 3)
+    _m2, _q2, _e2 = mudanca_de_codigos(_cp2, _cp2 + _co, _cq, novo_principal="7908045100000")
+    ok("trocar o principal: muda nas variações, mantém o extra e leva junto a variação de quantidade",
+       not _e2 and all(m["ean"] == "7908045100000" for m in _m2.values())
+       and _q2 == {"2000000000015": {"produto_ean": "7908045100000"}}
+       and "7908045199999" in _m2[_cp[0]["id"]]["eans_extras"])
+    ok("código de OUTRO produto ou de kit/quantidade é recusado, e o produto não muda",
+       mudanca_de_codigos(_cp, _todos_c, _cq, novo_extra="7891234567895")[2]
+       == "o código 7891234567895 já é de «Outro»."
+       and "kit ou variação de quantidade" in mudanca_de_codigos(_cp, _todos_c, _cq, novo_principal="2000000000015")[2]
+       and mudanca_de_codigos(_cp, _todos_c, _cq, novo_extra="7908045137473")[2]
+       == "o código 7908045137473 já é deste produto.")
+    _m3, _q3, _e3 = mudanca_de_codigos(_cp2, _cp2 + _co, _cq, remover=["7908045199999"])
+    _m4, _q4, _e4 = mudanca_de_codigos(_cp2, _cp2 + _co, _cq, novo_principal="7908045199999")
+    ok("tirar o extra volta a um código só; promover o extra a principal não duplica",
+       not _e3 and all(m["eans_extras"] == "" for m in _m3.values())
+       and not _e4 and _m4[_cp[0]["id"]] == {"ean": "7908045199999", "eans_extras": ""}
+       and mudanca_de_codigos(_cp, _todos_c, _cq) == ({}, {}, "")
+       and extras_do_produto({"eans_extras": "lixo"}) == [])
     ent = linhas_de_entrada([(prods[0], 6), (prods[1], 0), (prods[2], 6)], "leo", "11/11/2026 14:03")
     ok("linhas_de_entrada: quantidade zero não grava, o lote é um só",
        len(ent) == 2 and len({e["lote"] for e in ent}) == 1 and ent[0]["qtd"] == "6")
@@ -1686,8 +1804,10 @@ if __name__ == "__main__":
     ok("kits_com: os kits E as quantidades que levam o produto, e só eles",
        [k["nome"] for k in kits_com(_kc, "P1")] == ["Kit A", "Kit com 3"] and kits_com(_kc, "P9") == [])
     # A coluna que a aba velha não tem: o SKU digitado na edição não pode sumir.
+    # A aba velha não tem NENHUMA das colunas que nasceram depois — a dos
+    # códigos extras (25/11) inclusive.
     _velhoP = [c for c in COL_PRODUTOS if c not in ("sku", "sku_atacado", "custo_atacado", "fornecedor",
-                                                     "foto_produto")]
+                                                     "foto_produto", "eans_extras")]
     _abp = _AbaGrava([list(_velhoP), ["P1"] + [""] * (len(_velhoP) - 1)])
     globals()["_aba"] = lambda nome, colunas: _abp
     try:
