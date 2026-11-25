@@ -1576,6 +1576,17 @@ def foto_sem_nome(lidas, ler):
     return None
 
 
+def _abrir_ficha_cadastrado(cod, msg, erro=False):
+    """Sai do cadastro e abre a ficha do produto que JÁ está na planilha,
+    com o aviso. Usado quando o cadastro foi gravado (no clique anterior,
+    ou agora sem a entrada)."""
+    ss = st.session_state
+    _limpar_ficha()
+    ss["est_lido"] = cod
+    _avisar(msg, erro)
+    st.rerun()
+
+
 def _cadastro(quem):
     ss = st.session_state
     sem_codigo = bool(ss.get("est_sem_codigo"))
@@ -1640,52 +1651,69 @@ def _cadastro(quem):
     if trava:
         st.error(trava.replace("dê a entrada de novo", "cadastre de novo"))
         return
-    try:
-        prods, _m, cods = E.carregar()
-        if sem_codigo:
-            cod = E.novo_codigo_interno(E.todos_os_codigos(prods, cods))
-        elif E.do_codigo(prods, cod):
-            st.error("Este código acabou de ser cadastrado por outra pessoa. Bipe de novo.")
-            return
-        foto_id, af = foto_da_tela(foto, cod)
-        avisos_f = [af] if af else []
-        if tem_var:
-            # Com variações, a foto do quadro é a CAPA (`foto_produto`, a
-            # mesma da edição) e cada variação grava a sua (dono, 23/11).
-            ids_var = []
-            for f in fotos_das_variacoes(lidas, var_ok, ss.get):
-                fid, a = foto_da_tela(f, cod)
-                ids_var.append(fid)
-                if a:
-                    avisos_f.append(a)
-        else:
-            ids_var = [foto_id]
-        novas = E.linhas_de_produto(cod, forn, nome, E.numero(custos["custo"]),
-                                    [(v, ids_var[i]) for i, (v, _a, _b) in enumerate(var_ok)],
-                                    quem, _quando(),
-                                    sku=custos["sku"], sku_atacado=custos["sku_atacado"],
-                                    custo_atacado=custos["custo_atacado"],
-                                    fornecedor=fornecedor)
-        if tem_var and foto_id:
-            for r in novas:
-                r["foto_produto"] = foto_id
-        E.gravar_produtos(novas)
-        entrada = entrada_das_variacoes(novas, var_ok, quem, _quando())
-        if entrada:
-            E.gravar_movimentos(entrada)
-        _limpar_ficha()
-        q_var = sum(x[1] for x in var_ok)
-        q_at = sum(x[2] for x in var_ok)
-        _pecas = " e ".join(f"{int(q)} de {o}" for q, o in ((q_var, E.VAREJO), (q_at, E.ATACADO)) if q)
-        _nv = f" · {len(var_ok)} variações" if len(var_ok) > 1 else ""
-        _avisar(*_com_foto(f"✓ «{nome.strip()}» cadastrado{_nv}" + (f" com {_pecas}." if _pecas else ".")
-                           + "".join(f" · {a}" for a in avisos_c), " · ".join(avisos_f)))
-        if sem_codigo:
-            ss["est_etiqueta_nova"] = (cod, nome.strip())
-        _voltar_ao_modo()
-        st.rerun()
-    except Exception as e:
-        st.error(f"Não gravei o cadastro — a planilha respondeu: {e}")
+    # «Gravando…» na tela (25/11): a foto vai ao Drive e a planilha leva
+    # segundos; sem nada mudando, o segundo clique parecia necessário.
+    with st.spinner("Gravando o cadastro… não clique de novo."):
+        try:
+            prods, _m, cods = E.carregar()
+            if sem_codigo:
+                cod = E.novo_codigo_interno(E.todos_os_codigos(prods, cods))
+            elif E.do_codigo(prods, cod):
+                # O CLIQUE ANTERIOR JÁ GRAVOU (dono, 25/11: «clico em cadastrar,
+                # a tela não muda e quando clico de novo diz que já cadastrou»).
+                # Era um beco: a mensagem mandava bipar de novo e os campos
+                # ficavam. Agora abre a FICHA do produto, onde a entrada se dá.
+                _abrir_ficha_cadastrado(cod, "«" + nome.strip() + "» já está cadastrado (o clique anterior "
+                                        "gravou). Abri a ficha: confira em «Últimas entradas» se as peças "
+                                        "entraram — se não, dê a entrada aqui.")
+                return
+            foto_id, af = foto_da_tela(foto, cod)
+            avisos_f = [af] if af else []
+            if tem_var:
+                # Com variações, a foto do quadro é a CAPA (`foto_produto`, a
+                # mesma da edição) e cada variação grava a sua (dono, 23/11).
+                ids_var = []
+                for f in fotos_das_variacoes(lidas, var_ok, ss.get):
+                    fid, a = foto_da_tela(f, cod)
+                    ids_var.append(fid)
+                    if a:
+                        avisos_f.append(a)
+            else:
+                ids_var = [foto_id]
+            novas = E.linhas_de_produto(cod, forn, nome, E.numero(custos["custo"]),
+                                        [(v, ids_var[i]) for i, (v, _a, _b) in enumerate(var_ok)],
+                                        quem, _quando(),
+                                        sku=custos["sku"], sku_atacado=custos["sku_atacado"],
+                                        custo_atacado=custos["custo_atacado"],
+                                        fornecedor=fornecedor)
+            if tem_var and foto_id:
+                for r in novas:
+                    r["foto_produto"] = foto_id
+            E.gravar_produtos(novas)
+            entrada = entrada_das_variacoes(novas, var_ok, quem, _quando())
+            if entrada:
+                try:
+                    E.gravar_movimentos(entrada)
+                except Exception as e_m:
+                    # O produto JÁ está gravado: ficar no cadastro só leva ao
+                    # «já cadastrado» do próximo clique. Vai para a ficha dele.
+                    _abrir_ficha_cadastrado(cod, f"«{nome.strip()}» foi CADASTRADO, mas a ENTRADA das peças "
+                                            f"NÃO foi gravada — a planilha respondeu: {e_m}. Abri a ficha: "
+                                            "dê a entrada aqui.", erro=True)
+                    return
+            _limpar_ficha()
+            q_var = sum(x[1] for x in var_ok)
+            q_at = sum(x[2] for x in var_ok)
+            _pecas = " e ".join(f"{int(q)} de {o}" for q, o in ((q_var, E.VAREJO), (q_at, E.ATACADO)) if q)
+            _nv = f" · {len(var_ok)} variações" if len(var_ok) > 1 else ""
+            _avisar(*_com_foto(f"✓ «{nome.strip()}» cadastrado{_nv}" + (f" com {_pecas}." if _pecas else ".")
+                               + "".join(f" · {a}" for a in avisos_c), " · ".join(avisos_f)))
+            if sem_codigo:
+                ss["est_etiqueta_nova"] = (cod, nome.strip())
+            _voltar_ao_modo()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Não gravei o cadastro — a planilha respondeu: {e}")
 
 
 PASSO_ENTRADAS = 5
@@ -4490,6 +4518,12 @@ if __name__ == "__main__":
        and "_alerta_sem_preco(pendentes)" in _insp.getsource(_painel))
     _lin_f = [{"produto": v} for v in _pat_t]
     _pend_f = E.sem_preco_no_estoque(_pat_t, E.linhas_de_entrada([(_pat_t[1], 3)], "l", "x", origem=E.VAREJO))
+    _src_cd = _insp.getsource(_cadastro)
+    ok("cadastro: o 2º clique e a entrada que falhou abrem a FICHA do produto já gravado, nunca um beco (25/11)",
+       _src_cd.count("_abrir_ficha_cadastrado(cod,") == 2 and "Bipe de novo" not in _src_cd
+       and 'with st.spinner("Gravando o cadastro' in _src_cd
+       and "_limpar_ficha()" in _insp.getsource(_abrir_ficha_cadastrado)
+       and 'ss["est_lido"] = cod' in _insp.getsource(_abrir_ficha_cadastrado))
     ok("filtro dos pendentes: ligado mostra só a variação sem preço; desligado, todas (dono, 25/11)",
        [l["produto"]["id"] for l in filtrar_pendentes(_lin_f, _pend_f, True)] == [_pat_t[1]["id"]]
        and filtrar_pendentes(_lin_f, _pend_f, False) == _lin_f)
