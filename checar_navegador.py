@@ -104,9 +104,10 @@ if aba == "Estoque":
     _db = st.session_state.setdefault("est_db", {{"p": [], "m": [], "c": []}})
     if not _db["p"]:
         _db["p"] = (_E.linhas_de_produto("7891234567895", "MBLN-06", "Bailarina (P/M) + base", 18.4,
-                                         [("Braço para cima", ""), ("Sentada", "")], "t", "11/11/2026 10:00")
+                                         [("Braço para cima", ""), ("Sentada", "")], "t", "11/11/2026 10:00",
+                                         sku="MBLN-06")
                     + _E.linhas_de_produto("5901234123457", "S2017", "Embaralhador automático", 42,
-                                           [("", "")], "t", "11/11/2026 10:00"))
+                                           [("", "")], "t", "11/11/2026 10:00", sku="EMB-01"))
         _db["c"] = [_E.linha_de_codigo("2000000000015", "quantidade", "Kit com 2 (1 de cada)",
                                        "7891234567895", {{_db["p"][0]["id"]: 1, _db["p"][1]["id"]: 1}},
                                        "t", "x")]
@@ -571,6 +572,10 @@ def main():
             pg.get_by_label("SKU (varejo)").fill("  ms-3500 ")
             # Duas quantidades no lugar do «Esta compra é» (dono, 12/11).
             pg.get_by_label("Qtd atacado").fill("4")
+            # Entrada de atacado sem SKU e custo de atacado é recusada (dono,
+            # 25/11): a Caneca entra no atacado com os dois preenchidos.
+            pg.get_by_label("SKU atacado").fill("MS-3500")
+            pg.get_by_label("Custo atacado (R$)").fill("35,00")
             pg.keyboard.press("Tab")
             pg.wait_for_timeout(1500)
             pg.get_by_role("button", name="CADASTRAR E DAR ENTRADA").click()
@@ -581,7 +586,7 @@ def main():
             pg.get_by_text("Estoque cadastrado", exact=True).click()
             pg.wait_for_timeout(3500)
             _alerta = _re.search(r"PRODUTOS SEM SKU · (\d+)", pg.inner_text("body"))
-            ok = (_pacote and _custo and _org and _alerta is not None and _alerta.group(1) == "3"
+            ok = (_pacote and _custo and _org and _alerta is not None and _alerta.group(1) == "1"
                   and _nao_achou and _ao_vivo and len(navegou) == 1)
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: SKU traz o custo da planilha, pacote é recusado, "
@@ -622,8 +627,11 @@ def main():
             pg.keyboard.type("  ms-3500 ", delay=8)
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)
-            _achou_b = pg.get_by_role("button", name=_re.compile("MS-3500")).count()
-            pg.get_by_role("button", name=_re.compile("MS-3500")).first.click()
+            # Achados em cartão, com «Escolher» (dono, 25/11): o SKU vem no
+            # cartão, e o botão é um por achado.
+            _achou_b = (pg.get_by_role("button", name="Escolher").count()
+                        if "MS-3500" in pg.inner_text("body") else 0)
+            pg.get_by_role("button", name="Escolher").first.click()
             pg.wait_for_timeout(2500)
             _depois_b = _sal()
             pg.locator(".st-key-est_bipe input").click()

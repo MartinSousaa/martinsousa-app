@@ -322,20 +322,10 @@ SUBTELAS = {
 # dinheiro PLANEJADO (que e a pergunta do Financeiro), e sim coisa que
 # aconteceu com a mercadoria — a mesma familia de Quebras e Estoque.
 #
-# QUEBRAS E ESTOQUE AINDA NAO EXISTEM, e isso esta dito na tela em vez de
-# escondido atras de uma aba vazia. O dono escreveu "precisa criar e para
-# configurarmos": sao telas para desenhar com ele, nao para eu inventar.
-def _quebras(usuario_logado=None):
-    st.markdown("### 💔 Quebras")
-    st.info(
-        "**Esta tela ainda não existe.** O dono pediu para criá-la e "
-        "configurá-la junto — o lugar dela na navegação já está aqui, e o "
-        "conteúdo depende de duas respostas: **o que conta como quebra** "
-        "(produto danificado no envio, no estoque, na produção?) e **de onde "
-        "vem o dado** (planilha, Bling, lançamento à mão?)."
-    )
-
-
+# QUEBRAS SAIU DAQUI (dono, 25/11: «se já tem quebra no campo de estoque não
+# precisa ter nas opções do operacional»). Era só o aviso de tela por fazer;
+# a quebra mora em Estoque › Quebra · Descarte · Devolução. Link antigo com
+# «💔 Quebras» na URL cai na primeira aba (`app._navegar`).
 def _estoque(usuario_logado=None):
     # Desenhado com o dono em 11/11, seis partes aprovadas uma a uma. A fonte
     # da verdade é o próprio Studio: o cadastro começa do zero, nada vem do
@@ -345,7 +335,6 @@ def _estoque(usuario_logado=None):
 
 SUBTELAS_OPERACIONAL = {
     "🔄 Devoluções": _devolucoes,
-    "💔 Quebras":    _quebras,
     "📦 Estoque":    _estoque,
     # Dono, 20/10: "análise de gargalos não deveria estar no financeiro, ele
     # deveria estar no operacional" — é trabalho da equipe, não dinheiro.
@@ -362,7 +351,7 @@ SUBTELAS_OPERACIONAL = {
 
 
 def pagina_operacional(usuario_logado=None, navegar=None):
-    """O que acontece com a mercadoria: devolução, quebra e estoque."""
+    """O que acontece com a mercadoria: devolução e estoque (a quebra está no Estoque)."""
     st.markdown("## 📦 Operacional")
     if navegar is None:
         next(iter(SUBTELAS_OPERACIONAL.values()))(usuario_logado)

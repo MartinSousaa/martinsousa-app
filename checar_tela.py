@@ -4601,6 +4601,9 @@ def _gargalos_volume(conta):
     conta("Gargalos: saiu do Financeiro e está no Operacional",
           "🔎 Análise de Gargalos" not in _ge_g.SUBTELAS
           and "🔎 Análise de Gargalos" in _ge_g.SUBTELAS_OPERACIONAL, "")
+    conta("Operacional: sem a aba «Quebras» vazia — a quebra mora no Estoque (dono, 25/11)",
+          not any("Quebra" in r for r in _ge_g.SUBTELAS_OPERACIONAL)
+          and "📦 Estoque" in _ge_g.SUBTELAS_OPERACIONAL, str(list(_ge_g.SUBTELAS_OPERACIONAL)))
     _dono = sorted(_au_g.ADMINS_PADRAO)[0]
     _g = (_li_g.ler, _gt_g.st)
     _metricas, _avisos = {}, []
