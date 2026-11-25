@@ -1910,6 +1910,20 @@ def _full_escolhido():
     return next((k for k, v in E.FULLS.items() if v == nome), "")
 
 
+def _qtd_saida():
+    """Quantas peças cada bipe tira (dono, 25/11: «campo quantidade para
+    não bipar diversas vezes»). Mínimo 1."""
+    try:
+        return max(int(st.session_state.get("est_sai_qtd") or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def multiplicar_itens(itens, n):
+    """[(produto, qtd × n)] — o bipe de 1 vira n; o de kit, n kits. Pura."""
+    return [(p, int(q) * int(n)) for p, q in itens]
+
+
 def _bipe_na_saida(cod):
     """Um bipe na Saída. Callback: roda antes de a tela ser desenhada."""
     ss = st.session_state
@@ -1931,8 +1945,12 @@ def _bipe_na_saida(cod):
         if corr:
             desf = E.linhas_que_desfazem(corr, movs, quem, _quando())
             E.gravar_movimentos(desf)
-        lote = _baixar(itens, _destino(), quem, rotulo + (" (no lugar do bipe errado)" if corr else ""))
+        n = _qtd_saida()
+        lote = _baixar(multiplicar_itens(itens, n), _destino(), quem,
+                       (f"{n}× " if n > 1 else "") + rotulo + (" (no lugar do bipe errado)" if corr else ""))
         ss.pop("est_janela", None)
+        if lote:
+            ss["est_sai_qtd"] = 1          # o próximo bipe volta a ser de 1
         if lote and not k:
             _perguntar_kit(lote, itens[0][0]["id"], codigos)
     except Exception as e:
@@ -1949,9 +1967,11 @@ def _saiu_modelo(pid, quem):
         if corr:
             E.gravar_movimentos(E.linhas_que_desfazem(corr, movs, quem, _quando()))
         ss.pop("est_kit_pergunta", None)
-        lote = _baixar([(p, 1)], _destino(), quem, E.nome_completo(p))
+        n = _qtd_saida()
+        lote = _baixar([(p, n)], _destino(), quem, (f"{n}× " if n > 1 else "") + E.nome_completo(p))
         ss.pop("est_janela", None)
         if lote:
+            ss["est_sai_qtd"] = 1
             _perguntar_kit(lote, pid, _c)
     except Exception as e:
         _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
@@ -2245,8 +2265,62 @@ def _bipe_atual(lotes, por_id, saldo, quem):
         st.caption("Bipe o produto: ele sai na hora e aparece aqui, grande.")
         return None
     st.markdown(bipe_atual_html(resumo_do_lote(vivo, por_id, saldo)), unsafe_allow_html=True)
+    _quantidade_do_bipe(vivo, quem)
     _botoes_do_bipe(vivo["lote"], quem, "a")
     return vivo["lote"]
+
+
+def pecas_do_lote(lt):
+    """(produto_id, peças) se o bipe tirou UM produto só; senão None. Pura."""
+    lin = [m for m in lt["linhas"] if m.get("local") == E.FISICO and m.get("tipo") != E.DESFEITO]
+    pids = {str(m.get("produto_id")) for m in lin}
+    if len(pids) != 1:
+        return None
+    return next(iter(pids)), sum(-E.inteiro(m.get("qtd")) for m in lin)
+
+
+def _quantidade_do_bipe(lt, quem):
+    """A QUANTIDADE À VISTA NO BIPE (dono, 25/11: «tem que ter o campo para
+    salvar essa quantidade e o sistema dar saída, hoje não tem»). Existia,
+    escondida no «✎ editar» e contada em «vezes». Aqui é em PEÇAS e fica no
+    cartão. Kit (vários produtos) continua pelo «✎ editar»."""
+    pp = pecas_do_lote(lt)
+    if pp is None:
+        return
+    ch = f"est_mp_{lt['lote']}"
+    st.session_state.setdefault(ch, pp[1])
+    a, b = st.columns([1, 1.3], vertical_alignment="bottom")
+    a.number_input("Quantidade que saiu", min_value=0, step=1, key=ch,
+                   help="Mude e salve: o Studio acerta a saída para esse número. 0 = exclui.")
+    b.button("💾 Salvar quantidade", key=f"est_sp_{lt['lote']}", type="primary", use_container_width=True,
+             on_click=_salvar_pecas, args=(lt["lote"], quem))
+
+
+def _salvar_pecas(lote, quem):
+    """Acerta a saída do bipe para N PEÇAS: desfaz e grava de novo. Callback."""
+    ss = st.session_state
+    try:
+        n = int(ss.get(f"est_mp_{lote}") or 0)
+        prods, movs, _c = E.carregar()
+        por_id = {p["id"]: p for p in prods}
+        linhas = [m for m in movs if str(m.get("lote")) == lote and m.get("local") == E.FISICO]
+        if not linhas or linhas[0]["produto_id"] not in por_id:
+            return
+        if n == sum(-E.inteiro(m["qtd"]) for m in linhas if m.get("tipo") != E.DESFEITO):
+            _avisar("Nada mudou: a saída já é de " + str(n) + " peça(s).")
+            return
+        destino = linhas[0].get("tipo")
+        full = next((m.get("local") for m in movs if str(m.get("lote")) == lote
+                     and E.eh_full(m.get("local"))), None)
+        E.gravar_movimentos(E.linhas_que_desfazem(lote, movs, quem, _quando()))
+        ss.pop(f"est_mp_{lote}", None)
+        if n > 0:
+            p = por_id[linhas[0]["produto_id"]]
+            _baixar([(p, n)], destino, quem, f"{n}× {E.nome_completo(p)}", full=full)
+        else:
+            _avisar("↶ Desfeito: o estoque voltou ao que era antes.")
+    except Exception as e:
+        _avisar(f"Não gravei — a planilha respondeu: {e}", True)
 
 
 def _lateral_saida(lotes, atual, movs, por_id, saldo, quem):
@@ -2465,6 +2539,15 @@ def _saida(quem):
         st.error(f"Não consegui ler o estoque na planilha: {e}")
         return
     _barra(saida=True)
+    # A QUANTIDADE ANTES DO BIPE (dono, 25/11): 5 peças iguais = digita 5 e
+    # bipa uma vez. Volta para 1 depois de cada bipe — o próximo não leva 5
+    # sem ninguém perceber.
+    ss.setdefault("est_sai_qtd", 1)
+    c_q, c_t = st.columns([1, 4], vertical_alignment="bottom")
+    c_q.number_input("Quantidade", min_value=1, step=1, key="est_sai_qtd",
+                     help="Quantas peças o PRÓXIMO bipe tira. Volta para 1 depois dele.")
+    if _qtd_saida() > 1:
+        c_t.markdown(f":orange[**o próximo bipe tira {_qtd_saida()} peças**] — depois volta para 1")
     por_id = {p["id"]: p for p in prods}
     saldo = E.saldos(movs)
     lotes = _lotes_de_quem(movs, quem)
@@ -4522,6 +4605,52 @@ if __name__ == "__main__":
        and "_alerta_sem_preco(pendentes)" in _insp.getsource(_painel))
     _lin_f = [{"produto": v} for v in _pat_t]
     _pend_f = E.sem_preco_no_estoque(_pat_t, E.linhas_de_entrada([(_pat_t[1], 3)], "l", "x", origem=E.VAREJO))
+    # QUANTIDADE NA SAÍDA (dono, 25/11), pela cadeia: produto e entrada de
+    # verdade; digita 5 e bipa uma vez — saem 5, e o campo volta para 1.
+    _sq_p = E.linhas_de_produto("2000000001456", "P07P1", "Carimbeiras (P) + Tinta?", 3.9, [("", "")], "l", "x",
+                                sku="MS-390")
+    _sq_db = {"m": E.linhas_de_entrada([(_sq_p[0], 120)], "l", "x")}
+    _sq_av = []
+    _o_sq = (E.carregar, E.gravar_movimentos, _avisar, st.session_state)
+    try:
+        E.carregar = lambda: (list(_sq_p), list(_sq_db["m"]), [])
+        E.gravar_movimentos = lambda l: _sq_db["m"].extend(l)
+        globals()["_avisar"] = lambda msg, erro=False: _sq_av.append((msg, erro))
+        st.session_state = {"est_sai_qtd": 5, "est_dest": "🛒 Venda", "est_quem": "leo"}
+        _bipe_na_saida("2000000001456")
+        _q_depois = st.session_state.get("est_sai_qtd")
+        _bipe_na_saida("2000000001456")
+    finally:
+        E.carregar, E.gravar_movimentos = _o_sq[:2]
+        globals()["_avisar"] = _o_sq[2]
+        st.session_state = _o_sq[3]
+    ok("saída: «Quantidade» 5 e um bipe tiram 5; o campo volta para 1 e o bipe seguinte tira 1",
+       E.saldos(_sq_db["m"]).get((_sq_p[0]["id"], E.FISICO)) == 114 and _q_depois == 1
+       and _sq_av and "5× Carimbeiras" in _sq_av[0][0] and not _sq_av[0][1]
+       and multiplicar_itens([(_sq_p[0], 2)], 3) == [(_sq_p[0], 6)])
+    # SALVAR A QUANTIDADE NO CARTÃO DO BIPE (dono, 25/11), pela cadeia: o
+    # bipe de 1 que saiu de verdade; muda para 4 e salva — saem 4, não 5.
+    _sp_db = {"m": E.linhas_de_entrada([(_sq_p[0], 120)], "l", "x")}
+    _sp_av = []
+    _o_sp = (E.carregar, E.gravar_movimentos, _avisar, st.session_state)
+    try:
+        E.carregar = lambda: (list(_sq_p), list(_sp_db["m"]), [])
+        E.gravar_movimentos = lambda l: _sp_db["m"].extend(l)
+        globals()["_avisar"] = lambda msg, erro=False: _sp_av.append((msg, erro))
+        st.session_state = {"est_sai_qtd": 1, "est_dest": "🛒 Venda", "est_quem": "leo"}
+        _bipe_na_saida("2000000001456")
+        _lt_sp = E.ultimos_lotes(_sp_db["m"], (E.VENDA, E.ENVIO_FULL), 1)[0]
+        _pp_sp = pecas_do_lote(_lt_sp)
+        st.session_state[f"est_mp_{_lt_sp['lote']}"] = 4
+        _salvar_pecas(_lt_sp["lote"], "leo")
+    finally:
+        E.carregar, E.gravar_movimentos = _o_sp[:2]
+        globals()["_avisar"] = _o_sp[2]
+        st.session_state = _o_sp[3]
+    ok("saída: o cartão do bipe mostra as PEÇAS e «Salvar quantidade» acerta para 4 (não 1+4)",
+       _pp_sp == (_sq_p[0]["id"], 1) and E.saldos(_sp_db["m"]).get((_sq_p[0]["id"], E.FISICO)) == 116
+       and "4× Carimbeiras" in _sp_av[-1][0] and not _sp_av[-1][1]
+       and "_quantidade_do_bipe(vivo, quem)" in _insp.getsource(_bipe_atual))
     _src_fp = _insp.getsource(_ficha_principal)
     ok("entrada: «Esta compra é» (varejo/atacado) logo abaixo da quantidade, antes do «Nova variação» (25/11)",
        _src_fp.count('key="est_origem_entra"') == 1
