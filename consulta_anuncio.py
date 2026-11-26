@@ -11,13 +11,17 @@ Enter) e responde uma de duas coisas:
   ⛔ fez parte da exclusão em massa — não replicar em nenhuma plataforma;
   ✅ não está na lista de exclusões — liberado para espelhar.
 
-DE ONDE VEM A LISTA
--------------------
-A aba «Excluir» da planilha da Análise de Anúncios, linhas com «s» na coluna
-«EXCLUIR?» — a MESMA leitura que a exclusão usou (`excluir_anuncios_ml.marcados`,
-um dono da regra) e o MESMO link do Railway que as promoções usam
-(`promocoes_ml.bytes_da_analise`). O Studio não guardou o resultado da
-exclusão: ele vivia na memória do processo.
+DE ONDE VEM A LISTA (dono, 26/11)
+---------------------------------
+O GESTOR sobe a planilha da Análise de Anúncios na própria aba. O Studio lê a
+aba «Excluir», linhas com «s» em «EXCLUIR?» — a MESMA leitura da exclusão
+(`excluir_anuncios_ml.marcados`, um dono da regra) —, mostra a prévia (quantos,
+quantos entram e saem em relação à lista atual) e só grava quando ele
+confirma. A lista fica na aba «exclusoes_anuncios» da planilha do Studio: o
+disco do container some a cada deploy, a planilha não.
+
+Não é o link do Railway: o link apontava para a cópia SEM a coluna «EXCLUIR?»
+(26/11), e o dono quer ver a base antes de ela valer.
 
 A REGRA QUE NÃO PODE QUEBRAR
 ----------------------------
@@ -75,17 +79,89 @@ def veredito(lista, erro, texto):
     return ("bloqueado" if achados else "liberado"), achados
 
 
-# ── Leitura (uma vez por hora) ────────────────────────────────────────────────
+# ── A lista gravada ───────────────────────────────────────────────────────────
+ABA_NOME = "exclusoes_anuncios"
+COLUNAS = ["conta", "codigo", "titulo", "enviado_em", "enviado_por"]
+
+
+def linhas_para_gravar(lista, quando, quem):
+    """A lista -> as linhas da aba, cabeçalho primeiro. Pura."""
+    return [COLUNAS] + [[i["conta"], i["item"], i["titulo"], quando, quem] for i in lista]
+
+
+def lista_das_linhas(linhas):
+    """As linhas da aba -> (lista, enviado_em, enviado_por). Pura. Colunas
+    pelo nome."""
+    linhas = list(linhas or [])
+    if not linhas:
+        return [], "", ""
+    cab = [str(c).strip().lower() for c in linhas[0]]
+    if any(c not in cab for c in COLUNAS[:3]):
+        return [], "", ""
+    ix = {c: cab.index(c) for c in COLUNAS if c in cab}
+    lista, quando, quem = [], "", ""
+    for r in linhas[1:]:
+        r = list(r) + [""] * (len(cab) - len(r))
+        cod = str(r[ix["codigo"]]).strip()
+        if not cod:
+            continue
+        lista.append({"conta": str(r[ix["conta"]]).strip(), "item": cod,
+                      "titulo": str(r[ix["titulo"]])})
+        if not quando and "enviado_em" in ix:
+            quando = str(r[ix["enviado_em"]])
+            quem = str(r[ix["enviado_por"]]) if "enviado_por" in ix else ""
+    return lista, quando, quem
+
+
+def diferenca(atual, nova):
+    """(entram, saem) — os códigos, contando conta + código."""
+    a = {(i["conta"], i["item"]) for i in atual}
+    n = {(i["conta"], i["item"]) for i in nova}
+    return len(n - a), len(a - n)
+
+
+def _aba(criar=False):
+    import sheets as _sh
+    planilha = _sh.planilha()
+    try:
+        return planilha.worksheet(ABA_NOME)
+    except Exception:
+        if not criar:
+            return None
+        return planilha.add_worksheet(title=ABA_NOME, rows=10, cols=len(COLUNAS))
+
+
+def gravar(lista, quem, aba=None, agora=None):
+    """Substitui a lista inteira, numa chamada só. (ok, erro)."""
+    if not lista:
+        return False, "a planilha não trouxe nenhum anúncio marcado — nada gravado"
+    from datetime import datetime
+    import placar_core as _pc
+    quando = (agora or datetime.now(_pc.FUSO)).strftime("%d/%m/%Y %H:%M")
+    linhas = linhas_para_gravar(lista, quando, quem)
+    try:
+        aba = aba or _aba(criar=True)
+        aba.resize(rows=len(linhas), cols=len(COLUNAS))
+        aba.update(values=linhas, range_name="A1", value_input_option="RAW")
+    except Exception as e:
+        return False, f"não consegui gravar na planilha do Studio: {type(e).__name__}"
+    lista_de_exclusoes.clear()
+    return True, ""
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def lista_de_exclusoes():
+    """(lista, erro, enviado_em, enviado_por) — da aba do Studio."""
     try:
-        import promocoes_ml
-        dados, erro = promocoes_ml.bytes_da_analise()
-        if erro:
-            return [], erro
-        return lista_dos_bytes(dados)
+        aba = _aba()
+        if aba is None:
+            return [], "a lista ainda não foi enviada pelo gestor", "", ""
+        lista, quando, quem = lista_das_linhas(aba.get_all_values())
+        if not lista:
+            return [], "a lista gravada está vazia", "", ""
+        return lista, "", quando, quem
     except Exception as e:
-        return [], f"a planilha da Análise não abriu: {type(e).__name__}"
+        return [], f"a planilha do Studio não abriu: {type(e).__name__}", "", ""
 
 
 # ── A tela ────────────────────────────────────────────────────────────────────
@@ -93,9 +169,71 @@ def _reler():
     lista_de_exclusoes.clear()
 
 
+def _ao_subir():
+    arq = st.session_state.get("cons_anuncio_arq")
+    st.session_state.pop("cons_anuncio_nova", None)
+    st.session_state.pop("cons_anuncio_msg", None)
+    if arq is None:
+        return
+    try:
+        st.session_state["cons_anuncio_nova"] = lista_dos_bytes(arq.getvalue())
+    except Exception as e:
+        st.session_state["cons_anuncio_nova"] = ([], f"não consegui abrir a planilha: {type(e).__name__}")
+
+
+def _ao_gravar(quem):
+    lista, _erro = st.session_state.get("cons_anuncio_nova") or ([], "")
+    ok, erro = gravar(lista, quem)
+    st.session_state["cons_anuncio_msg"] = (
+        f"✅ Lista gravada: {len(lista)} anúncios." if ok else f"⚠️ {erro}")
+    if ok:
+        st.session_state.pop("cons_anuncio_nova", None)
+
+
+def _painel_do_gestor(usuario_logado, lista, quando, quem):
+    rotulo = (f"📤 Lista de exclusões — {len(lista)} anúncios, enviada em {quando} por {quem}"
+              if lista else "📤 Lista de exclusões — ainda não enviada")
+    with st.expander(rotulo, expanded=not lista):
+        st.caption("Suba a planilha da Análise de Anúncios. Valem as linhas da aba "
+                   "«Excluir» com «s» na coluna «EXCLUIR?». Nada muda antes de você confirmar.")
+        st.file_uploader("Planilha (.xlsx)", type=["xlsx"], key="cons_anuncio_arq",
+                         on_change=_ao_subir, label_visibility="collapsed")
+        msg = st.session_state.get("cons_anuncio_msg")
+        if msg:
+            (st.success if msg.startswith("✅") else st.warning)(msg)
+        nova = st.session_state.get("cons_anuncio_nova")
+        if not nova:
+            return
+        nl, erro = nova
+        if erro:
+            st.warning(f"⚠️ {erro}. Nada foi gravado.")
+            return
+        entram, saem = diferenca(lista, nl)
+        por_conta = {}
+        for i in nl:
+            por_conta[i["conta"].upper()] = por_conta.get(i["conta"].upper(), 0) + 1
+        st.markdown(f"**Prévia: {len(nl)} anúncios marcados** · "
+                    + " · ".join(f"{c}: {n}" for c, n in sorted(por_conta.items())))
+        if lista:
+            st.markdown(f"Em relação à lista atual: **{entram} entram**, **{saem} saem**.")
+        st.dataframe([{"Título": i["titulo"], "Conta": i["conta"].upper(), "Código": i["item"]}
+                      for i in nl], hide_index=True, use_container_width=True, height=240)
+        st.button(f"Gravar estes {len(nl)} como a lista de exclusões", type="primary",
+                  key="cons_anuncio_gravar", on_click=_ao_gravar, args=(usuario_logado,))
+
+
 def pagina(usuario_logado=None):
     st.markdown("## Consulta de anúncio")
     st.caption("Antes de espelhar, digite uma palavra do anúncio e aperte Enter.")
+    lista, erro, quando, quem = lista_de_exclusoes()
+    try:
+        import auth as _auth
+        gestor = _auth.eh_gestor(usuario_logado)
+    except Exception:
+        gestor = False
+    if gestor:
+        _painel_do_gestor(usuario_logado, lista, quando, quem)
+
     with st.form("cons_anuncio_form", border=False):
         c1, c2 = st.columns([5, 1])
         texto = c1.text_input("Palavra do anúncio", key="cons_anuncio_txt",
@@ -104,15 +242,13 @@ def pagina(usuario_logado=None):
 
     if not normalizar(texto):
         return
-    with st.spinner("Lendo a lista de exclusões..."):
-        lista, erro = lista_de_exclusoes()
     estado, achados = veredito(lista, erro, texto)
     mostra = " ".join(str(texto).split())
 
     if estado == "sem_lista":
         st.warning(f"⚠️ **Não consegui conferir a lista de exclusões** — {erro}.  \n"
                    "Não espelhe até a lista voltar. Avise o gestor.")
-        st.button("Ler a planilha de novo", key="cons_anuncio_reler", on_click=_reler)
+        st.button("Ler a lista de novo", key="cons_anuncio_reler", on_click=_reler)
         return
     if estado == "liberado":
         st.success(f"✅ **Nenhum anúncio com “{mostra}” está na lista de exclusões**  \n"
@@ -207,6 +343,59 @@ if __name__ == "__main__":
     l4, e4 = lista_dos_bytes(b4.getvalue())
     ok("zero marcas é erro, não lista vazia que libera tudo",
        not l4 and e4 and veredito(l4, e4, "globo")[0] == "sem_lista")
+
+    # A LISTA GRAVADA, PELA CADEIA: bytes reais -> lista -> gravar numa aba
+    # dupla -> ler de volta -> veredito. A aba guarda o que recebeu.
+    class _Aba:
+        def __init__(self):
+            self.v, self.tam = [], None
+        def resize(self, rows, cols):
+            self.tam = (rows, cols)
+        def update(self, values, range_name, value_input_option):
+            assert range_name == "A1"
+            self.v = [list(map(str, r)) for r in values]
+        def get_all_values(self):
+            return self.v
+    from datetime import datetime as _dt
+    _a = _Aba()
+    _g = gravar(lista, "martinsousa", aba=_a, agora=_dt(2026, 11, 26, 14, 5))
+    ok("gravar: uma chamada, tamanho exato da lista", _g == (True, "") and _a.tam == (6, 5)
+       and _a.v[0] == COLUNAS)
+    _l, _q, _p = lista_das_linhas(_a.v)
+    ok("ler de volta devolve os mesmos 5, com quando e quem",
+       [(i["conta"], i["item"], i["titulo"]) for i in _l]
+       == [(i["conta"], i["item"], i["titulo"]) for i in lista]
+       and _q == "26/11/2026 14:05" and _p == "martinsousa")
+    ok("a lista lida da aba responde igual: «globo» -> 3, nome da Myrella -> 1",
+       len(veredito(_l, "", "globo")[1]) == 3
+       and veredito(_l, "", "Porta 2 Relógio + Jóias")[0] == "bloqueado")
+    _a2 = _Aba()
+    ok("gravar lista vazia: recusa e não toca a aba",
+       gravar([], "x", aba=_a2)[0] is False and _a2.v == [] and _a2.tam is None)
+    class _AbaQuebra(_Aba):
+        def update(self, *a, **k):
+            raise RuntimeError("quota")
+    ok("planilha recusou: o erro é dito, não engolido",
+       gravar(lista, "x", aba=_AbaQuebra())[1].startswith("não consegui gravar"))
+    ok("diferenca: conta + código", diferenca(lista[:3], lista[1:]) == (2, 1))
+    ok("aba sem as colunas -> lista vazia (e a consulta não libera)",
+       lista_das_linhas([["a", "b"], ["1", "2"]])[0] == []
+       and veredito([], "a lista gravada está vazia", "x")[0] == "sem_lista")
+    # lista_de_exclusoes, com a aba que ainda não existe e com a gravada
+    _g_aba = globals()["_aba"]
+    try:
+        globals()["_aba"] = lambda criar=False: None
+        lista_de_exclusoes.clear()
+        _r = lista_de_exclusoes()
+        ok("sem aba ainda: erro dito, nunca liberado",
+           _r[0] == [] and "ainda não foi enviada" in _r[1] and veredito(_r[0], _r[1], "x")[0] == "sem_lista")
+        globals()["_aba"] = lambda criar=False: _a
+        lista_de_exclusoes.clear()
+        _r = lista_de_exclusoes()
+        ok("com a aba gravada: lê os 5", len(_r[0]) == 5 and _r[1] == "" and _r[3] == "martinsousa")
+    finally:
+        globals()["_aba"] = _g_aba
+        lista_de_exclusoes.clear()
 
     # A tela, pelo duplo do Streamlit: o caminho sem_lista não mostra ✅.
     import inspect

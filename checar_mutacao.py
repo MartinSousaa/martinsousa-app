@@ -3678,6 +3678,13 @@ MUTACOES = [
         ["python3", "consulta_anuncio.py"],
     ),
     (
+        "a consulta de anuncio volta a gravar lista vazia por cima da boa (26/11)",
+        "consulta_anuncio.py",
+        "    if not lista:\n        return False, \"a planilha não trouxe",
+        "    if False:\n        return False, \"a planilha não trouxe",
+        ["python3", "consulta_anuncio.py"],
+    ),
+    (
         "a exclusao volta a tirar anuncio de outra conta (19/11)",
         "excluir_anuncios_ml.py",
         '        if uid and str(b.get("seller_id")) != str(uid):\n',

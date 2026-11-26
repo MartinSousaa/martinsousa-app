@@ -889,19 +889,41 @@ def _codigos_do_painel(p0, pf):
                 a.markdown(f"`{_esc(x['ean'])}`" + (f" · código do fornecedor **{_esc(x['forn'])}**"
                                                      if x["forn"] else ""))
                 b.checkbox("tirar", key=_ch_cod(pf, "rm_" + x["ean"]))
-        a, b = st.columns(2)
-        a.text_input("Incluir outro código de barras", key=_ch_cod(pf, "extra"),
-                     placeholder="o código que veio no outro CNPJ")
-        b.text_input("Código do fornecedor desse código", key=_ch_cod(pf, "forn"),
-                     placeholder="opcional")
+        # QUANTOS QUISER (dono, 26/11: «tenho que poder clicar em incluir mais
+        # um EAN» — uma cor, um código, um cadastro só). Cada clique abre mais
+        # uma linha; tudo grava junto no «💾 Salvar tudo».
+        for i in range(_linhas_de_ean(pf, st.session_state.get)):
+            a, b = st.columns(2)
+            a.text_input("Incluir outro código de barras", key=_ch_cod(pf, _campo_ean("extra", i)),
+                         placeholder="bipe ou digite o código", label_visibility="visible" if i == 0 else "collapsed")
+            b.text_input("Código do fornecedor desse código", key=_ch_cod(pf, _campo_ean("forn", i)),
+                         placeholder="opcional", label_visibility="visible" if i == 0 else "collapsed")
+        st.button("➕ Incluir mais um EAN", key=_ch_cod(pf, "mais_btn"), on_click=_mais_um_ean, args=(pf,))
+
+
+def _campo_ean(campo, i):
+    """A 1ª linha guarda a chave de sempre; as do «➕» ganham o número."""
+    return campo if i == 0 else f"{campo}{i}"
+
+
+def _linhas_de_ean(pf, ler):
+    return max(1, int(ler(_ch_cod(pf, "n_ean")) or 1))
+
+
+def _mais_um_ean(pf):
+    st.session_state[_ch_cod(pf, "n_ean")] = _linhas_de_ean(pf, st.session_state.get) + 1
 
 
 def codigos_digitados(p0, pf, ler):
-    """(novo principal, novo extra, código do fornecedor, [a tirar]) como a
-    tela deixou. Pura (`ler` = session_state.get)."""
+    """(novo principal, novo extra, código do fornecedor, [a tirar], [(extra,
+    fornecedor) das linhas do «➕»]) como a tela deixou. Pura (`ler` =
+    session_state.get)."""
+    mais = [(ler(_ch_cod(pf, _campo_ean("extra", i))) or "", ler(_ch_cod(pf, _campo_ean("forn", i))) or "")
+            for i in range(1, _linhas_de_ean(pf, ler))]
     return (ler(_ch_cod(pf, "novo")) or "", ler(_ch_cod(pf, "extra")) or "",
             ler(_ch_cod(pf, "forn")) or "",
-            [x["ean"] for x in E.extras_do_produto(p0) if ler(_ch_cod(pf, "rm_" + x["ean"]))])
+            [x["ean"] for x in E.extras_do_produto(p0) if ler(_ch_cod(pf, "rm_" + x["ean"]))],
+            [m for m in mais if any(str(c or "").strip() for c in m)])
 
 
 def _ch_qe(lote, i):
@@ -1108,7 +1130,7 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
     cod_mud, cod_gerados = {}, {}
     if painel:
         dig_c = codigos_digitados(p0, pf, ss.get)
-        if any(dig_c[:3]) or dig_c[3]:
+        if any(dig_c[:3]) or dig_c[3] or dig_c[4]:
             _pa, _ma, _ca = E.carregar_agora()
             cod_mud, cod_gerados, erro_cod = E.mudanca_de_codigos(variacoes, _pa, _ca, *dig_c)
             if erro_cod:
@@ -4647,6 +4669,13 @@ if __name__ == "__main__":
         st.session_state[_ch_cod(_pf_c, "novo")] = " 7908045100000 "
         st.session_state[_ch_cod(_pf_c, "extra")] = "7908045199999"
         st.session_state[_ch_cod(_pf_c, "forn")] = "PR-2 (CNPJ B)"
+        # «➕ Incluir mais um EAN» clicado duas vezes (dono, 26/11): o clique
+        # de verdade, pelo callback do botão, e não a chave escrita à mão.
+        _mais_um_ean(_pf_c)
+        _mais_um_ean(_pf_c)
+        st.session_state[_ch_cod(_pf_c, _campo_ean("extra", 1))] = "7908045108466"
+        st.session_state[_ch_cod(_pf_c, _campo_ean("extra", 2))] = " 7908045108459 "
+        st.session_state[_ch_cod(_pf_c, _campo_ean("forn", 2))] = "AP22855-B"
         _salvar_produto(_pq, "leo", "_pn")
     finally:
         E.carregar, E.carregar_agora, E.atualizar_produtos, E.atualizar_codigos = _orig_c[:4]
@@ -4660,7 +4689,10 @@ if __name__ == "__main__":
        and _gc_c == [{"2000000000015": {"produto_ean": "7908045100000"}}]
        and len(E.do_codigo(_pq_dep, "7908045199999")) == 2 and len(E.do_codigo(_pq_dep, "7908045100000")) == 2
        and E.do_codigo(_pq_dep, _pq[0]["ean"]) == []
-       and E.extras_do_produto(_pq_dep[0]) == [{"ean": "7908045199999", "forn": "PR-2 (CNPJ B)"}]
+       and E.extras_do_produto(_pq_dep[0]) == [{"ean": "7908045199999", "forn": "PR-2 (CNPJ B)"},
+                                               {"ean": "7908045108466", "forn": ""},
+                                               {"ean": "7908045108459", "forn": "AP22855-B"}]
+       and len(E.do_codigo(_pq_dep, "7908045108459")) == 2
        and _av_c and not _av_c[-1][1] and "Códigos de barras" in _av_c[-1][0])
     # TIRAR A FOTO (dono, 25/11: «excluir a que tem lá e salvar sem foto»),
     # pela cadeia: produto com capa e foto na variação, Salvar do painel.
