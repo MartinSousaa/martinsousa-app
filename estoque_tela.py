@@ -799,7 +799,6 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
             if c_b.toggle("🖨 Etiqueta", key=f"{pf}etq"):
                 _etiqueta(_cod, E.capitalizar(p0.get("nome")))
             _codigos_do_painel(p0, pf)
-            _origem_do_painel(variacoes, pf, quem)
             _acoes_do_produto(variacoes, pf, quem, saldo)
         ini = _iniciais_ed(p0)
         # A chave leva o código: dois produtos abertos em seguida não dividem
@@ -991,15 +990,23 @@ def _ch_vq(pf, pid):
     return f"{pf}vq_{pid}"
 
 
-def ajustes_de_quantidade(variacoes, digitados, saldo):
-    """[(variação, diferença)] do físico digitado contra o que existe. Pura."""
+def _ch_vqa(pf, pid):
+    """O físico de ATACADO da variação (o de varejo é `_ch_vq`)."""
+    return f"{pf}vqa_{pid}"
+
+
+def ajustes_de_quantidade(variacoes, dig_varejo, dig_atacado, saldo_o):
+    """[(variação, origem, diferença)] do físico digitado em CADA origem
+    contra o que existe nela (dono, 26/11: dois campos, varejo e atacado).
+    `saldo_o` = estoque.saldos_por_origem. Pura."""
     fora = []
     for v in variacoes:
-        if v["id"] not in digitados or digitados[v["id"]] is None:
-            continue
-        dif = int(digitados[v["id"]]) - int(saldo.get((v["id"], E.FISICO), 0))
-        if dif:
-            fora.append((v, dif))
+        for origem, dig in ((E.VAREJO, dig_varejo), (E.ATACADO, dig_atacado)):
+            if v["id"] not in dig or dig[v["id"]] is None:
+                continue
+            dif = int(dig[v["id"]]) - int(saldo_o.get((v["id"], E.FISICO, origem), 0))
+            if dif:
+                fora.append((v, origem, dif))
     return fora
 
 
@@ -1092,7 +1099,8 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
         _pp, movs_ag, _cc = E.carregar()
         ajustes = ajustes_de_quantidade(
             variacoes, {v["id"]: ss.get(_ch_vq(pf, v["id"])) for v in variacoes if _ch_vq(pf, v["id"]) in ss},
-            E.saldos(movs_ag))
+            {v["id"]: ss.get(_ch_vqa(pf, v["id"])) for v in variacoes if _ch_vqa(pf, v["id"]) in ss},
+            E.saldos_por_origem(movs_ag))
     blocos = []
     # O quadro de variação nova é DESTE Salvar? Aberto no «✎ editar» da
     # Entrada, ele tem o prefixo do produto; aberto na ficha ou no Estoque
@@ -1123,6 +1131,15 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
         if trava:
             _avisar(f"Nada foi gravado — {trava}", erro=True)
             return
+    if ajustes:
+        # Peça a MAIS numa origem sem SKU e custo dela fica sem preço — a
+        # mesma trava da entrada (25/11), com o produto já editado.
+        _base_a = {**p0, **(mud or {}).get(p0["id"], {})}
+        for _o in E.ORIGENS:
+            trava = entrada_sem_preco([(_base_a, sum(d for _v, o, d in ajustes if o == _o and d > 0))], _o)
+            if trava:
+                _avisar(f"Nada foi gravado — {trava}", erro=True)
+                return
     qtd_ent = {}
     if entrada:
         qtd_ent = quantidades_mudadas(entrada[1], {i: ss.get(_ch_qe(entrada[0], i)) for i, _m, _p in entrada[1]})
@@ -1203,14 +1220,14 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
         if var_mud or var_fotos:
             partes.append(f"✓ {len(set(var_mud) | {v['id'] for v, _f in var_fotos})} variação(ões) atualizada(s).")
         if ajustes:
-            E.gravar_movimentos(E.linhas_de_ajuste(
-                {"linhas": [{"produto": v, "dif": d} for v, d in ajustes]}, quem, _quando(),
-                "ajuste no Estoque cadastrado", movs=movs_ag))
+            E.gravar_movimentos(E.linhas_de_ajuste_origem(ajustes, quem, _quando(),
+                                                          "ajuste no Estoque cadastrado"))
             partes.append("✓ Quantidade corrigida: " + ", ".join(
-                f"{E.nome_completo(v)} {'+' if d > 0 else ''}{d}" for v, d in ajustes) + ".")
+                f"{E.nome_completo(v)} {'+' if d > 0 else ''}{d} no {o}" for v, o, d in ajustes) + ".")
             # Os campos de quantidade renascem do saldo novo.
-            for v, _d in ajustes:
+            for v, _o, _d in ajustes:
                 ss.pop(_ch_vq(pf, v["id"]), None)
+                ss.pop(_ch_vqa(pf, v["id"]), None)
         if tudo:
             E.atualizar_produtos(tudo)
             # Os campos voltam ao que foi gravado; as fotos nascem vazias.
@@ -3699,66 +3716,6 @@ def _acoes_do_produto(variacoes, pf, quem, saldo):
         a2.button("Cancelar", key=f"{pf}excluir_nao", on_click=_cancelar_exclusao_produto)
 
 
-def texto_da_origem(q):
-    """A linha que diz de qual compra é o estoque do produto. Pura.
-    `q` = {VAREJO: n, ATACADO: n} (estoque.pecas_por_origem)."""
-    v, a = q.get(E.VAREJO, 0), q.get(E.ATACADO, 0)
-    if v > 0 and a > 0:
-        return f"Estoque **MISTO** · {v} no varejo · {a} no atacado"
-    if a > 0:
-        return f"Estoque cadastrado no **ATACADO** · {a} peça(s)"
-    if v > 0:
-        return f"Estoque cadastrado no **VAREJO** · {v} peça(s)"
-    return "Sem peças em estoque — nem varejo, nem atacado"
-
-
-def _origem_do_painel(variacoes, pf, quem):
-    """VAREJO ou ATACADO à vista, e a troca num clique (dono, 26/11: «o
-    sistema não informa se esse estoque está cadastrado no atacado ou
-    varejo, isso precisa aparecer para podermos mudar com um clique»).
-    O clique passa TODAS as peças (físico e Full) para a outra origem."""
-    try:
-        q = E.pecas_por_origem(variacoes, E.carregar()[1])
-    except Exception:
-        return
-    p0 = variacoes[0]
-    ean = E.limpar_codigo(p0.get("ean"))
-    c_t, c_b, c_c = st.columns([3, 2, 2], vertical_alignment="center")
-    c_t.markdown(texto_da_origem(q))
-    for col, de, para in ((c_b, E.VAREJO, E.ATACADO), (c_c, E.ATACADO, E.VAREJO)):
-        if q.get(de, 0) <= 0:
-            continue
-        falta = E.falta_preco(p0, para)
-        col.button(f"⇄ Passar as {q[de]} para o {para.upper()}", key=f"{pf}origem_{para}",
-                   disabled=bool(falta), on_click=_mudar_origem, args=(ean, para, quem),
-                   help=(f"Falta {falta} no produto — preencha abaixo, salve, e o botão libera." if falta else
-                         f"Todas as peças do {de} (físico e Full) passam para o {para}, com o custo dele."))
-
-
-def _mudar_origem(ean, para, quem=""):
-    """Grava a troca de origem (estoque.linhas_de_mudar_origem). Lê a
-    planilha na hora e trava se o produto não tem SKU e custo do destino."""
-    try:
-        prods, movs, _c = E.carregar_agora()
-        vs = [p for p in E.ativos(prods) if E.limpar_codigo(p.get("ean")) == E.limpar_codigo(ean)]
-        if not vs:
-            _avisar("Não achei o produto na planilha — nada foi mudado.", erro=True)
-            return
-        falta = E.falta_preco(vs[0], para)
-        if falta:
-            _avisar(f"Não mudei: falta {falta} no produto. Preencha, salve e clique de novo.", erro=True)
-            return
-        linhas = E.linhas_de_mudar_origem(vs, movs, para, quem, _quando())
-        if not linhas:
-            _avisar("Nada a mudar — não há peças na outra origem.")
-            return
-        E.gravar_movimentos(linhas)
-        n = sum(int(m["qtd"]) for m in linhas if int(m["qtd"]) > 0)
-        _avisar(f"✓ {n} peça(s) de «{E.capitalizar(vs[0].get('nome'))}» passaram para o {para.upper()}.")
-    except Exception as e:
-        _avisar(f"Não mudei — a planilha respondeu: {e}", erro=True)
-
-
 def _pedir_exclusao_produto(ean):
     st.session_state["est_pn_excl_prod"] = ean
 
@@ -3827,8 +3784,19 @@ def _variacoes_do_painel(variacoes, saldo, quem, pf):
     Nova variação — tudo gravado pelo «Salvar tudo» do quadro."""
     ss = st.session_state
     st.markdown("**Variações**")
+    # DOIS CAMPOS DE ESTOQUE (dono, 26/11: «um nomeado como atacado e outro
+    # varejo… fica fácil sabermos onde cada quantidade está cadastrada»).
+    try:
+        saldo_o = E.saldos_por_origem(E.carregar()[1])
+    except Exception:
+        saldo_o = {(pid, loc, E.VAREJO): q for (pid, loc), q in saldo.items()}
+    h = st.columns([0.6, 2.4, 1.1, 1.1, 2.4, 0.5])
+    h[1].caption("Nome")
+    h[2].caption("**Estoque VAREJO**")
+    h[3].caption("**Estoque ATACADO**")
+    h[4].caption("Foto")
     for v in variacoes:
-        c0, c1, c2, c3, c4 = st.columns([0.6, 2.4, 1.1, 2.4, 0.5], vertical_alignment="center")
+        c0, c1, c2, c2a, c3, c4 = st.columns([0.6, 2.4, 1.1, 1.1, 2.4, 0.5], vertical_alignment="center")
         c0.markdown(foto_html(v.get("foto_id"), 44), unsafe_allow_html=True)
         ss.setdefault(_ch_vn(pf, v["id"]), str(v.get("variacao") or ""))
         c1.text_input("Nome da variação", key=_ch_vn(pf, v["id"]), label_visibility="collapsed",
@@ -3836,11 +3804,14 @@ def _variacoes_do_painel(variacoes, saldo, quem, pf):
         # A QUANTIDADE (dono, 17/11: «se eu coloquei errado e precisar
         # editar?»): o físico de cada variação; mudou, o «Salvar tudo» grava
         # a diferença como ajuste — o mesmo caminho da Contagem.
-        ss.setdefault(_ch_vq(pf, v["id"]), int(saldo.get((v["id"], E.FISICO), 0)))
+        ss.setdefault(_ch_vq(pf, v["id"]), int(saldo_o.get((v["id"], E.FISICO, E.VAREJO), 0)))
+        ss.setdefault(_ch_vqa(pf, v["id"]), int(saldo_o.get((v["id"], E.FISICO, E.ATACADO), 0)))
         _full = sum(q for (pid, loc), q in saldo.items() if pid == v["id"] and E.eh_full(loc))
-        c2.number_input("Físico", step=1, key=_ch_vq(pf, v["id"]), label_visibility="collapsed",
-                        help="Peças no físico. Mude para corrigir: grava um ajuste."
-                             + (f" No Full: {_full}." if _full else ""))
+        _fx = f" No Full: {_full}." if _full else ""
+        c2.number_input("Estoque varejo", step=1, key=_ch_vq(pf, v["id"]), label_visibility="collapsed",
+                        help="Peças de VAREJO no físico. Mude para corrigir: grava um ajuste." + _fx)
+        c2a.number_input("Estoque atacado", step=1, key=_ch_vqa(pf, v["id"]), label_visibility="collapsed",
+                         help="Peças de ATACADO no físico. Mude para corrigir: grava um ajuste." + _fx)
         c3.file_uploader("Foto da variação", type=None, key=_ch_vf(pf, v["id"]),
                          label_visibility="collapsed")
         if str(v.get("foto_id") or "").strip():
@@ -3849,6 +3820,12 @@ def _variacoes_do_painel(variacoes, saldo, quem, pf):
         if len(variacoes) > 1:
             c4.button("✕", key=f"est_pn_x_{v['id']}", help="Excluir esta variação",
                       on_click=_pedir_exclusao, args=(v["id"],))
+    _ids = {v["id"] for v in variacoes}
+    _tv = sum(q for (pid, loc, o), q in saldo_o.items() if pid in _ids and loc == E.FISICO and o == E.VAREJO)
+    _ta = sum(q for (pid, loc, o), q in saldo_o.items() if pid in _ids and loc == E.FISICO and o == E.ATACADO)
+    _tf = sum(q for (pid, loc), q in saldo.items() if pid in _ids and E.eh_full(loc))
+    st.caption(f"Total do produto no físico: **{_tv} no varejo · {_ta} no atacado**"
+               + (f" · {_tf} no Full" if _tf else ""))
     # O QUE JÁ FOI CADASTRADO ANTES (17/11): produto sem nome COM estoque ao
     # lado das variações — as peças contam duas vezes. Um clique arruma.
     pai = pai_sem_nome(variacoes) if len(variacoes) > 1 else None
@@ -5540,16 +5517,6 @@ if __name__ == "__main__":
        sum(q for (pid, _l), q in _js.items() if pid == _jd[0]["id"]) == 0
        and _js.get((_jv[0]["id"], E.FISICO)) == 9 and _js.get((_jv[1]["id"], E.FISICO)) == 1
        and len(_jz) == 3 and all(m["obs"] == "zerado" for m in _jz))
-    ok("origem à vista (26/11): varejo, atacado, misto e vazio têm cada um a sua frase",
-       "VAREJO** · 82" in texto_da_origem({E.VAREJO: 82, E.ATACADO: 0})
-       and "ATACADO** · 5" in texto_da_origem({E.VAREJO: 0, E.ATACADO: 5})
-       and "MISTO" in texto_da_origem({E.VAREJO: 2, E.ATACADO: 3})
-       and "Sem peças" in texto_da_origem({E.VAREJO: 0, E.ATACADO: 0}))
-    ok("origem à vista: o quadro do produto mostra e o clique grava pela cadeia de estoque.py",
-       "_origem_do_painel(variacoes, pf, quem)" in _insp.getsource(_editar_produto)
-       and "on_click=_mudar_origem" in _insp.getsource(_origem_do_painel)
-       and "E.linhas_de_mudar_origem(vs, movs, para" in _insp.getsource(_mudar_origem)
-       and "E.falta_preco(vs[0], para)" in _insp.getsource(_mudar_origem))
     ok("zerar: o produto sem nome só é «pai» quando é UM, e ao lado de variações com nome",
        pai_sem_nome(_jd + _jv) == _jd[0] and pai_sem_nome(_jd) == _jd[0] and pai_sem_nome(_jv) is None
        and pai_sem_nome(_jd + [{**_jd[0], "id": "X"}] + _jv) is None)
@@ -5580,11 +5547,19 @@ if __name__ == "__main__":
     _qv = E.linhas_de_produto("7908045100001", "AP3017", "Jogo", 46, [("Marrom", ""), ("Verde", "")], "l", "x")
     _qm = E.linhas_de_entrada([(_qv[0], 9), (_qv[1], 1)], "l", "x")
     _qs = E.saldos(_qm)
-    _qa = ajustes_de_quantidade(_qv, {_qv[0]["id"]: 8, _qv[1]["id"]: 1}, _qs)
-    _qz = E.linhas_de_ajuste({"linhas": [{"produto": v, "dif": d} for v, d in _qa]}, "l", "x", "aj", movs=_qm)
+    _qa = ajustes_de_quantidade(_qv, {_qv[0]["id"]: 8, _qv[1]["id"]: 1}, {}, E.saldos_por_origem(_qm))
+    _qz = E.linhas_de_ajuste_origem(_qa, "l", "x", "aj")
     ok("quantidade: o digitado vira ajuste da diferença, e o saldo fica no digitado",
-       [(v["id"], d) for v, d in _qa] == [(_qv[0]["id"], -1)]
+       [(v["id"], o, d) for v, o, d in _qa] == [(_qv[0]["id"], E.VAREJO, -1)]
        and E.saldos(_qm + _qz).get((_qv[0]["id"], E.FISICO)) == 8)
+    # DOIS CAMPOS (dono, 26/11): Marrom 9 varejo → 7 varejo + 2 atacado.
+    _qa2 = ajustes_de_quantidade(_qv, {_qv[0]["id"]: 7, _qv[1]["id"]: 1}, {_qv[0]["id"]: 2, _qv[1]["id"]: 0},
+                                 E.saldos_por_origem(_qm))
+    _qo = E.saldos_por_origem(_qm + E.linhas_de_ajuste_origem(_qa2, "l", "x", "aj"))
+    ok("quantidade: varejo e atacado, cada campo na sua origem (9 varejo → 7 varejo + 2 atacado)",
+       _qo[(_qv[0]["id"], E.FISICO, E.VAREJO)] == 7 and _qo[(_qv[0]["id"], E.FISICO, E.ATACADO)] == 2
+       and _qo[(_qv[1]["id"], E.FISICO, E.VAREJO)] == 1 and len(_qa2) == 2
+       and "key=_ch_vqa(pf, v[\"id\"])" in _src_vp2)
     _em, _ef, _ee = edicoes_de_variacao(_qv, {_qv[0]["id"]: " Amarelo  e Verde ", _qv[1]["id"]: "Verde"},
                                         {_qv[1]["id"]: "F"})
     ok("variações: nome mudado e foto entram; vazio e repetido são recusados",

@@ -94,10 +94,6 @@ ENTRADA, DESFEITO = "entrada", "desfeito"
 VENDA, ENVIO_FULL = "venda", "envio_full"
 QUEBRA, DESCARTE, DOACAO, DEVOLUCAO = "quebra", "descarte", "doacao", "devolucao"
 TROCA_ENVIO, TROCA_VOLTA = "troca_envio", "troca_volta"
-# MUDAR A ORIGEM (dono, 26/11: «o sistema não informa se esse estoque está
-# cadastrado no atacado ou varejo… mudar com um clique»): sai de uma origem e
-# entra na outra, no mesmo local — o total não muda, só a compra de onde veio.
-MUDA_ORIGEM = "muda_origem"
 PERDAS = (QUEBRA, DESCARTE, DOACAO)
 
 # Prefixo 2 é a faixa que o GS1 reserva para uso INTERNO: nenhum produto do
@@ -904,24 +900,16 @@ def pecas_por_origem(variacoes, movs):
     return q
 
 
-def linhas_de_mudar_origem(variacoes, movs, para, quem, quando):
-    """Passa TODAS as peças das variações (físico e Fulls) da outra origem
-    para `para`. Pura. Duas linhas por (variação, local): sai da origem
-    antiga com o custo dela, entra na nova com o custo dela. Saldo negativo
-    não se muda (não há peça para mudar)."""
-    de = VAREJO if para == ATACADO else ATACADO
+def linhas_de_ajuste_origem(ajustes, quem, quando, obs):
+    """O físico de cada origem no que foi DIGITADO (dono, 26/11: «2 campos de
+    estoque por produto e por variação, um atacado e outro varejo»).
+    `ajustes` = [(variação, origem, diferença)]. Pura. Um lote; cada linha
+    com a origem e o custo dela."""
     lote = _id("L")
-    por_id = {str(v["id"]): v for v in variacoes}
-    out = []
-    for (pid, loc, o), q in saldos_por_origem(movs).items():
-        if pid not in por_id or o != de or q <= 0:
-            continue
-        p = por_id[pid]
-        base = {"lote": lote, "quando": quando, "tipo": MUDA_ORIGEM, "local": loc, "produto_id": p["id"],
-                "quem": quem, "obs": f"{de} → {para}", "desfaz": ""}
-        out += [{**base, "id": _id("M"), "qtd": str(-q), "custo_unit": f"{custo_de(p, de):.2f}", "origem": de},
-                {**base, "id": _id("M"), "qtd": str(q), "custo_unit": f"{custo_de(p, para):.2f}", "origem": para}]
-    return out
+    return [{"id": _id("M"), "lote": lote, "quando": quando, "tipo": AJUSTE_CONTAGEM, "local": FISICO,
+             "produto_id": p["id"], "qtd": str(d), "custo_unit": f"{custo_de(p, o):.2f}", "quem": quem,
+             "obs": obs, "desfaz": "", "origem": o}
+            for p, o, d in ajustes if d]
 
 
 def marcados_de(linhas):
@@ -2141,19 +2129,15 @@ if __name__ == "__main__":
        sum(q for (pid, _l), q in _zs.items() if pid == _zp[0]["id"]) == 0
        and _zs.get((_zp[1]["id"], FISICO)) == 1 and len(_zz) == 3
        and {m["custo_unit"] for m in _zz if m["origem"] == ATACADO} == {"40.00"})
-    # MUDAR A ORIGEM (26/11): 7 varejo físico + 2 varejo Full + 3 atacado →
-    # tudo atacado; o total por local não muda.
-    _mo = linhas_de_mudar_origem(_zp, _zm, ATACADO, "l", "x")
-    _mt = _zm + _mo
-    ok("linhas_de_mudar_origem: tudo vai para atacado, físico e Full, e o total por local fica igual",
-       pecas_por_origem(_zp, _mt) == {VAREJO: 0, ATACADO: 13} and saldos(_mt) == saldos(_zm)
-       and pecas_por_origem(_zp, _zm) == {VAREJO: 10, ATACADO: 3}
-       and {m["tipo"] for m in _mo} == {MUDA_ORIGEM} and len({m["lote"] for m in _mo}) == 1
-       and {m["custo_unit"] for m in _mo if m["origem"] == ATACADO} == {"40.00"})
-    _mv = linhas_de_mudar_origem(_zp, _mt, VAREJO, "l", "x")
-    ok("linhas_de_mudar_origem: e volta para varejo; sem peça na outra origem, nada é gravado",
-       pecas_por_origem(_zp, _mt + _mv) == {VAREJO: 13, ATACADO: 0}
-       and linhas_de_mudar_origem(_zp, _mt, ATACADO, "l", "x") == [])
+    # DOIS CAMPOS (26/11): varejo 7→5 e atacado 3→5 no físico; o Full fica.
+    _ao = linhas_de_ajuste_origem([(_zp[0], VAREJO, -2), (_zp[0], ATACADO, 2), (_zp[1], VAREJO, 0)], "l", "x", "aj")
+    _so = saldos_por_origem(_zm + _ao)
+    ok("linhas_de_ajuste_origem: cada origem vai ao digitado, com o custo dela; zero não grava",
+       _so[(_zp[0]["id"], FISICO, VAREJO)] == 5 and _so[(_zp[0]["id"], FISICO, ATACADO)] == 5
+       and _so[(_zp[0]["id"], list(FULLS)[0], VAREJO)] == 2 and len(_ao) == 2
+       and len({m["lote"] for m in _ao}) == 1
+       and {m["custo_unit"] for m in _ao if m["origem"] == ATACADO} == {"40.00"}
+       and pecas_por_origem(_zp, _zm) == {VAREJO: 10, ATACADO: 3})
     ok("foto_principal: a de capa vence; sem ela, a da variação; vazia não conta",
        foto_principal({"foto_id": "V", "foto_produto": "P"}) == "P"
        and foto_principal({"foto_id": "V", "foto_produto": "  "}) == "V" and foto_principal({}) is None)
