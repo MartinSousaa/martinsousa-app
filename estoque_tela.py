@@ -406,6 +406,27 @@ def _origem_da_entrada():
     return E.ATACADO if st.session_state.get("est_origem_entra") == "Atacado" else E.VAREJO
 
 
+def origem_provavel(variacoes, movs):
+    """«Varejo» ou «Atacado»: de onde vêm as peças que o produto TEM. Pura.
+    Só atacado em estoque → Atacado; o resto → Varejo (o de sempre)."""
+    ids = {v.get("id") for v in variacoes}
+    q = {E.VAREJO: 0, E.ATACADO: 0}
+    for (pid, _loc, o), n in E.saldos_por_origem(movs or []).items():
+        if pid in ids and o in q:
+            q[o] += n
+    return "Atacado" if q[E.ATACADO] > 0 and q[E.VAREJO] <= 0 else "Varejo"
+
+
+def _origem_da_variacao_nova(propria):
+    """A origem das peças da variação nova. Na ficha da Entrada vale o «Esta
+    compra é» de cima; no Estoque cadastrado e no «✎ editar» da Entrada,
+    que não têm esse campo, vale o do próprio quadro (dono, 26/11: «está
+    acusando não ter SKU de varejo, mas cadê a opção de varejo ou atacado?»)."""
+    if not propria:
+        return _origem_da_entrada()
+    return E.ATACADO if st.session_state.get("est_var_origem") == "Atacado" else E.VAREJO
+
+
 def renomeacoes(variacoes, digitados):
     """{id: {"variacao": nome}} só das variações cujo nome a pessoa MUDOU. Pura.
 
@@ -657,11 +678,12 @@ def _zerar_pai_agora(pai, quem):
 def _fechar_nova_variacao():
     ss = st.session_state
     ss.pop("est_nova_var", None)
+    ss.pop("est_var_origem", None)
     ss["est_var_n"] = 1
     ss["est_var_k"] = int(ss.get("est_var_k") or 0) + 1
 
 
-def _nova_variacao(variacoes, quem, sufixo_ed="", botoes=True, onde=True):
+def _nova_variacao(variacoes, quem, sufixo_ed="", botoes=True, onde=True, origem_propria=False):
     # Abre pelo botão «➕ Nova variação» ou bipando o mesmo código de novo.
     ss = st.session_state
     if ss.get("est_nova_var") != onde:
@@ -681,6 +703,18 @@ def _nova_variacao(variacoes, quem, sufixo_ed="", botoes=True, onde=True):
             c2.number_input("Quantidade entrando", min_value=0, step=1, value=None, key=_ch_var("qtd", i))
             c3.file_uploader("Foto", type=None, key=_ch_var("foto", i))
         st.button("➕ Mais uma variação", key="est_var_mais", on_click=_mais_um_quadro_de_variacao)
+        if origem_propria:
+            # VAREJO OU ATACADO AQUI MESMO (dono, 26/11): fora da ficha da
+            # Entrada não há o «Esta compra é» de cima. Nasce de onde o
+            # produto já tem peça; a trava cobra o SKU e o custo DESTA origem.
+            try:
+                _pv = origem_provavel(variacoes, E.carregar()[1])
+            except Exception:
+                _pv = "Varejo"
+            ss.setdefault("est_var_origem", _pv)
+            st.segmented_control("Esta compra é", ["Varejo", "Atacado"], key="est_var_origem",
+                                 help="De qual compra vieram as peças das variações novas. A entrada "
+                                      "exige o SKU e o custo desta origem no produto.")
         if not botoes:            # dentro do quadro do produto: o «Salvar tudo» grava
             return
         a, b = st.columns(2)
@@ -799,7 +833,7 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
             # clicou em editar e não tinha como pôr variação). O mesmo quadro
             # da ficha, gravado pelo «Salvar alterações» daqui.
             st.button("➕ Nova variação", key=f"{pf}nova_var", on_click=_abrir_nova_variacao, args=(pf,))
-            _nova_variacao(variacoes, quem, sufixo, botoes=False, onde=pf)
+            _nova_variacao(variacoes, quem, sufixo, botoes=False, onde=pf, origem_propria=True)
         a, b = st.columns(2)
         a.button("💾 Salvar tudo" if painel else "Salvar alterações", key=f"{pf}salvar", type="primary",
                  use_container_width=True,
@@ -1061,7 +1095,8 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
             return
     if blocos:
         _base_t = {**p0, **(mud or {}).get(p0["id"], {})}
-        trava = entrada_sem_preco([(_base_t, sum(q or 0 for _n, q, _f in blocos))], _origem_da_entrada())
+        trava = entrada_sem_preco([(_base_t, sum(q or 0 for _n, q, _f in blocos))],
+                                  _origem_da_variacao_nova(painel or bool(entrada)))
         if trava:
             _avisar(f"Nada foi gravado — {trava}", erro=True)
             return
@@ -1176,7 +1211,8 @@ def _salvar_produto(variacoes, quem, sufixo="", fechar=False, entrada=None):
                     # Os outros códigos do produto vão junto (dono, 25/11).
                     nv[0]["eans_extras"] = base["eans_extras"]
                 linhas += nv
-                ent += E.linhas_de_entrada([(nv[0], qtd)], quem, _quando(), origem=_origem_da_entrada())
+                ent += E.linhas_de_entrada([(nv[0], qtd)], quem, _quando(),
+                                           origem=_origem_da_variacao_nova(painel or bool(entrada)))
             E.gravar_produtos(linhas)
             if ent:
                 E.gravar_movimentos(ent)
@@ -3649,7 +3685,7 @@ def _variacoes_do_painel(variacoes, saldo, quem, pf):
                      on_click=_excluir_variacao, args=(alvo["id"], nome, quem))
             b.button("Cancelar", key="est_pn_x_nao", use_container_width=True, on_click=_cancelar_exclusao)
     st.button("➕ Nova variação", key="est_pn_nova_var", on_click=_abrir_nova_variacao)
-    _nova_variacao(variacoes, quem, sufixo_ed="_pn", botoes=False)
+    _nova_variacao(variacoes, quem, sufixo_ed="_pn", botoes=False, origem_propria=True)
 
 
 def quadro_trocas_html(trocas):
@@ -4790,7 +4826,7 @@ if __name__ == "__main__":
     ok("editar da Entrada: «➕ Nova variação» aberto AQUI grava a variação com as 3 peças; o da ficha não",
        len(_nv_novas) == 1 and E.saldos(_nv_db["m"]).get((_nv_novas[0]["id"], E.FISICO)) == 3
        and not _nv_av[-1][1] and len(_nv_db2["p"]) == 1
-       and "_nova_variacao(variacoes, quem, sufixo, botoes=False, onde=pf)" in _insp.getsource(_editar_produto))
+       and "_nova_variacao(variacoes, quem, sufixo, botoes=False, onde=pf, origem_propria=True)" in _insp.getsource(_editar_produto))
     _src_fp = _insp.getsource(_ficha_principal)
     ok("entrada: «Esta compra é» (varejo/atacado) logo abaixo da quantidade, antes do «Nova variação» (25/11)",
        _src_fp.count('key="est_origem_entra"') == 1
@@ -5032,11 +5068,52 @@ if __name__ == "__main__":
        and not _av2[0][1] and _av2[1][1] and "já estão cadastradas" in _av2[1][0]
        and _av2[2][1] and "«PRETO» já está cadastrada" in _av2[2][0]
        and sum(int(m["qtd"]) for m in _db_s["m"]) == 5)
+    # VAREJO OU ATACADO NA VARIAÇÃO NOVA DO ESTOQUE CADASTRADO (dono, 26/11:
+    # «Calcinha Unitária», 0 · 60 — tudo atacado — e a trava cobrava o SKU de
+    # VAREJO, sem ter onde escolher). Pela cadeia: o produto com preço só no
+    # atacado e peças de atacado; o quadro nasce em Atacado e grava assim.
+    _cal = E.linhas_de_produto("2000000001616", "", "Calcinha Unitária", 3.75,
+                               [("Tamanho P", ""), ("Tamanho M", "")], "l", "x",
+                               sku_atacado="MS-375", custo_atacado=3.75, fornecedor="SAARA")
+    _mv_cal = E.linhas_de_entrada([(_cal[0], 12), (_cal[1], 12)], "l", "x", origem=E.ATACADO)
+    ok("origem provável: só atacado em estoque → Atacado; com varejo, ou vazio → Varejo",
+       origem_provavel(_cal, _mv_cal) == "Atacado" and origem_provavel(_cal, []) == "Varejo"
+       and origem_provavel(_cal, _mv_cal + E.linhas_de_entrada([(_cal[0], 1)], "l", "x")) == "Varejo")
+    _pf_cal = _pf_ed(_cal, "_pn")
+    _res_cal = {}
+    for _org in ("Atacado", "Varejo"):
+        _db_c = {"p": [dict(x) for x in _cal], "m": list(_mv_cal), "c": []}
+        _av_c = []
+        _orig_c = (E.carregar_agora, E.carregar, E.gravar_produtos, E.gravar_movimentos, _avisar,
+                   st.session_state)
+        try:
+            E.carregar_agora = E.carregar = lambda: (_db_c["p"], _db_c["m"], _db_c["c"])
+            E.gravar_produtos = lambda l: _db_c["p"].extend(l)
+            E.gravar_movimentos = lambda l: _db_c["m"].extend(l)
+            globals()["_avisar"] = lambda msg, erro=False: _av_c.append((msg, erro))
+            st.session_state = {"est_nova_var": True, "est_var_n": 1, "est_var_k": 0,
+                                _pf_cal + "painel": True, "est_var_origem": _org,
+                                "est_var_nome_0_0": "INFANTIL TAMANHO G", "est_var_qtd_0_0": 1}
+            _salvar_produto(_cal, "leo", "_pn")
+        finally:
+            (E.carregar_agora, E.carregar, E.gravar_produtos, E.gravar_movimentos) = _orig_c[:4]
+            globals()["_avisar"] = _orig_c[4]
+            st.session_state = _orig_c[5]
+        _res_cal[_org] = (_av_c, [m for m in _db_c["m"] if m not in _mv_cal])
+    _ok_at = (not any(e for _m, e in _res_cal["Atacado"][0]) and len(_res_cal["Atacado"][1]) == 1
+              and _res_cal["Atacado"][1][0]["origem"] == E.ATACADO
+              and _res_cal["Atacado"][1][0]["custo_unit"] == "3.75")
+    _ok_vr = (not _res_cal["Varejo"][1] and _res_cal["Varejo"][0]
+              and "sem preço no varejo" in _res_cal["Varejo"][0][-1][0])
+    ok("variação nova no Estoque cadastrado: Atacado grava como atacado; Varejo sem SKU de varejo trava",
+       _ok_at and _ok_vr)
+    if not (_ok_at and _ok_vr):
+        print("      ", str(_res_cal)[:400])
     _src_pn = _insp.getsource(_painel)
     _src_vp = _insp.getsource(_variacoes_do_painel)
     ok("Estoque cadastrado: a linha escolhida mostra ✕ e ➕ Nova variação",
        "_variacoes_do_painel(variacoes, saldo, quem, pf)" in _insp.getsource(_editar_produto)
-       and '_nova_variacao(variacoes, quem, sufixo_ed="_pn", botoes=False)' in _src_vp
+       and '_nova_variacao(variacoes, quem, sufixo_ed="_pn", botoes=False, origem_propria=True)' in _src_vp
        and "on_click=_excluir_variacao" in _src_vp and '"ativo": "0"' in _insp.getsource(_excluir_variacao))
 
     # FORNECEDOR (dono, 17/11): o NOME de quem vende, ao lado do código dele.

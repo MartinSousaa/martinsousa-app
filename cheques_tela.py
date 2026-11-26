@@ -126,15 +126,25 @@ def pagina(usuario_logado=None):
     atrasados = _ch.vencidos_sem_baixa(linhas, hoje)
     if atrasados:
         with st.expander(f"⚠️ {len(atrasados)} venceram e não baixaram"):
+            # O PORQUÊ DE CADA UM (dono, 25/11: «não está dando baixa com
+            # base no extrato, por quê?»): o que o Studio achou no extrato
+            # gravado. A baixa sozinha só casa o que é seguro; o resto se
+            # confere aqui e se baixa na tabela.
+            import lancamentos as _lan_v
+            _por_que = _ch.motivos_sem_baixa(atrasados, _lan_v.carregar())
+            st.caption("A baixa automática só casa o que é seguro: a folha na descrição do extrato "
+                       "com o mesmo valor, ou o mesmo valor até 4 dias do vencimento e único. "
+                       "«Por que não baixou» diz o que o Studio achou no extrato lançado.")
             st.dataframe(
                 pd.DataFrame([{"folha": l.get("folha", ""),
                                "vencimento": _ch.data_br(l.get("vencimento")),
                                "valor": _ch._num(l.get("valor")),
-                               "favorecido": l.get("favorecido", "")}
+                               "favorecido": l.get("favorecido", ""),
+                               "por que não baixou": _por_que.get(l.get("id"), "")}
                               for l in atrasados]),
                 use_container_width=True, hide_index=True,
                 column_config=_rot.config(
-                    ["folha", "vencimento", "valor", "favorecido"], st,
+                    ["folha", "vencimento", "valor", "favorecido", "por que não baixou"], st,
                     tipos={"valor": "brl"}))
 
     # ── cadastrar ────────────────────────────────────────────────────────

@@ -3673,8 +3673,8 @@ MUTACOES = [
     (
         "a exclusao volta a tirar anuncio de outra conta (19/11)",
         "excluir_anuncios_ml.py",
-        '            elif uid and str(b.get("seller_id")) != str(uid):\n',
-        "            elif False:\n",
+        '        if uid and str(b.get("seller_id")) != str(uid):\n',
+        "        if False:\n",
         ["python3", "excluir_anuncios_ml.py"],
     ),
     (

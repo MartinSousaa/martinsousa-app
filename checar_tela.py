@@ -3942,6 +3942,41 @@ def _boletos_na_tela(conta):
         _ch.carregar, _ch.conferir_com_extratos = _g
 
 
+def _cheques_por_que_na_tela(conta):
+    """25/11: «venceram e não baixaram» diz, cheque a cheque, o que o Studio
+    achou no extrato gravado. Só a planilha é trocada: o cadastro
+    (`normalizar`), a baixa e o porquê rodam de verdade."""
+    import cheques_tela as _ct
+    import cheques as _ch
+    import lancamentos as _lan
+    _venc = _ch.normalizar({"folha": "504", "valor": 1200, "vencimento": "2026-10-01",
+                            "favorecido": "LEXTACK", "situacao": "EM ABERTO"})
+    _venc["id"] = "v1"
+    _ext = [{"id": "a", "data": "2026-10-02", "valor": -1250.0, "descricao": "CH COMPENSADO 001 000504"}]
+    _g = (_ch.carregar, _ch.atualizar, _lan.carregar)
+    _ch.carregar = lambda: [dict(_venc)]
+    _ch.atualizar = lambda *a, **k: (True, "ok")
+    _lan.carregar = lambda: list(_ext)
+    _vistos = []
+    _falso = instalar()
+    _falso.dataframe = lambda d, *a, **k: _vistos.append(d)
+    _falso.data_editor = lambda d, *a, **k: d
+    _ct.st = _falso
+    try:
+        try:
+            _ct.pagina("leo")
+        except (_Rerun, _Parou):
+            pass
+        _col = [list(d["por que não baixou"]) for d in _vistos
+                if hasattr(d, "columns") and "por que não baixou" in d.columns]
+        conta("Cheques: o vencido diz por que o extrato não deu baixa (valor diferente)",
+              bool(_col) and "o cadastro diz R$ 1.200,00" in _col[0][0], str(_col)[:160])
+    except Exception as e:
+        conta("Cheques: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _ch.carregar, _ch.atualizar, _lan.carregar = _g
+
+
 def _lembretes_na_home(conta):
     """15/10: os lembretes de pagamento no topo da Home, com ✓ Feito.
 
@@ -5514,6 +5549,7 @@ def main():
     _inter_pela_api(conta)
     _co_proporcional_na_viabilidade(conta)
     _boletos_na_tela(conta)
+    _cheques_por_que_na_tela(conta)
     _historico_na_home(conta)
     _lembretes_na_home(conta)
     _visao_geral(conta)

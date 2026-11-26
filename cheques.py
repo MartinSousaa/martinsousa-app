@@ -655,6 +655,74 @@ def baixas_pelo_extrato(linhas, lancamentos, tolerancia=TOLERANCIA_BAIXA_DIAS):
     return certas, duvidosas
 
 
+def _moeda(v):
+    return "R$ " + f"{float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def motivos_sem_baixa(atrasados, lancamentos, tolerancia=TOLERANCIA_BAIXA_DIAS):
+    """{id do cheque: por que o extrato não deu baixa}. Pura.
+
+    Dono, 25/11: «o sistema não está dando baixa nos cheques com base no
+    extrato, por quê?». A baixa existe (`baixas_pelo_extrato`) e só casa o
+    que é SEGURO; o resto ficava em aberto calado. Aqui cada vencido diz o
+    que o Studio achou no extrato gravado — e quem olha decide.
+    """
+    from datetime import date as _date
+    import extrato_itau as _ei
+
+    def _dia(v):
+        t = texto_data(v)
+        try:
+            return _date.fromisoformat(t[:10]) if t else None
+        except ValueError:
+            return None
+
+    lans = list(lancamentos or [])
+    dias = [d for d in (_dia(l.get("data")) for l in lans) if d]
+    ultimo = max(dias) if dias else None
+    saidas = [l for l in lans if _num(l.get("valor")) < 0]
+    por_folha, por_valor = {}, {}
+    for l in saidas:
+        f = str(l.get("cheque") or "") or _ei.numero_do_cheque(l.get("descricao"))
+        if f:
+            por_folha.setdefault(f, []).append(l)
+        por_valor.setdefault(round(abs(_num(l.get("valor"))), 2), []).append(l)
+    fora = {}
+    for c in atrasados or []:
+        v, dv, folha = round(_num(c.get("valor")), 2), _dia(c.get("vencimento")), texto_folha(c.get("folha"))
+        achou_f = por_folha.get(folha) if folha else None
+        if achou_f:
+            l = achou_f[0]
+            fora[c.get("id")] = (f"a folha {folha} caiu em {data_br(l.get('data'))} com "
+                                 f"{_moeda(abs(_num(l.get('valor'))))} — o cadastro diz {_moeda(v)}: "
+                                 "confira o valor e dê baixa")
+            continue
+        perto = sorted(((abs((_dia(l.get("data")) - dv).days), l) for l in por_valor.get(v, [])
+                        if dv and _dia(l.get("data"))
+                        and -10 <= (_dia(l.get("data")) - dv).days <= 120), key=lambda x: x[0])
+        if perto:
+            d, l = perto[0]
+            if d <= tolerancia:
+                fora[c.get("id")] = (f"há {len(perto)} saída(s) de {_moeda(v)} perto do vencimento e mais "
+                                     "de um cheque com esse valor — o Studio não escolhe sozinho: "
+                                     f"confira (a mais perto caiu em {data_br(l.get('data'))}) e dê baixa")
+            else:
+                fora[c.get("id")] = (f"saída de {_moeda(v)} em {data_br(l.get('data'))}, {d} dias "
+                                     f"{'depois' if _dia(l.get('data')) >= dv else 'antes'} do vencimento "
+                                     f"— fora da janela de {tolerancia} dias e sem a folha na descrição: "
+                                     "confira e dê baixa")
+            continue
+        if ultimo is None:
+            fora[c.get("id")] = "nenhum extrato lançado no Studio — anexe o extrato em Extratos"
+        elif dv and ultimo < dv:
+            fora[c.get("id")] = (f"o extrato lançado vai só até {data_br(ultimo)} — anexe o extrato "
+                                 "de depois do vencimento")
+        else:
+            fora[c.get("id")] = (f"nenhuma saída de {_moeda(v)} no extrato (lançado até "
+                                 f"{data_br(ultimo)}) — não foi apresentado, ou caiu com outro valor")
+    return fora
+
+
 def conferir_com_extratos(usuario="", linhas=None, lancamentos=None):
     """Confere os cheques em aberto contra TODOS os extratos já gravados.
 
@@ -1316,6 +1384,44 @@ if __name__ == "__main__":
         ok("e a baixa grava DEBITADO", {s for _, s in _gravadas} == {"DEBITADO"})
     finally:
         globals()["atualizar"] = _g_at
+
+    # POR QUE NÃO BAIXOU (dono, 25/11), com o extrato na forma de
+    # `lancamentos.carregar` (valor float negativo, data texto) e o cheque na
+    # de `normalizar` — e a mesma entrada passa antes por baixas_pelo_extrato:
+    # o que ela baixa não pode aparecer como «sem motivo».
+    _ch_m = [normalizar(x) for x in (
+        {"folha": "504", "valor": 1200, "vencimento": "2026-10-01", "favorecido": "LEXTACK"},
+        {"folha": "505", "valor": 800, "vencimento": "2026-10-01", "favorecido": "LEXTACK"},
+        {"folha": "506", "valor": 450, "vencimento": "2026-10-05", "favorecido": "LEXTACK"},
+        {"folha": "507", "valor": 450, "vencimento": "2026-10-06", "favorecido": "LEXTACK"},
+        {"folha": "508", "valor": 999, "vencimento": "2026-11-20", "favorecido": "LEXTACK"},
+        {"folha": "509", "valor": 333, "vencimento": "2026-10-10", "favorecido": "LEXTACK"})]
+    for _i, _x in enumerate(_ch_m):
+        _x["id"] = f"m{_i}"
+    _ex_m = [{"id": "a", "data": "2026-10-02", "valor": -1250.0, "descricao": "CH COMPENSADO 001 000504"},
+             {"id": "b", "data": "2026-10-20", "valor": -800.0, "descricao": "SISPAG FORNECEDOR"},
+             {"id": "c", "data": "2026-10-06", "valor": -450.0, "descricao": "TED"},
+             {"id": "d", "data": "2026-10-06", "valor": -450.0, "descricao": "TED"},
+             {"id": "e", "data": "2026-11-10", "valor": 50.0, "descricao": "PIX RECEBIDO"}]
+    _cert_m, _duv_m = baixas_pelo_extrato(_ch_m, _ex_m)
+    _abertos_m = [x for x in _ch_m if x["id"] not in {b["cheque"]["id"] for b in _cert_m}]
+    _mm = motivos_sem_baixa(_abertos_m, _ex_m)
+    ok("por que não baixou: valor diferente, fora da janela, o extrato acaba antes, e não apresentado",
+       "a folha 504 caiu em 02/10/2026 com R$ 1.250,00 — o cadastro diz R$ 1.200,00" in _mm["m0"]
+       and "saída de R$ 800,00 em 20/10/2026, 19 dias depois do vencimento" in _mm["m1"]
+       and "vai só até 10/11/2026" in _mm["m4"]
+       and "nenhuma saída de R$ 333,00 no extrato (lançado até 10/11/2026)" in _mm["m5"]
+       and set(_mm) == {x["id"] for x in _abertos_m})
+    ok("por que não baixou: só o que a baixa automática deixou — o de R$ 450 do dia casou, o da "
+       "véspera (dois do mesmo valor) pede conferência",
+       {b["cheque"]["id"] for b in _cert_m} == {"m3"} and "m3" not in _mm
+       and "há 2 saída(s) de R$ 450,00 perto do vencimento" in _mm["m2"])
+    _mm2 = motivos_sem_baixa([_ch_m[3]], [{"data": "2026-10-04", "valor": -450.0, "descricao": "TED"},
+                                          {"data": "2026-10-07", "valor": -450.0, "descricao": "TED"}])
+    ok("por que não baixou: dois do mesmo valor perto do vencimento pedem conferência",
+       "há 2 saída(s) de R$ 450,00 perto do vencimento" in _mm2["m3"])
+    ok("por que não baixou: sem extrato nenhum, diz para anexar",
+       "nenhum extrato lançado" in motivos_sem_baixa([_ch_m[5]], [])["m5"])
 
     import inspect as _insp_ch
     import cheques_tela as _ct_t
