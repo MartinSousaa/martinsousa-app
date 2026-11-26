@@ -799,6 +799,7 @@ def _editar_produto(variacoes, quem, sufixo="", aberto=False, fechar=False, sald
             if c_b.toggle("🖨 Etiqueta", key=f"{pf}etq"):
                 _etiqueta(_cod, E.capitalizar(p0.get("nome")))
             _codigos_do_painel(p0, pf)
+            _origem_do_painel(variacoes, pf, quem)
             _acoes_do_produto(variacoes, pf, quem, saldo)
         ini = _iniciais_ed(p0)
         # A chave leva o código: dois produtos abertos em seguida não dividem
@@ -3698,6 +3699,66 @@ def _acoes_do_produto(variacoes, pf, quem, saldo):
         a2.button("Cancelar", key=f"{pf}excluir_nao", on_click=_cancelar_exclusao_produto)
 
 
+def texto_da_origem(q):
+    """A linha que diz de qual compra é o estoque do produto. Pura.
+    `q` = {VAREJO: n, ATACADO: n} (estoque.pecas_por_origem)."""
+    v, a = q.get(E.VAREJO, 0), q.get(E.ATACADO, 0)
+    if v > 0 and a > 0:
+        return f"Estoque **MISTO** · {v} no varejo · {a} no atacado"
+    if a > 0:
+        return f"Estoque cadastrado no **ATACADO** · {a} peça(s)"
+    if v > 0:
+        return f"Estoque cadastrado no **VAREJO** · {v} peça(s)"
+    return "Sem peças em estoque — nem varejo, nem atacado"
+
+
+def _origem_do_painel(variacoes, pf, quem):
+    """VAREJO ou ATACADO à vista, e a troca num clique (dono, 26/11: «o
+    sistema não informa se esse estoque está cadastrado no atacado ou
+    varejo, isso precisa aparecer para podermos mudar com um clique»).
+    O clique passa TODAS as peças (físico e Full) para a outra origem."""
+    try:
+        q = E.pecas_por_origem(variacoes, E.carregar()[1])
+    except Exception:
+        return
+    p0 = variacoes[0]
+    ean = E.limpar_codigo(p0.get("ean"))
+    c_t, c_b, c_c = st.columns([3, 2, 2], vertical_alignment="center")
+    c_t.markdown(texto_da_origem(q))
+    for col, de, para in ((c_b, E.VAREJO, E.ATACADO), (c_c, E.ATACADO, E.VAREJO)):
+        if q.get(de, 0) <= 0:
+            continue
+        falta = E.falta_preco(p0, para)
+        col.button(f"⇄ Passar as {q[de]} para o {para.upper()}", key=f"{pf}origem_{para}",
+                   disabled=bool(falta), on_click=_mudar_origem, args=(ean, para, quem),
+                   help=(f"Falta {falta} no produto — preencha abaixo, salve, e o botão libera." if falta else
+                         f"Todas as peças do {de} (físico e Full) passam para o {para}, com o custo dele."))
+
+
+def _mudar_origem(ean, para, quem=""):
+    """Grava a troca de origem (estoque.linhas_de_mudar_origem). Lê a
+    planilha na hora e trava se o produto não tem SKU e custo do destino."""
+    try:
+        prods, movs, _c = E.carregar_agora()
+        vs = [p for p in E.ativos(prods) if E.limpar_codigo(p.get("ean")) == E.limpar_codigo(ean)]
+        if not vs:
+            _avisar("Não achei o produto na planilha — nada foi mudado.", erro=True)
+            return
+        falta = E.falta_preco(vs[0], para)
+        if falta:
+            _avisar(f"Não mudei: falta {falta} no produto. Preencha, salve e clique de novo.", erro=True)
+            return
+        linhas = E.linhas_de_mudar_origem(vs, movs, para, quem, _quando())
+        if not linhas:
+            _avisar("Nada a mudar — não há peças na outra origem.")
+            return
+        E.gravar_movimentos(linhas)
+        n = sum(int(m["qtd"]) for m in linhas if int(m["qtd"]) > 0)
+        _avisar(f"✓ {n} peça(s) de «{E.capitalizar(vs[0].get('nome'))}» passaram para o {para.upper()}.")
+    except Exception as e:
+        _avisar(f"Não mudei — a planilha respondeu: {e}", erro=True)
+
+
 def _pedir_exclusao_produto(ean):
     st.session_state["est_pn_excl_prod"] = ean
 
@@ -5479,6 +5540,16 @@ if __name__ == "__main__":
        sum(q for (pid, _l), q in _js.items() if pid == _jd[0]["id"]) == 0
        and _js.get((_jv[0]["id"], E.FISICO)) == 9 and _js.get((_jv[1]["id"], E.FISICO)) == 1
        and len(_jz) == 3 and all(m["obs"] == "zerado" for m in _jz))
+    ok("origem à vista (26/11): varejo, atacado, misto e vazio têm cada um a sua frase",
+       "VAREJO** · 82" in texto_da_origem({E.VAREJO: 82, E.ATACADO: 0})
+       and "ATACADO** · 5" in texto_da_origem({E.VAREJO: 0, E.ATACADO: 5})
+       and "MISTO" in texto_da_origem({E.VAREJO: 2, E.ATACADO: 3})
+       and "Sem peças" in texto_da_origem({E.VAREJO: 0, E.ATACADO: 0}))
+    ok("origem à vista: o quadro do produto mostra e o clique grava pela cadeia de estoque.py",
+       "_origem_do_painel(variacoes, pf, quem)" in _insp.getsource(_editar_produto)
+       and "on_click=_mudar_origem" in _insp.getsource(_origem_do_painel)
+       and "E.linhas_de_mudar_origem(vs, movs, para" in _insp.getsource(_mudar_origem)
+       and "E.falta_preco(vs[0], para)" in _insp.getsource(_mudar_origem))
     ok("zerar: o produto sem nome só é «pai» quando é UM, e ao lado de variações com nome",
        pai_sem_nome(_jd + _jv) == _jd[0] and pai_sem_nome(_jd) == _jd[0] and pai_sem_nome(_jv) is None
        and pai_sem_nome(_jd + [{**_jd[0], "id": "X"}] + _jv) is None)
