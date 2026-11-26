@@ -368,8 +368,7 @@ def mapa_da_aba(linhas):
 
 def bytes_da_analise():
     """(bytes, erro) do .xlsx da Análise de Anúncios, pelo link do Railway.
-    UM leitor do link: os nomes das promoções e a Consulta de anúncio
-    (`consulta_anuncio.py`) passam por aqui."""
+    UM leitor do link: os nomes das promoções passam por aqui."""
     import chaves as _chv
     link = str(_chv.ler(CHAVE_ANALISE) or "").strip()
     if not link:
