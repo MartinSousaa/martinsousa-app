@@ -121,6 +121,9 @@ if aba == "Estoque":
     _db.setdefault("cmp", [])
     _E.compras = lambda: list(_db["cmp"])
     _E.marcar_comprado = lambda pid, q, w: _db["cmp"].append({{"produto_id": pid, "marcado_em": w}}) or 1
+    _db.setdefault("tr", [])
+    _E.trocas = _E.trocas_agora = lambda: [dict(x) for x in _db["tr"]]
+    _E.gravar_trocas = lambda l: _db["tr"].extend(l) or len(l)
     _db.setdefault("cg", [])
     _db.setdefault("ct", [])
     _E.contagem = lambda: (list(_db["cg"]), list(_db["ct"]))
@@ -329,6 +332,34 @@ def main():
             pg.keyboard.type("2000000000015", delay=8)
             pg.keyboard.press("Enter")
             pg.wait_for_timeout(2500)
+            # VÁRIOS MODELOS DE UMA VEZ (dono, 26/11): na janela, 2 de um e 1
+            # do outro, «DAR SAÍDA» — sai tudo num lote só, sem recarregar; e
+            # o «✖ excluir» do bipe devolve os dois.
+            _vant = _sal()
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("7891234567895", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.locator("[class*=st-key-est_jq_] input").nth(0).fill("2")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(1200)
+            pg.locator("[class*=st-key-est_jq_] input").nth(1).fill("1")
+            pg.keyboard.press("Tab")
+            pg.wait_for_timeout(1500)
+            pg.get_by_role("button", name=_re.compile("DAR SAÍDA · 2 modelo")).click()
+            pg.wait_for_timeout(2500)
+            _vm = _sal()
+            _jan_fechou = pg.get_by_role("button", name="SAIU ESTE").count() == 0
+            pg.get_by_role("button", name="✖ excluir").first.click()
+            pg.wait_for_timeout(2500)
+            _vd = _sal()
+            _num = lambda t: {k: int(v.split("/")[0]) for k, v in (x.rsplit(":", 1) for x in t.split(","))}
+            _dif = {k: _num(_vm)[k] - _num(_vant)[k] for k in _num(_vant)}
+            ok = (_dif == {"Braço para cima": -2, "Sentada": -1, "Embaralhador automático": 0}
+                  and _jan_fechou and _vd == _vant and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: janela com vários modelos e quantidades sai num "
+                  f"clique só, e o excluir devolve ({_vm} → {_vd}, recargas={len(navegou) - 1})")
             pg.get_by_text("Envio para o Full").click()
             pg.wait_for_timeout(2000)
             # UM FULL POR CONTA (11/11): sem escolher qual, o bipe não sai.
@@ -667,6 +698,28 @@ def main():
             falhas += not ok
             print(("ok    " if ok else "FALHA ") + f"estoque: Produtos sem EAN acha pela palavra, desenha o código "
                   f"e o código lido sai como bipe (vazio={_vazio}, achou={_um}, {_n0} → {_n1})")
+            # TROCA COM VÁRIOS MODELOS (dono, 26/11): bipa o código de dois
+            # modelos, 2 de um e 1 do outro, um ENVIAR só.
+            pg.get_by_text("Troca no fornecedor", exact=True).click()
+            pg.wait_for_timeout(2500)
+            _ta = _sal()
+            pg.locator(".st-key-est_bipe input").click()
+            pg.keyboard.type("7891234567895", delay=8)
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(2500)
+            pg.locator("[class*=st-key-est_tr_q_] input").nth(0).fill("2")
+            pg.locator("[class*=st-key-est_tr_q_] input").nth(1).fill("1")
+            pg.get_by_role("button", name="ENVIAR PARA TROCA").click()
+            pg.wait_for_timeout(2500)
+            _td = _sal()
+            _num = lambda t: {k: int(v.split("/")[0]) for k, v in (x.rsplit(":", 1) for x in t.split(","))}
+            _tdif = {k: _num(_td)[k] - _num(_ta)[k] for k in _num(_ta)}
+            _tlista = "No fornecedor · 3 peça(s)" in pg.inner_text("body")
+            ok = ({k: v for k, v in _tdif.items() if v} == {"Braço para cima": -2, "Sentada": -1}
+                  and _tlista and len(navegou) == 1)
+            falhas += not ok
+            print(("ok    " if ok else "FALHA ") + f"estoque: troca com vários modelos e quantidades num envio só "
+                  f"({_tdif}, lista={_tlista}, recargas={len(navegou) - 1})")
             nav.close()
     except Exception as e:
         falhas += 1

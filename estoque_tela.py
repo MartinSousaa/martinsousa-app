@@ -2049,6 +2049,53 @@ def _saiu_modelo(pid, quem):
         _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
 
 
+def _ch_jq(pid):
+    return f"est_jq_{pid}"
+
+
+def itens_da_janela(variacoes, ler, chave=None):
+    """[(variação, peças)] dos modelos com quantidade digitada. Pura (`ler` =
+    session_state.get; `chave(id)` = a chave do campo, a da janela da Saída
+    por padrão — a Troca usa a mesma conta com a chave dela). Vazio ou 0 não
+    entra."""
+    chave = chave or _ch_jq
+    fora = []
+    for v in variacoes:
+        try:
+            n = int(ler(chave(v["id"])) or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n > 0:
+            fora.append((v, n))
+    return fora
+
+
+def _saiu_varios(ids, quem):
+    """«DAR SAÍDA» da janela (dono, 26/11: kit com 4 modelos diferentes — a
+    colaboradora marca a quantidade de cada um e sai tudo de uma vez, sem
+    bipar de novo). Um lote só: o «excluir» do bipe desfaz tudo junto."""
+    ss = st.session_state
+    try:
+        prods, movs, _c = E.carregar()
+        por_id = {p["id"]: p for p in prods}
+        itens = itens_da_janela([por_id[i] for i in ids if i in por_id], ss.get)
+        if not itens:
+            _avisar("Digite a quantidade de pelo menos um modelo antes de dar saída.", True)
+            return
+        corr = ss.pop("est_corrigir", None)
+        if corr:
+            E.gravar_movimentos(E.linhas_que_desfazem(corr, movs, quem, _quando()))
+        ss.pop("est_kit_pergunta", None)
+        rotulo = ", ".join(f"{n}× {E.nome_completo(p)}" for p, n in itens)
+        lote = _baixar(itens, _destino(), quem, rotulo)
+        if lote:
+            ss.pop("est_janela", None)
+            for i in ids:
+                ss.pop(_ch_jq(i), None)
+    except Exception as e:
+        _avisar(f"Não gravei a saída — a planilha respondeu: {e}", True)
+
+
 def _perguntar_kit(lote, pid, codigos):
     ks = E.kits_com(codigos, pid)
     if ks:
@@ -2151,17 +2198,27 @@ def _janela(variacoes, saldo, codigos, por_id, quem):
     with st.container(border=True):
         st.markdown(janela_html(variacoes, saldo), unsafe_allow_html=True)
         for v in variacoes:
-            c0, c1, c2 = st.columns([0.7, 3.4, 1.6])
+            c0, c1, cq, c2 = st.columns([0.7, 3.0, 1.0, 1.6], vertical_alignment="center")
             c0.markdown(foto_html(v.get("foto_id"), 54), unsafe_allow_html=True)
-            c1.markdown(f'**{_esc(v.get("variacao") or v.get("nome"))}**  \nsai 1 peça · em estoque: '
+            c1.markdown(f'**{_esc(v.get("variacao") or v.get("nome"))}**  \nem estoque: '
                         f'{saldo.get((v["id"], E.FISICO), 0)}')
+            cq.number_input("quantas saem", min_value=0, step=1, value=None, key=_ch_jq(v["id"]),
+                            placeholder="qtd", label_visibility="collapsed")
             c2.button("SAIU ESTE", key=f"est_sv_{v['id']}", use_container_width=True,
                       on_click=_saiu_modelo, args=(v["id"], quem))
+        _marcados = itens_da_janela(variacoes, st.session_state.get)
+        _pecas = sum(n for _v, n in _marcados)
+        st.button(f"✅ DAR SAÍDA · {len(_marcados)} modelo(s), {_pecas} peça(s)" if _marcados
+                  else "✅ DAR SAÍDA — digite a quantidade de cada modelo que está saindo",
+                  key="est_jan_varios", type="primary", use_container_width=True,
+                  disabled=not _marcados, on_click=_saiu_varios,
+                  args=([v["id"] for v in variacoes], quem))
         for k in E.codigos_da_janela(variacoes, codigos):
             c1, c2 = st.columns([3, 2.4])
             c1.markdown(f'**{_esc(k.get("nome"))}**  \n{_esc(receita_txt(k, por_id))}')
             c2.markdown(E.svg_ean13(k["codigo"], modulo=2, altura=44), unsafe_allow_html=True)
-        st.caption("Saindo 2 iguais: clique (ou bipe) 2 vezes.")
+        st.caption("Um modelo só: «SAIU ESTE» (sai o que está em «Quantidade», lá em cima). "
+                   "Vários modelos, ou várias peças de cada: digite a quantidade de cada um e «DAR SAÍDA».")
         st.button("Fechar", key="est_fecha_jan", on_click=_fechar_janela)
 
 
@@ -2776,14 +2833,37 @@ def _trocas(quem):
         _lista_trocas(trocas, por_id, quem)
 
 
+def _ch_trq(pid):
+    return f"est_tr_q_{pid}"
+
+
+def _gravar_troca(itens, obs, quem):
+    """Manda [(produto, peças)] ao fornecedor. Devolve True se gravou."""
+    if not itens:
+        _avisar("Digite a quantidade de pelo menos um modelo antes de enviar.", True)
+        return False
+    _p, movs, _c = E.carregar()
+    regs, mv = [], []
+    for p, n in itens:
+        r, m = E.linhas_de_troca(p, int(n), quem, _quando(), obs, movs + mv)
+        regs += r
+        mv += m
+    E.gravar_trocas(regs)
+    E.gravar_movimentos(mv)
+    _avisar("✓ Troca: " + ", ".join(f"{int(n)}× {E.nome_completo(p)}" for p, n in itens)
+            + " foi para o fornecedor e saiu do estoque.")
+    return True
+
+
 def _ficha_troca(var, saldo, quem):
     ss = st.session_state
     if len(var) > 1:
-        nomes = [str(v.get("variacao") or "").strip() or E.nome_completo(v) for v in var]
-        esc = st.radio("Qual modelo?", nomes, key="est_tr_var", horizontal=True)
-        p = var[nomes.index(esc)] if esc in nomes else var[0]
-    else:
-        p = var[0]
+        # VÁRIOS MODELOS DE UMA VEZ (dono, 26/11: «estou com alguns modelos
+        # dessas variações… a quantidade de cada um para cadastrar como troca
+        # de uma vez só»): a quantidade de cada um, e um ENVIAR só.
+        _ficha_troca_varios(var, saldo, quem)
+        return
+    p = var[0]
     st.markdown(
         f'<div style="display:flex;gap:12px;align-items:center;margin:6px 0">'
         f'{foto_html(E.foto_principal(p), 72)}<div><div style="font-size:11px;font-weight:800;'
@@ -2799,12 +2879,37 @@ def _ficha_troca(var, saldo, quem):
     if not enviar:
         return
     try:
-        _p, movs, _c = E.carregar()
-        regs, mv = E.linhas_de_troca(p, int(q), quem, _quando(), obs, movs)
-        E.gravar_trocas(regs)
-        E.gravar_movimentos(mv)
-        _avisar(f"✓ Troca: {int(q)}× {E.nome_completo(p)} foi para o fornecedor e saiu do estoque.")
-        ss.pop("est_tr_cod", None)
+        if _gravar_troca([(p, int(q))], obs, quem):
+            ss.pop("est_tr_cod", None)
+        st.rerun()
+    except Exception as e:
+        st.error(f"Não gravei a troca — a planilha respondeu: {e}")
+
+
+def _ficha_troca_varios(var, saldo, quem):
+    ss = st.session_state
+    st.markdown(
+        f'<div style="font-size:11px;font-weight:800;letter-spacing:.12em;color:#f0c060">'
+        f'BIPADO · TROCA NO FORNECEDOR · {len(var)} MODELOS</div>'
+        f'<div style="font-size:18px;font-weight:800;margin:2px 0 6px">{_esc(var[0].get("nome"))}</div>',
+        unsafe_allow_html=True)
+    with st.form("est_form_tr_v", clear_on_submit=True):
+        st.caption("Digite quantas peças de cada modelo vão para o fornecedor — vazio não vai.")
+        for v in var:
+            c0, c1, c2 = st.columns([0.6, 3.2, 1.2], vertical_alignment="center")
+            c0.markdown(foto_html(v.get("foto_id") or E.foto_principal(v), 40), unsafe_allow_html=True)
+            c1.markdown(f'**{_esc(str(v.get("variacao") or "").strip() or E.nome_completo(v))}** · '
+                        f'físico {saldo.get((v["id"], E.FISICO), 0)}')
+            c2.number_input("quantas vão", min_value=0, step=1, value=None, key=_ch_trq(v["id"]),
+                            placeholder="qtd", label_visibility="collapsed")
+        obs = st.text_area("Dano e motivo da troca (opcional)", height=80,
+                           placeholder="tampa trincada · veio sem a base · cor errada")
+        enviar = st.form_submit_button("ENVIAR PARA TROCA", type="primary")
+    if not enviar:
+        return
+    try:
+        if _gravar_troca(itens_da_janela(var, ss.get, _ch_trq), obs, quem):
+            ss.pop("est_tr_cod", None)
         st.rerun()
     except Exception as e:
         st.error(f"Não gravei a troca — a planilha respondeu: {e}")
@@ -4796,6 +4901,40 @@ if __name__ == "__main__":
        E.saldos(_sq_db["m"]).get((_sq_p[0]["id"], E.FISICO)) == 114 and _q_depois == 1
        and _sq_av and "5× Carimbeiras" in _sq_av[0][0] and not _sq_av[0][1]
        and multiplicar_itens([(_sq_p[0], 2)], 3) == [(_sq_p[0], 6)])
+    # VÁRIOS MODELOS DE UMA VEZ NA JANELA (dono, 26/11), pela cadeia: o
+    # xadrez com 4 modelos no mesmo código; 2 cavalos, 1 torre, 1 rei e a
+    # rainha vazia → um lote só, e o «excluir» devolve tudo.
+    _jv_p = E.linhas_de_produto("7908045149865", "MXDZ-04", "Xadrez 18cm (P) + Todas as cores?", 4.5,
+                                [("Cavalo Preto", ""), ("Torre Preto", ""), ("Rainha Preto", ""),
+                                 ("Rei Preto", "")], "l", "x")
+    _jv_db = {"m": E.linhas_de_entrada([(v, 10) for v in _jv_p], "l", "x")}
+    _jv_av = []
+    _o_jv = (E.carregar, E.gravar_movimentos, _avisar, st.session_state)
+    try:
+        E.carregar = lambda: (list(_jv_p), list(_jv_db["m"]), [])
+        E.gravar_movimentos = lambda l: _jv_db["m"].extend(l)
+        globals()["_avisar"] = lambda msg, erro=False: _jv_av.append((msg, erro))
+        st.session_state = {"est_sai_qtd": 1, "est_dest": "🛒 Venda", "est_quem": "leo",
+                            "est_janela": "x", _ch_jq(_jv_p[0]["id"]): 2, _ch_jq(_jv_p[1]["id"]): 1,
+                            _ch_jq(_jv_p[2]["id"]): None, _ch_jq(_jv_p[3]["id"]): 1}
+        _saiu_varios([v["id"] for v in _jv_p], "leo")
+        _jv_ss = dict(st.session_state)
+        _saiu_varios([v["id"] for v in _jv_p], "leo")          # nada digitado: não sai nada
+        _jv_sal = E.saldos(_jv_db["m"])
+        _jv_lt = E.ultimos_lotes(_jv_db["m"], (E.VENDA, E.ENVIO_FULL), 5)
+        E.gravar_movimentos(E.linhas_que_desfazem(_jv_lt[0]["lote"], _jv_db["m"], "leo", "x"))
+        _jv_volta = E.saldos(_jv_db["m"])
+    finally:
+        E.carregar, E.gravar_movimentos = _o_jv[:2]
+        globals()["_avisar"] = _o_jv[2]
+        st.session_state = _o_jv[3]
+    ok("janela: vários modelos com quantidade saem num lote só (2+1+1, a vazia fica), a janela fecha, "
+       "e excluir o bipe devolve tudo",
+       [_jv_sal.get((v["id"], E.FISICO)) for v in _jv_p] == [8, 9, 10, 9]
+       and len(_jv_lt) == 1 and "est_janela" not in _jv_ss and _ch_jq(_jv_p[0]["id"]) not in _jv_ss
+       and "2× Xadrez" in _jv_av[0][0] and not _jv_av[0][1] and _jv_av[1][1]
+       and [_jv_volta.get((v["id"], E.FISICO)) for v in _jv_p] == [10, 10, 10, 10]
+       and itens_da_janela(_jv_p, {_ch_jq(_jv_p[0]["id"]): "abc"}.get) == [])
     # SALVAR A QUANTIDADE NO CARTÃO DO BIPE (dono, 25/11), pela cadeia: o
     # bipe de 1 que saiu de verdade; muda para 4 e salva — saem 4, não 5.
     _sp_db = {"m": E.linhas_de_entrada([(_sq_p[0], 120)], "l", "x")}
@@ -4914,6 +5053,29 @@ if __name__ == "__main__":
        and linhas_da_lista_trocas(_db_t["t"], {}) == []
        and [e for _m, e in _av_t] == [False, False, False, True]
        and "Nada foi gravado" in _av_t[3][0] and "Quebra" in _av_t[1][0])
+    # VÁRIOS MODELOS NA TROCA (dono, 26/11), pela cadeia: 2 do Preto e 1 do
+    # Marrom no mesmo envio; o campo vazio não vai.
+    _tv_db = {"t": [], "m": list(_tqm)}
+    _tv_av = []
+    _o_tv = (E.carregar, E.gravar_movimentos, E.gravar_trocas, _avisar)
+    try:
+        E.carregar = lambda: (list(_tq), list(_tv_db["m"]), [])
+        E.gravar_movimentos = lambda l: _tv_db["m"].extend(l)
+        E.gravar_trocas = lambda l: _tv_db["t"].extend(l)
+        globals()["_avisar"] = lambda msg, erro=False: _tv_av.append((msg, erro))
+        _tv_dig = {_ch_trq(_tq[0]["id"]): 2, _ch_trq(_tq[1]["id"]): 1}
+        _tv_ok = _gravar_troca(itens_da_janela(_tq, _tv_dig.get, _ch_trq), "", "leo")
+        _tv_nada = _gravar_troca(itens_da_janela(_tq, {_ch_trq(_tq[0]["id"]): None}.get, _ch_trq), "", "leo")
+    finally:
+        E.carregar, E.gravar_movimentos, E.gravar_trocas = _o_tv[:3]
+        globals()["_avisar"] = _o_tv[3]
+    _tv_s = E.saldos(_tv_db["m"])
+    ok("troca: vários modelos com quantidade vão num envio só (2 Preto + 1 Marrom); nada digitado não grava",
+       _tv_ok and not _tv_nada and _tv_s.get((_tq[0]["id"], E.FISICO)) == 3
+       and _tv_s.get((_tq[1]["id"], E.FISICO)) == 4
+       and sorted(int(t["qtd"]) for t in _tv_db["t"]) == [1, 2]
+       and len(linhas_da_lista_trocas(_tv_db["t"], {})) == 2 and _tv_av[-1][1]
+       and "_ficha_troca_varios(var, saldo, quem)" in _insp.getsource(_ficha_troca))
     _qt = quadro_trocas_html(_db_t["t"])
     ok("Painel: o reembolsado pelo fornecedor e o que ainda está com ele",
        "R$ 120,00" in _qt and "0 peça(s)" in _qt and "Não consegui ler" in quadro_trocas_html(None)
