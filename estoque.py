@@ -996,7 +996,7 @@ def todos_os_codigos(produtos, codigos):
 
 
 def mudanca_de_codigos(variacoes, produtos, codigos, novo_principal="", novo_extra="",
-                       forn_extra="", remover=()):
+                       forn_extra="", remover=(), mais=()):
     """({id: mudança}, {codigo gerado: mudança}, erro) de trocar o código de
     barras principal, incluir um extra e tirar extras. Pura.
 
@@ -1004,7 +1004,12 @@ def mudanca_de_codigos(variacoes, produtos, codigos, novo_principal="", novo_ext
     produto e não consegui trocar só o código»): ele muda em TODAS as
     variações e também nas variações de quantidade que apontam para ele
     (`produto_ean`) — senão a de quantidade fica órfã. O código novo não
-    pode ser de outro produto nem de um kit/quantidade."""
+    pode ser de outro produto nem de um kit/quantidade.
+
+    VÁRIOS DE UMA VEZ (dono, 26/11: «quantos códigos de barras eu quiser
+    para o mesmo produto» — uma cor, um código, um cadastro só): `mais` são
+    os outros pares (código, código do fornecedor) do «➕ Incluir mais um
+    EAN», somados ao primeiro (`novo_extra`, `forn_extra`)."""
     p0 = variacoes[0]
     meus_ids = {v["id"] for v in variacoes}
     velho = limpar_codigo(p0.get("ean"))
@@ -1012,13 +1017,14 @@ def mudanca_de_codigos(variacoes, produtos, codigos, novo_principal="", novo_ext
     principal = limpar_codigo(novo_principal) or velho
     tirar = {limpar_codigo(c) for c in remover}
     extras = [x for x in extras if x["ean"] not in tirar and x["ean"] != principal]
-    novo = limpar_codigo(novo_extra)
-    if novo:
-        if novo == principal or any(x["ean"] == novo for x in extras):
-            return {}, {}, f"o código {novo} já é deste produto."
-        extras.append({"ean": novo, "forn": str(forn_extra or "").strip()})
-    elif str(forn_extra or "").strip():
-        return {}, {}, "escreva o código de barras do outro fornecedor."
+    for bruto, forn in [(novo_extra, forn_extra), *mais]:
+        novo = limpar_codigo(bruto)
+        if novo:
+            if novo == principal or any(x["ean"] == novo for x in extras):
+                return {}, {}, f"o código {novo} já é deste produto."
+            extras.append({"ean": novo, "forn": str(forn or "").strip()})
+        elif str(forn or "").strip():
+            return {}, {}, "escreva o código de barras do outro fornecedor."
     for c in {principal} | {x["ean"] for x in extras}:
         if c in (velho, *[x["ean"] for x in extras_do_produto(p0)]):
             continue                          # já era deste produto
@@ -1755,6 +1761,17 @@ if __name__ == "__main__":
        and not _e4 and _m4[_cp[0]["id"]] == {"ean": "7908045199999", "eans_extras": ""}
        and mudanca_de_codigos(_cp, _todos_c, _cq) == ({}, {}, "")
        and extras_do_produto({"eans_extras": "lixo"}) == [])
+    # VÁRIOS DE UMA VEZ (dono, 26/11): uma cor, um código, todos no mesmo cadastro.
+    _m5, _q5, _e5 = mudanca_de_codigos(_cp, _todos_c, _cq, novo_extra="7908045108466",
+                                       mais=[("7908045108459", ""), (" 7908045108442 ", "AP22855-C"), ("", "")])
+    _cp5 = [{**v, **_m5[v["id"]]} for v in _cp] if _m5 else _cp
+    ok("vários códigos extras no mesmo salvar: todos gravam, e bipar QUALQUER um acha o produto",
+       not _e5 and [x["ean"] for x in extras_do_produto(_cp5[0])]
+       == ["7908045108466", "7908045108459", "7908045108442"]
+       and all(len(do_codigo(_cp5 + _co, c)) == 2 for c in ("7908045108466", "7908045108459", "7908045108442")))
+    ok("vários de uma vez: o mesmo código repetido na lista é recusado, e nada muda",
+       mudanca_de_codigos(_cp, _todos_c, _cq, novo_extra="7908045108466",
+                          mais=[("7908045108466", "")]) == ({}, {}, "o código 7908045108466 já é deste produto."))
     ent = linhas_de_entrada([(prods[0], 6), (prods[1], 0), (prods[2], 6)], "leo", "11/11/2026 14:03")
     ok("linhas_de_entrada: quantidade zero não grava, o lote é um só",
        len(ent) == 2 and len({e["lote"] for e in ent}) == 1 and ent[0]["qtd"] == "6")
