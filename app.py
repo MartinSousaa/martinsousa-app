@@ -2075,6 +2075,9 @@ def _render_abas_operacao(usuario_logado):
             if _md_nav.aparece_para(usuario_logado) else {})
     _navegar({
         **_meu,
+        # CONSULTA ANTES DE ESPELHAR (dono, 26/11): o anúncio fez parte da
+        # exclusão em massa? Nas DUAS barras, antes da Viabilidade.
+        "🔎 Consulta de anúncio":  lambda: _abrir('consulta_anuncio', 'pagina', usuario_logado),
         "Análise de Viabilidade": _render_viabilidade_tab,
         "Triagem":                lambda: _abrir('triagem', 'pagina_triagem', usuario_logado),
         "Palavras-chave":         lambda: _abrir('palavras_chave', 'pagina_palavras_chave', usuario_logado),
@@ -2312,6 +2315,9 @@ else:
         # puxa a meta dela para baixo e o ponto pendente. Primeira da barra,
         # e por isso a que abre.
         "🏠 Meu desempenho":       lambda: _abrir('meu_desempenho', 'pagina', usuario_logado),
+        # CONSULTA ANTES DE ESPELHAR (dono, 26/11): o anúncio fez parte da
+        # exclusão em massa? Nas DUAS barras, antes da Viabilidade.
+        "🔎 Consulta de anúncio":  lambda: _abrir('consulta_anuncio', 'pagina', usuario_logado),
         "Análise de Viabilidade": _render_viabilidade_tab,
         "Triagem":                lambda: _abrir('triagem', 'pagina_triagem', usuario_logado),
         "Palavras-chave":         lambda: _abrir('palavras_chave', 'pagina_palavras_chave', usuario_logado),
