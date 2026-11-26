@@ -366,20 +366,30 @@ def mapa_da_aba(linhas):
     return fora
 
 
+def bytes_da_analise():
+    """(bytes, erro) do .xlsx da Análise de Anúncios, pelo link do Railway.
+    UM leitor do link: os nomes das promoções e a Consulta de anúncio
+    (`consulta_anuncio.py`) passam por aqui."""
+    import chaves as _chv
+    link = str(_chv.ler(CHAVE_ANALISE) or "").strip()
+    if not link:
+        return None, f"falta a variável {CHAVE_ANALISE} no Railway (o link da planilha)"
+    import excel_ms
+    dados, erro = excel_ms.baixar(link)
+    if erro:
+        return None, f"a planilha da Análise não abriu: {erro}"
+    return dados, ""
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def nomes_da_analise():
     """({código: título}, erro) da planilha da Análise de Anúncios. Baixada
     no máximo uma vez por hora, e só quando falta nome."""
-    import chaves as _chv
-    link = str(_chv.ler(CHAVE_ANALISE) or "").strip()
-    if not link:
-        return {}, f"falta a variável {CHAVE_ANALISE} no Railway (o link da planilha)"
     try:
-        import excel_ms
         import planilha_xlsx
-        dados, erro = excel_ms.baixar(link)
+        dados, erro = bytes_da_analise()
         if erro:
-            return {}, f"a planilha da Análise não abriu: {erro}"
+            return {}, erro
         wb = planilha_xlsx.abrir(dados)
         try:
             abas = {_cab_analise(n): n for n in wb.sheetnames}
@@ -1140,6 +1150,22 @@ if __name__ == "__main__":
     completar_pela_analise(_ld3, lambda: ({}, "falta a variável ANALISE_ANUNCIOS_URL no Railway"))
     ok("completar_pela_analise: sem o link, o aviso diz o que falta",
        "ANALISE_ANUNCIOS_URL" in _ld3["ml1"]["avisos"][0])
+
+    # bytes_da_analise: UM leitor do link (promoções e Consulta de anúncio).
+    import chaves as _chv_t
+    import excel_ms as _ems_t
+    _g_bx = (_chv_t.ler, _ems_t.baixar)
+    try:
+        _chv_t.ler = lambda n: ""
+        ok("bytes_da_analise: sem o link, diz a variável que falta",
+           bytes_da_analise() == (None, "falta a variável ANALISE_ANUNCIOS_URL no Railway (o link da planilha)"))
+        _chv_t.ler = lambda n: "https://link" if n == CHAVE_ANALISE else ""
+        _ems_t.baixar = lambda link: (b"PK-bytes", "") if link == "https://link" else (None, "x")
+        ok("bytes_da_analise: com o link, devolve os bytes da Graph", bytes_da_analise() == (b"PK-bytes", ""))
+        _ems_t.baixar = lambda link: (None, "403")
+        ok("bytes_da_analise: Graph recusou, o erro chega", bytes_da_analise()[1].endswith("403"))
+    finally:
+        _chv_t.ler, _ems_t.baixar = _g_bx
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

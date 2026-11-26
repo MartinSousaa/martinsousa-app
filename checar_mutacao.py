@@ -3671,6 +3671,13 @@ MUTACOES = [
         ["python3", "excluir_anuncios_ml.py"],
     ),
     (
+        "a consulta de anuncio volta a liberar quando a lista nao veio (26/11)",
+        "consulta_anuncio.py",
+        "    if erro or not lista:\n",
+        "    if False:\n",
+        ["python3", "consulta_anuncio.py"],
+    ),
+    (
         "a exclusao volta a tirar anuncio de outra conta (19/11)",
         "excluir_anuncios_ml.py",
         '        if uid and str(b.get("seller_id")) != str(uid):\n',
